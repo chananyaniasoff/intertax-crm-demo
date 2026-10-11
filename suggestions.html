@@ -210,6 +210,8 @@
           if (!response.ok) throw new Error(String(response.status));
           const items = [];
           const seen = new Set();
+          const deleted = new Set();
+          const messages = [];
           for (const line of (await response.text()).split("\n")) {
             const trimmed = line.trim();
             if (!trimmed) continue;
@@ -219,7 +221,16 @@
             } catch (error) {
               continue;
             }
-            if (!event || event.event !== "message" || typeof event.message !== "string") continue;
+            if (!event) continue;
+            if (event.event === "message_delete" && typeof event.sequence_id === "string") {
+              deleted.add(event.sequence_id);
+              continue;
+            }
+            if (event.event !== "message" || typeof event.message !== "string") continue;
+            messages.push(event);
+          }
+          for (const event of messages) {
+            if (deleted.has(event.id)) continue;
             let payload;
             try {
               payload = JSON.parse(event.message);
