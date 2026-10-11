@@ -52,6 +52,23 @@
         padding: 8px 14px;
         cursor: pointer;
       }
+      button.delete {
+        background: #fff;
+        color: #b42318;
+        border: 1px solid #e4b4b0;
+        padding: 4px 12px;
+        font-size: 13px;
+      }
+      button.delete:hover {
+        background: #fdecea;
+      }
+      button.delete:disabled {
+        opacity: 0.65;
+        cursor: wait;
+      }
+      .actions {
+        margin-top: 8px;
+      }
       ol {
         list-style: none;
         margin: 0;
@@ -105,8 +122,8 @@
     <main>
       <h1>הצעות לדמו</h1>
       <p class="lead">
-        זו רשימת ההצעות המשותפת מהדמו. השכבה זמנית: אפשר לקרוא כאן מה שהשאירו בדף, ואי אפשר
-        לערוך מכאן את המערכת או למחוק הצעות.
+        זו רשימת ההצעות המשותפת מהדמו. השכבה זמנית: אפשר לקרוא כאן מה שהשאירו בדף ולמחוק
+        הצעה. אי אפשר לערוך מכאן את המערכת.
       </p>
       <p>
         <a href="./">חזרה לדמו</a>
@@ -122,6 +139,9 @@
 
       const list = document.getElementById("list");
       const status = document.getElementById("status");
+      const hiddenIds = new Set();
+      let latest = [];
+      let deleting = false;
 
       function clip(value) {
         return String(value || "")
@@ -160,16 +180,21 @@
         };
       }
 
+      function visibleItems(items) {
+        return items.filter((item) => !hiddenIds.has(item.id) && !hiddenIds.has(item.id.trim()));
+      }
+
       function render(items) {
+        const live = visibleItems(items);
         list.replaceChildren();
-        if (items.length === 0) {
+        if (live.length === 0) {
           const empty = document.createElement("p");
           empty.textContent = "אין עדיין הצעות.";
           list.appendChild(empty);
           return;
         }
-        for (let index = 0; index < items.length; index += 1) {
-          const item = items[index];
+        for (let index = 0; index < live.length; index += 1) {
+          const item = live[index];
           const card = document.createElement("article");
           const head = document.createElement("div");
           head.className = "head";
@@ -195,60 +220,153 @@
             "% לרוחב, " +
             Math.round(item.yPct) +
             "% לגובה";
-          card.append(head, text, meta);
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "delete";
+          remove.textContent = deleting ? "מוחק…" : "מחיקה";
+          remove.disabled = deleting;
+          remove.addEventListener("click", () => {
+            void removeSuggestion(item.id);
+          });
+          actions.appendChild(remove);
+          card.append(head, text, meta, actions);
           const li = document.createElement("li");
           li.appendChild(card);
           list.appendChild(li);
         }
       }
 
-      async function load() {
+      function showStatus(items) {
+        const live = visibleItems(items);
+        const noun = live.length === 1 ? "הצעה" : "הצעות";
         status.className = "status";
-        status.textContent = "טוען הצעות…";
+        status.textContent = "מציג " + live.length + " " + noun + ". הרשימה משותפת עם הדמו.";
+      }
+
+      function parseTopic(text) {
+        const ntfyDeleted = new Set();
+        const tombstones = new Set();
+        const messages = [];
+        for (const line of text.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event;
+          try {
+            event = JSON.parse(trimmed);
+          } catch (error) {
+            continue;
+          }
+          if (!event) continue;
+          if (event.event === "message_delete" && typeof event.sequence_id === "string") {
+            ntfyDeleted.add(event.sequence_id);
+            continue;
+          }
+          if (event.event !== "message" || typeof event.message !== "string") continue;
+          messages.push(event);
+        }
+        const items = [];
+        const seen = new Set();
+        for (const event of messages) {
+          if (ntfyDeleted.has(event.id)) continue;
+          let payload;
+          try {
+            payload = JSON.parse(event.message);
+          } catch (error) {
+            continue;
+          }
+          if (
+            payload &&
+            payload.deleted === true &&
+            typeof payload.id === "string" &&
+            payload.id.trim()
+          ) {
+            tombstones.add(payload.id);
+            tombstones.add(payload.id.trim());
+            continue;
+          }
+          const item = normalize(payload);
+          if (!item || seen.has(item.id)) continue;
+          seen.add(item.id);
+          items.push(item);
+        }
+        const live = items.filter((item) => !tombstones.has(item.id) && !tombstones.has(item.id.trim()));
+        live.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+        return live;
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => {
+          window.setTimeout(resolve, ms);
+        });
+      }
+
+      async function readTopic() {
+        const response = await fetch(TOPIC_URL + "/json?poll=1&since=all", { cache: "no-store" });
+        if (!response.ok) throw new Error(String(response.status));
+        return parseTopic(await response.text());
+      }
+
+      async function load() {
+        if (!deleting) {
+          status.className = "status";
+          status.textContent = "טוען הצעות…";
+        }
         try {
-          const response = await fetch(TOPIC_URL + "/json?poll=1&since=all", { cache: "no-store" });
-          if (!response.ok) throw new Error(String(response.status));
-          const items = [];
-          const seen = new Set();
-          const deleted = new Set();
-          const messages = [];
-          for (const line of (await response.text()).split("\n")) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            let event;
-            try {
-              event = JSON.parse(trimmed);
-            } catch (error) {
-              continue;
-            }
-            if (!event) continue;
-            if (event.event === "message_delete" && typeof event.sequence_id === "string") {
-              deleted.add(event.sequence_id);
-              continue;
-            }
-            if (event.event !== "message" || typeof event.message !== "string") continue;
-            messages.push(event);
-          }
-          for (const event of messages) {
-            if (deleted.has(event.id)) continue;
-            let payload;
-            try {
-              payload = JSON.parse(event.message);
-            } catch (error) {
-              continue;
-            }
-            const item = normalize(payload);
-            if (!item || seen.has(item.id)) continue;
-            seen.add(item.id);
-            items.push(item);
-          }
-          items.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-          render(items);
-          const noun = items.length === 1 ? "הצעה" : "הצעות";
-          status.textContent = "מציג " + items.length + " " + noun + ". הרשימה משותפת עם הדמו.";
+          latest = await readTopic();
+          render(latest);
+          if (!deleting) showStatus(latest);
         } catch (error) {
+          if (!deleting) {
+            status.className = "status error";
+            status.textContent = "לא הצלחנו לטעון את ההצעות. נסו שוב.";
+          }
+        }
+      }
+
+      async function removeSuggestion(id) {
+        if (deleting) return;
+        if (!window.confirm("למחוק את ההצעה?")) return;
+        deleting = true;
+        hiddenIds.add(id);
+        render(latest);
+        status.className = "status";
+        status.textContent = "מוחק…";
+        let removed = false;
+        let lastError = null;
+        try {
+          for (let attempt = 0; attempt < 5 && !removed; attempt += 1) {
+            try {
+              const response = await fetch(TOPIC_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain; charset=UTF-8" },
+                body: JSON.stringify({ id: id, deleted: true }),
+              });
+              if (!response.ok) throw new Error(String(response.status));
+              await sleep(1500);
+              latest = await readTopic();
+              if (!latest.some((item) => item.id === id)) {
+                removed = true;
+                break;
+              }
+              lastError = new Error("still present");
+            } catch (error) {
+              lastError = error;
+            }
+            await sleep(500 * (attempt + 1));
+          }
+          if (!removed) throw lastError || new Error("delete failed");
+          render(latest);
+          showStatus(latest);
+        } catch (error) {
+          hiddenIds.delete(id);
+          render(latest);
           status.className = "status error";
-          status.textContent = "לא הצלחנו לטעון את ההצעות. נסו שוב.";
+          status.textContent = "לא הצלחנו למחוק את ההצעה. נסו שוב.";
+        } finally {
+          deleting = false;
+          render(latest);
         }
       }
 
