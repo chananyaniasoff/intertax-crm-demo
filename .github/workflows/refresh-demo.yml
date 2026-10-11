@@ -1,0 +1,65 @@
+# Rebuilds the GitHub Pages site from committed demo-web source.
+# Canvas edits that exist only on a local PC are not included until those
+# canvas files are pushed into demo-web/canvases/ on this repo.
+name: Refresh public demo
+
+on:
+  schedule:
+    # 00:00 UTC. Israel daylight time (IDT) is UTC+3, so this is 03:00 IDT.
+    # After the autumn clock change Israel is UTC+2 (IST), so the same cron
+    # is 02:00 local time until the spring change.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-public-demo
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: demo-web/package-lock.json
+
+      - name: Install
+        working-directory: demo-web
+        run: npm ci
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Build
+        working-directory: demo-web
+        run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Copy site to repository root
+        run: |
+          set -euo pipefail
+          rm -rf assets
+          rm -f index.html portal.html suggestions.html
+          cp -a demo-web/dist/. .
+
+      - name: Commit built site
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No site changes to commit."
+            exit 0
+          fi
+          git commit -m "Refresh the public CRM demo with the latest sample."
+          git push

@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>הצעות לדמו של מערכת ה-CRM</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", "Arial Hebrew", "Noto Sans Hebrew", sans-serif;
+        background: #f4f1ea;
+        color: #1c1915;
+      }
+      body {
+        margin: 0;
+        background: #f4f1ea;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 28px 18px 48px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+      .lead,
+      .meta,
+      .status {
+        color: #6f675d;
+      }
+      .status.error {
+        color: #b42318;
+      }
+      a {
+        color: #1d4e89;
+        font-weight: 700;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin: 16px 0;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        background: #1d4e89;
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+      button.delete {
+        background: #fff;
+        color: #b42318;
+        border: 1px solid #e4b4b0;
+        padding: 4px 12px;
+        font-size: 13px;
+      }
+      button.delete:hover {
+        background: #fdecea;
+      }
+      button.delete:disabled,
+      button.mark:disabled {
+        opacity: 0.65;
+        cursor: wait;
+      }
+      button.mark {
+        background: #fff;
+        color: #1d4e89;
+        border: 1px solid #c5d4e6;
+        padding: 4px 12px;
+        font-size: 13px;
+      }
+      button.mark:hover {
+        background: #eef3f8;
+      }
+      button.mini,
+      button.line,
+      button.head {
+        background: transparent;
+        color: inherit;
+        font-weight: 400;
+        box-shadow: none;
+      }
+      button.mini {
+        color: #1d4e89;
+        padding: 2px 6px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      button.line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1 1 auto;
+        min-width: 0;
+        padding: 0;
+        border-radius: 8px;
+        text-align: right;
+      }
+      button.head {
+        width: 100%;
+        padding: 0;
+        border-radius: 0;
+        text-align: right;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-top: 8px;
+      }
+      ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      article {
+        background: #fffcf8;
+        border: 1px solid #d9d1c5;
+        border-radius: 14px;
+        padding: 12px 14px;
+        min-width: 0;
+      }
+      article.done {
+        background: #f3f1ec;
+      }
+      article.collapsed {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+      }
+      .head {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .num {
+        display: inline-grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: #b42318;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .author {
+        font-weight: 700;
+      }
+      .line .author {
+        flex: 0 1 auto;
+        max-width: 9rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .line .num,
+      button.mini,
+      article.collapsed button.delete {
+        flex: 0 0 auto;
+      }
+      .excerpt {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        margin: 0;
+        color: #6f675d;
+      }
+      time {
+        margin-inline-start: auto;
+        color: #6f675d;
+        font-size: 12px;
+      }
+      p {
+        margin: 0 0 6px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      TEMPORARY review-only inbox. Not part of the CRM.
+      KEEP THE TOPIC URL IN SYNC with demo-web/src/temp-suggestions/store.ts.
+      A done mark POSTs {"id","done":true}. The latest done flag wins.
+      A delete tombstone still wins over done. Writes never replace the list.
+    -->
+    <main>
+      <h1>הצעות לדמו</h1>
+      <p class="lead">
+        זו רשימת ההצעות המשותפת מהדמו. השכבה זמנית: אפשר לקרוא כאן מה שהשאירו בדף, לסמן
+        הצעה כבוצעה, ולמחוק הצעה. אי אפשר לערוך מכאן את המערכת.
+      </p>
+      <p>
+        <a href="./">חזרה לדמו</a>
+      </p>
+      <div class="toolbar">
+        <button type="button" id="refresh">רענון</button>
+        <span class="status" id="status">טוען הצעות…</span>
+      </div>
+      <ol id="list"></ol>
+    </main>
+    <script>
+      const TOPIC_URL = "https://ntfy.sh/intertax-crm-demo-sug-7f3a9c2e4b81";
+
+      const list = document.getElementById("list");
+      const status = document.getElementById("status");
+      const hiddenIds = new Set();
+      const pendingDone = new Set();
+      const expandedIds = new Set();
+      let serverDone = new Set();
+      let latest = [];
+      let busyId = null;
+      let busyKind = "";
+
+      function clip(value) {
+        return String(value || "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      function formatTime(iso) {
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return iso || "";
+        return new Intl.DateTimeFormat("he-IL", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      }
+
+      function normalize(value) {
+        if (!value || typeof value !== "object") return null;
+        if (typeof value.id !== "string" || typeof value.text !== "string" || !value.text.trim()) {
+          return null;
+        }
+        const xPct = Number(value.xPct);
+        const yPct = Number(value.yPct);
+        if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) return null;
+        return {
+          id: value.id,
+          createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
+          author: clip(value.author) || "אנונימי",
+          text: clip(value.text),
+          xPct: xPct,
+          yPct: yPct,
+          anchor: clip(value.anchor).slice(0, 80),
+        };
+      }
+
+      function visibleItems(items) {
+        return items.filter((item) => !hiddenIds.has(item.id) && !hiddenIds.has(item.id.trim()));
+      }
+
+      function isDone(id) {
+        return (
+          pendingDone.has(id) ||
+          pendingDone.has(id.trim()) ||
+          serverDone.has(id) ||
+          serverDone.has(id.trim())
+        );
+      }
+
+      function makeDelete(id) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "delete";
+        remove.textContent = busyId === id && busyKind === "delete" ? "מוחק…" : "מחיקה";
+        remove.disabled = busyId !== null;
+        remove.addEventListener("click", () => {
+          void removeSuggestion(id);
+        });
+        return remove;
+      }
+
+      function render(items) {
+        const live = visibleItems(items);
+        list.replaceChildren();
+        if (live.length === 0) {
+          const empty = document.createElement("p");
+          empty.textContent = "אין עדיין הצעות.";
+          list.appendChild(empty);
+          return;
+        }
+        for (let index = 0; index < live.length; index += 1) {
+          const item = live[index];
+          const done = isDone(item.id);
+          const open = !done || expandedIds.has(item.id);
+          const card = document.createElement("article");
+          const li = document.createElement("li");
+          if (done && !open) {
+            card.className = "done collapsed";
+            const line = document.createElement("button");
+            line.type = "button";
+            line.className = "line";
+            line.title = item.text;
+            line.setAttribute("aria-expanded", "false");
+            line.addEventListener("click", () => {
+              expandedIds.add(item.id);
+              render(latest);
+            });
+            const num = document.createElement("span");
+            num.className = "num";
+            num.textContent = String(index + 1);
+            const author = document.createElement("span");
+            author.className = "author";
+            author.textContent = item.author;
+            const excerpt = document.createElement("span");
+            excerpt.className = "excerpt";
+            excerpt.textContent = item.text;
+            line.append(num, author, excerpt);
+            const expand = document.createElement("button");
+            expand.type = "button";
+            expand.className = "mini";
+            expand.textContent = "הרחבה";
+            expand.addEventListener("click", () => {
+              expandedIds.add(item.id);
+              render(latest);
+            });
+            card.append(line, expand, makeDelete(item.id));
+            li.appendChild(card);
+            list.appendChild(li);
+            continue;
+          }
+          if (done) card.className = "done";
+          const head = document.createElement(done ? "button" : "div");
+          head.className = "head";
+          if (done) {
+            head.type = "button";
+            head.setAttribute("aria-expanded", "true");
+            head.addEventListener("click", () => {
+              expandedIds.delete(item.id);
+              render(latest);
+            });
+          }
+          const num = document.createElement("span");
+          num.className = "num";
+          num.textContent = String(index + 1);
+          const author = document.createElement("span");
+          author.className = "author";
+          author.textContent = item.author;
+          const time = document.createElement("time");
+          time.dateTime = item.createdAt;
+          time.textContent = formatTime(item.createdAt);
+          head.append(num, author, time);
+          const text = document.createElement("p");
+          text.textContent = item.text;
+          const meta = document.createElement("p");
+          meta.className = "meta";
+          const where = item.anchor ? "ליד: " + item.anchor : "בלי טקסט קרוב";
+          meta.textContent =
+            where +
+            " · " +
+            Math.round(item.xPct) +
+            "% לרוחב, " +
+            Math.round(item.yPct) +
+            "% לגובה";
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          if (done) {
+            const collapse = document.createElement("button");
+            collapse.type = "button";
+            collapse.className = "mini";
+            collapse.textContent = "צמצום";
+            collapse.addEventListener("click", () => {
+              expandedIds.delete(item.id);
+              render(latest);
+            });
+            actions.appendChild(collapse);
+          } else {
+            const mark = document.createElement("button");
+            mark.type = "button";
+            mark.className = "mark";
+            mark.textContent = busyId === item.id && busyKind === "done" ? "מסמן…" : "בוצע";
+            mark.disabled = busyId !== null;
+            mark.addEventListener("click", () => {
+              void markDone(item.id);
+            });
+            actions.appendChild(mark);
+          }
+          actions.appendChild(makeDelete(item.id));
+          card.append(head, text, meta, actions);
+          li.appendChild(card);
+          list.appendChild(li);
+        }
+      }
+
+      function showStatus(items) {
+        const live = visibleItems(items);
+        const noun = live.length === 1 ? "הצעה" : "הצעות";
+        status.className = "status";
+        status.textContent = "מציג " + live.length + " " + noun + ". הרשימה משותפת עם הדמו.";
+      }
+
+      function parseTopic(text) {
+        const ntfyDeleted = new Set();
+        const tombstones = new Set();
+        const doneFlags = new Map();
+        const messages = [];
+        for (const line of text.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event;
+          try {
+            event = JSON.parse(trimmed);
+          } catch (error) {
+            continue;
+          }
+          if (!event) continue;
+          if (event.event === "message_delete" && typeof event.sequence_id === "string") {
+            ntfyDeleted.add(event.sequence_id);
+            continue;
+          }
+          if (event.event !== "message" || typeof event.message !== "string") continue;
+          messages.push({
+            id: event.id,
+            message: event.message,
+            time: typeof event.time === "number" ? event.time : 0,
+            index: messages.length,
+          });
+        }
+        messages.sort((a, b) => a.time - b.time || a.index - b.index);
+        const byId = new Map();
+        for (const event of messages) {
+          if (ntfyDeleted.has(event.id)) continue;
+          let payload;
+          try {
+            payload = JSON.parse(event.message);
+          } catch (error) {
+            continue;
+          }
+          if (
+            payload &&
+            payload.deleted === true &&
+            typeof payload.id === "string" &&
+            payload.id.trim()
+          ) {
+            tombstones.add(payload.id);
+            tombstones.add(payload.id.trim());
+            continue;
+          }
+          if (
+            payload &&
+            typeof payload.done === "boolean" &&
+            typeof payload.id === "string" &&
+            payload.id.trim()
+          ) {
+            doneFlags.set(payload.id, payload.done);
+            doneFlags.set(payload.id.trim(), payload.done);
+          }
+          const item = normalize(payload);
+          if (item) byId.set(item.id, item);
+        }
+        const live = [...byId.values()].filter(
+          (item) => !tombstones.has(item.id) && !tombstones.has(item.id.trim()),
+        );
+        live.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+        const doneIds = new Set();
+        for (const [id, marked] of doneFlags) {
+          if (!marked) continue;
+          if (tombstones.has(id) || tombstones.has(id.trim())) continue;
+          doneIds.add(id);
+        }
+        return { items: live, doneIds: doneIds };
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => {
+          window.setTimeout(resolve, ms);
+        });
+      }
+
+      async function readTopic() {
+        const response = await fetch(TOPIC_URL + "/json?poll=1&since=all", { cache: "no-store" });
+        if (!response.ok) throw new Error(String(response.status));
+        return parseTopic(await response.text());
+      }
+
+      function rememberParsed(parsed) {
+        latest = parsed.items;
+        serverDone = parsed.doneIds;
+      }
+
+      async function load() {
+        if (!busyId) {
+          status.className = "status";
+          status.textContent = "טוען הצעות…";
+        }
+        try {
+          rememberParsed(await readTopic());
+          render(latest);
+          if (!busyId) showStatus(latest);
+        } catch (error) {
+          if (!busyId) {
+            status.className = "status error";
+            status.textContent = "לא הצלחנו לטעון את ההצעות. נסו שוב.";
+          }
+        }
+      }
+
+      async function removeSuggestion(id) {
+        if (busyId) return;
+        if (!window.confirm("למחוק את ההצעה?")) return;
+        busyId = id;
+        busyKind = "delete";
+        hiddenIds.add(id);
+        pendingDone.delete(id);
+        pendingDone.delete(id.trim());
+        expandedIds.delete(id);
+        render(latest);
+        status.className = "status";
+        status.textContent = "מוחק…";
+        let removed = false;
+        let lastError = null;
+        try {
+          for (let attempt = 0; attempt < 5 && !removed; attempt += 1) {
+            try {
+              const response = await fetch(TOPIC_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain; charset=UTF-8" },
+                body: JSON.stringify({ id: id, deleted: true }),
+              });
+              if (!response.ok) throw new Error(String(response.status));
+              await sleep(1500);
+              rememberParsed(await readTopic());
+              if (!latest.some((item) => item.id === id)) {
+                removed = true;
+                break;
+              }
+              lastError = new Error("still present");
+            } catch (error) {
+              lastError = error;
+            }
+            await sleep(500 * (attempt + 1));
+          }
+          if (!removed) throw lastError || new Error("delete failed");
+          render(latest);
+          showStatus(latest);
+        } catch (error) {
+          hiddenIds.delete(id);
+          render(latest);
+          status.className = "status error";
+          status.textContent = "לא הצלחנו למחוק את ההצעה. נסו שוב.";
+        } finally {
+          busyId = null;
+          busyKind = "";
+          render(latest);
+        }
+      }
+
+      async function markDone(id) {
+        if (busyId) return;
+        if (serverDone.has(id) || serverDone.has(id.trim())) return;
+        busyId = id;
+        busyKind = "done";
+        pendingDone.add(id);
+        expandedIds.delete(id);
+        render(latest);
+        status.className = "status";
+        status.textContent = "מסמן…";
+        let marked = false;
+        let lastError = null;
+        try {
+          for (let attempt = 0; attempt < 5 && !marked; attempt += 1) {
+            try {
+              const response = await fetch(TOPIC_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain; charset=UTF-8" },
+                body: JSON.stringify({ id: id, done: true }),
+              });
+              if (!response.ok) throw new Error(String(response.status));
+              await sleep(1500);
+              rememberParsed(await readTopic());
+              const gone = !latest.some((item) => item.id === id);
+              if (gone || serverDone.has(id) || serverDone.has(id.trim())) {
+                marked = true;
+                break;
+              }
+              lastError = new Error("not done");
+            } catch (error) {
+              lastError = error;
+            }
+            await sleep(500 * (attempt + 1));
+          }
+          if (!marked) throw lastError || new Error("done failed");
+          render(latest);
+          showStatus(latest);
+        } catch (error) {
+          pendingDone.delete(id);
+          pendingDone.delete(id.trim());
+          render(latest);
+          status.className = "status error";
+          status.textContent = "לא הצלחנו לסמן את ההצעה כבוצעה. נסו שוב.";
+        } finally {
+          busyId = null;
+          busyKind = "";
+          render(latest);
+        }
+      }
+
+      document.getElementById("refresh").addEventListener("click", () => {
+        void load();
+      });
+      void load();
+      window.setInterval(() => void load(), 30000);
+    </script>
+  </body>
+</html>
