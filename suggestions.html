@@ -100,7 +100,7 @@
   <body>
     <!--
       TEMPORARY review-only inbox. Not part of the CRM.
-      KEEP THE COLLECTION URL IN SYNC with demo-web/src/temp-suggestions/store.ts.
+      KEEP THE TOPIC URL IN SYNC with demo-web/src/temp-suggestions/store.ts.
     -->
     <main>
       <h1>הצעות לדמו</h1>
@@ -118,8 +118,7 @@
       <ol id="list"></ol>
     </main>
     <script>
-      const COLLECTION_URL =
-        "https://crudcrud.com/api/0edfb8c65f47479e80451a534d834764/suggestions";
+      const TOPIC_URL = "https://ntfy.sh/intertax-crm-demo-sug-7f3a9c2e4b81";
 
       const list = document.getElementById("list");
       const status = document.getElementById("status");
@@ -207,11 +206,31 @@
         status.className = "status";
         status.textContent = "טוען הצעות…";
         try {
-          const response = await fetch(COLLECTION_URL, { cache: "no-store" });
+          const response = await fetch(TOPIC_URL + "/json?poll=1&since=all", { cache: "no-store" });
           if (!response.ok) throw new Error(String(response.status));
-          const payload = await response.json();
-          if (!Array.isArray(payload)) throw new Error("bad payload");
-          const items = payload.map(normalize).filter(Boolean);
+          const items = [];
+          const seen = new Set();
+          for (const line of (await response.text()).split("\n")) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            let event;
+            try {
+              event = JSON.parse(trimmed);
+            } catch (error) {
+              continue;
+            }
+            if (!event || event.event !== "message" || typeof event.message !== "string") continue;
+            let payload;
+            try {
+              payload = JSON.parse(event.message);
+            } catch (error) {
+              continue;
+            }
+            const item = normalize(payload);
+            if (!item || seen.has(item.id)) continue;
+            seen.add(item.id);
+            items.push(item);
+          }
           items.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
           render(items);
           const noun = items.length === 1 ? "הצעה" : "הצעות";
@@ -226,7 +245,7 @@
         void load();
       });
       void load();
-      window.setInterval(() => void load(), 15000);
+      window.setInterval(() => void load(), 30000);
     </script>
   </body>
 </html>
