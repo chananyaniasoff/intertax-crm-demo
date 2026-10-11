@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>הצעות לדמו של מערכת ה-CRM</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", "Arial Hebrew", "Noto Sans Hebrew", sans-serif;
+        background: #f4f1ea;
+        color: #1c1915;
+      }
+      body {
+        margin: 0;
+        background: #f4f1ea;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 28px 18px 48px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+      .lead,
+      .meta,
+      .status {
+        color: #6f675d;
+      }
+      .status.error {
+        color: #b42318;
+      }
+      a {
+        color: #1d4e89;
+        font-weight: 700;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin: 16px 0;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        background: #1d4e89;
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+      ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      article {
+        background: #fffcf8;
+        border: 1px solid #d9d1c5;
+        border-radius: 14px;
+        padding: 12px 14px;
+      }
+      .head {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .num {
+        display: inline-grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background: #b42318;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .author {
+        font-weight: 700;
+      }
+      time {
+        margin-inline-start: auto;
+        color: #6f675d;
+        font-size: 12px;
+      }
+      p {
+        margin: 0 0 6px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      TEMPORARY review-only inbox. Not part of the CRM.
+      KEEP THE COLLECTION URL IN SYNC with demo-web/src/temp-suggestions/store.ts.
+    -->
+    <main>
+      <h1>הצעות לדמו</h1>
+      <p class="lead">
+        זו רשימת ההצעות המשותפת מהדמו. השכבה זמנית: אפשר לקרוא כאן מה שהשאירו בדף, ואי אפשר
+        לערוך מכאן את המערכת או למחוק הצעות.
+      </p>
+      <p>
+        <a href="./">חזרה לדמו</a>
+      </p>
+      <div class="toolbar">
+        <button type="button" id="refresh">רענון</button>
+        <span class="status" id="status">טוען הצעות…</span>
+      </div>
+      <ol id="list"></ol>
+    </main>
+    <script>
+      const COLLECTION_URL =
+        "https://crudcrud.com/api/0edfb8c65f47479e80451a534d834764/suggestions";
+
+      const list = document.getElementById("list");
+      const status = document.getElementById("status");
+
+      function clip(value) {
+        return String(value || "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      function formatTime(iso) {
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return iso || "";
+        return new Intl.DateTimeFormat("he-IL", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      }
+
+      function normalize(value) {
+        if (!value || typeof value !== "object") return null;
+        if (typeof value.id !== "string" || typeof value.text !== "string" || !value.text.trim()) {
+          return null;
+        }
+        const xPct = Number(value.xPct);
+        const yPct = Number(value.yPct);
+        if (!Number.isFinite(xPct) || !Number.isFinite(yPct)) return null;
+        return {
+          id: value.id,
+          createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
+          author: clip(value.author) || "אנונימי",
+          text: clip(value.text),
+          xPct: xPct,
+          yPct: yPct,
+          anchor: clip(value.anchor).slice(0, 80),
+        };
+      }
+
+      function render(items) {
+        list.replaceChildren();
+        if (items.length === 0) {
+          const empty = document.createElement("p");
+          empty.textContent = "אין עדיין הצעות.";
+          list.appendChild(empty);
+          return;
+        }
+        for (let index = 0; index < items.length; index += 1) {
+          const item = items[index];
+          const card = document.createElement("article");
+          const head = document.createElement("div");
+          head.className = "head";
+          const num = document.createElement("span");
+          num.className = "num";
+          num.textContent = String(index + 1);
+          const author = document.createElement("span");
+          author.className = "author";
+          author.textContent = item.author;
+          const time = document.createElement("time");
+          time.dateTime = item.createdAt;
+          time.textContent = formatTime(item.createdAt);
+          head.append(num, author, time);
+          const text = document.createElement("p");
+          text.textContent = item.text;
+          const meta = document.createElement("p");
+          meta.className = "meta";
+          const where = item.anchor ? "ליד: " + item.anchor : "בלי טקסט קרוב";
+          meta.textContent =
+            where +
+            " · " +
+            Math.round(item.xPct) +
+            "% לרוחב, " +
+            Math.round(item.yPct) +
+            "% לגובה";
+          card.append(head, text, meta);
+          const li = document.createElement("li");
+          li.appendChild(card);
+          list.appendChild(li);
+        }
+      }
+
+      async function load() {
+        status.className = "status";
+        status.textContent = "טוען הצעות…";
+        try {
+          const response = await fetch(COLLECTION_URL, { cache: "no-store" });
+          if (!response.ok) throw new Error(String(response.status));
+          const payload = await response.json();
+          if (!Array.isArray(payload)) throw new Error("bad payload");
+          const items = payload.map(normalize).filter(Boolean);
+          items.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+          render(items);
+          const noun = items.length === 1 ? "הצעה" : "הצעות";
+          status.textContent = "מציג " + items.length + " " + noun + ". הרשימה משותפת עם הדמו.";
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = "לא הצלחנו לטעון את ההצעות. נסו שוב.";
+        }
+      }
+
+      document.getElementById("refresh").addEventListener("click", () => {
+        void load();
+      });
+      void load();
+      window.setInterval(() => void load(), 15000);
+    </script>
+  </body>
+</html>
