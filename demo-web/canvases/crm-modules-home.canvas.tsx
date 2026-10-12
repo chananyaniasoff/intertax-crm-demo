@@ -33,9 +33,21 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — today's elapsed resets at local midnight. */
-const GMAIL_DUAL_NAV_BUILD = "v668-2026-10-12-ai-history-fixes";
-/** Default AppPrimaryRail module + landing view (Clients). */
+const GMAIL_DUAL_NAV_BUILD = "v717-2026-10-13-android-preview-v1-key";
+/** Persisted Android phone-preview toggle (useCanvasState key + localStorage). */
+const ANDROID_PREVIEW_LS_KEY = "crmAndroidPreview.v1";
+/** Default AppPrimaryRail module + landing view — Home (Clients modules). */
 const DEFAULT_PRIMARY_CATEGORY = "client";
+/**
+ * Landing persistence keys (bumped when stale LS stole first paint).
+ * v716 failed: screen.v2 / selectedCategory.v2 / crmHelpFabTab.v1 still
+ * hydrated last session (often Chats or Help → Messages) before any coerce.
+ */
+const SCREEN_STATE_KEY = "screen.v3";
+const SELECTED_CATEGORY_STATE_KEY = "selectedCategory.v3";
+const HELP_FAB_TAB_STATE_KEY = "crmHelpFabTab.v2";
+/** Reopen seed — must match GMAIL_DUAL_NAV_BUILD so each ship re-forces Home. */
+const DEFAULT_LANDING_SEED_KEY = "crmDefaultLandingSeed.v2";
 
 /**
  * Systemadmin primary id is exactly "systemadmin" (not Admin / system-admin).
@@ -93,7 +105,7 @@ function isSystemadminNavSurface(
   /**
    * Systemadmin-only screens hide Help while open — but not when the effective
    * primary is already a staff module (Clients/Worker/…). That stale-screen
-   * case happens after role switch or Clients fallback while screen.v2 still
+   * case happens after role switch or Clients fallback while screen state still
    * points at help-feedback / ai-maintenance / company-settings.
    */
   if (
@@ -3051,6 +3063,26 @@ const CRM_UI = {
     en: "Applies to this security & bug scan.",
     he: "חל על סריקת האבטחה והבאגים הזו.",
   },
+  aiMaintenanceFindingsTitle: { en: "Findings", he: "ממצאים" },
+  aiMaintenanceFindingsEmpty: {
+    en: "No open findings. Run a scan to discover issues.",
+    he: "אין ממצאים פתוחים. הפעילו סריקה לאיתור בעיות.",
+  },
+  aiMaintenanceFindingFix: { en: "Fix", he: "תקן" },
+  aiMaintenanceFindingSkip: { en: "Don't fix", he: "אל תתקן" },
+  aiMaintenanceRunFixes: { en: "Run fixes", he: "הפעל תיקונים" },
+  aiMaintenanceFindingsSeeded: {
+    en: "Demo scan found {n} issues — choose Fix / Don't fix, then Run fixes.",
+    he: "סריקת דמו מצאה {n} בעיות — בחרו תקן / אל תתקן, ואז הפעילו תיקונים.",
+  },
+  aiMaintenanceFixesApplied: {
+    en: "Applied {n} selected fix(es). See History.",
+    he: "הוחלו {n} תיקונים שנבחרו. ראו בהיסטוריה.",
+  },
+  aiMaintenanceNoFixesSelected: {
+    en: "Select at least one finding to fix.",
+    he: "בחרו לפחות ממצא אחד לתיקון.",
+  },
   helpFeedbackTitle: { en: "Help & feedback", he: "עזרה ומשוב" },
   helpFeedbackHint: {
     en: "Inbox for Worker help, bug reports, and suggestions. Mark read and reply (demo).",
@@ -3071,13 +3103,40 @@ const CRM_UI = {
     en: "No items in this filter.",
     he: "אין פריטים במסנן זה.",
   },
-  helpFeedbackAiReply: { en: "AI reply", he: "תשובת AI" },
+  helpFeedbackAiReply: { en: "James · AI", he: "ג׳יימס · AI" },
+  helpFabAiAgentInitials: { en: "JA", he: "JA" },
   helpFeedbackHumanReply: { en: "Human reply", he: "תשובת אדם" },
   helpFeedbackQueued: {
     en: "Queued for System Admin",
     he: "בתור למנהל מערכת",
   },
   helpFeedbackUnread: { en: "Unread", he: "לא נקרא" },
+  helpFeedbackCloseCase: { en: "Close case", he: "סגור פנייה" },
+  helpFeedbackReopenCase: { en: "Reopen case", he: "פתח מחדש" },
+  helpFeedbackClosed: { en: "Closed", he: "סגורה" },
+  helpFeedbackFilterClosed: { en: "Closed", he: "סגורות" },
+  helpFeedbackCaseClosed: {
+    en: "So glad I could help!\nYour request has been handled and this case is now closed.\nWe're here if you have any other questions.\nHave a wonderful day :)",
+    he: "שמחתי מאוד לעזור!\nהטיפול בפנייתך הסתיים והפנייה נסגרת כעת,\nזמינים עבורך לכל שאלה נוספת,\nהמשך יום מקסים :)",
+  },
+  helpFabCaseClosed: {
+    en: "So glad I could help!\nYour request has been handled and this case is now closed.\nWe're here if you have any other questions.\nHave a wonderful day :)",
+    he: "שמחתי מאוד לעזור!\nהטיפול בפנייתך הסתיים והפנייה נסגרת כעת,\nזמינים עבורך לכל שאלה נוספת,\nהמשך יום מקסים :)",
+  },
+  helpFabAiResolveAsk: {
+    en: "Did that answer your question?",
+    he: "האם התשובה ענתה על השאלה?",
+  },
+  helpFabAiResolveYes: { en: "Yes", he: "כן" },
+  helpFabAiResolveNo: { en: "No", he: "לא" },
+  helpFabAiResolveClosedAck: {
+    en: "Glad that helped — I've closed this case.",
+    he: "שמח שעזרתי — סגרתי את הפנייה.",
+  },
+  helpFabAiResolveContinue: {
+    en: "Okay — tell me more, or switch to Human help if you'd like a System Admin.",
+    he: "בסדר — אפשר להמשיך כאן, או לעבור לעזרת אדם אם תרצו מנהל מערכת.",
+  },
   helpFabTitle: { en: "Help & feedback", he: "עזרה ומשוב" },
   helpFabOpen: { en: "Open help", he: "פתח עזרה" },
   helpFabClose: { en: "Close help", he: "סגור עזרה" },
@@ -3124,12 +3183,12 @@ const CRM_UI = {
   helpFabViaAi: { en: "AI help", he: "עזרת AI" },
   helpFabViaHuman: { en: "Human help", he: "עזרת אדם" },
   helpFabViaAiHint: {
-    en: "Demo AI reply. Help type stays local; Bug and Suggestion always go to the System Admin inbox.",
-    he: "תשובת דמו של AI. סוג עזרה נשאר מקומי; באג והצעה תמיד נשלחים לתיבת מנהל המערכת.",
+    en: "Demo AI reply stays in this chat. Bug and Suggestion still go to the System Admin inbox.",
+    he: "תשובת דמו של AI נשארת בצ'אט זה. באג והצעה עדיין נשלחים לתיבת מנהל המערכת.",
   },
   helpFabViaHumanHint: {
-    en: "Help type stays local. Bug and Suggestion are queued to System Admin Help & feedback.",
-    he: "סוג עזרה נשאר מקומי. באג והצעה נשלחים לתור עזרה ומשוב של מנהל המערכת.",
+    en: "Queues to System Admin Help & feedback inbox.",
+    he: "נשלח לתור עזרה ומשוב של מנהל המערכת.",
   },
   helpFabViaAiDisabled: {
     en: "AI help unavailable — turn on AI in Company settings.",
@@ -3151,6 +3210,73 @@ const CRM_UI = {
     en: "AI reply below — also sent to System Admin inbox.",
     he: "תשובת AI למטה — גם נשלח לתיבת מנהל המערכת.",
   },
+  helpFabGreeting: { en: "Hi {name}", he: "שלום {name}" },
+  helpFabGreetingSub: { en: "How can we help?", he: "איך אפשר לעזור?" },
+  helpFabNavHome: { en: "Home", he: "בית" },
+  helpFabNavMessages: { en: "Messages", he: "הודעות" },
+  helpFabWriteUs: { en: "Write to us", he: "כתבו לנו" },
+  helpFabWriteUsHint: {
+    en: "Ask a question or report something",
+    he: "שאלה או דיווח",
+  },
+  helpFabChooseVia: {
+    en: "Who should help?",
+    he: "מי יעזור?",
+  },
+  helpFabHomeReportTitle: {
+    en: "Have an idea or found a bug?",
+    he: "יש רעיון או מצאתם באג?",
+  },
+  helpFabMessagesEmpty: {
+    en: "No conversations yet — start Help, Bug, or Suggestion from Home.",
+    he: "אין שיחות עדיין — התחילו עזרה, באג או הצעה מהבית.",
+  },
+  helpFabTyping: {
+    en: "Support is typing…",
+    he: "התמיכה מקלידה…",
+  },
+  helpFabAttachDemo: {
+    en: "Attach",
+    he: "צירוף",
+  },
+  helpFabEmojiDemo: {
+    en: "Emoji",
+    he: "אימוג׳י",
+  },
+  helpFabGifDemo: {
+    en: "GIF",
+    he: "GIF",
+  },
+  helpFabMicDemo: {
+    en: "Voice message",
+    he: "הודעה קולית",
+  },
+  helpFabTypeHere: {
+    en: "Type a message…",
+    he: "כאן המקום להקליד",
+  },
+  helpFabExpand: {
+    en: "Larger screen",
+    he: "מסך גדול יותר",
+  },
+  helpFabCollapseSize: {
+    en: "Smaller screen",
+    he: "מסך קטן יותר",
+  },
+  helpFabRepliedAi: {
+    en: "AI replied",
+    he: "AI השיב",
+  },
+  helpFabRepliedHuman: {
+    en: "Support replied",
+    he: "התמיכה השיבה",
+  },
+  helpFabWaitingReply: {
+    en: "Waiting for reply",
+    he: "ממתין לתשובה",
+  },
+  helpFabMessagesTitle: { en: "Messages", he: "הודעות" },
+  helpFabComposeBack: { en: "Back", he: "חזרה" },
 
   apiConnectionsTitle: {
     en: "API connections",
@@ -7524,6 +7650,13 @@ const CRM_UI = {
     en: "Client WhatsApp (demo)",
     he: "וואטסאפ לקוח (דמו)",
   },
+  androidPreviewSurface: {
+    en: "Android preview",
+    he: "תצוגת Android",
+  },
+  androidNavMenu: { en: "Menu", he: "תפריט" },
+  androidNavClose: { en: "Close menu", he: "סגור תפריט" },
+  androidSecondaryNav: { en: "Module menu", he: "תפריט מודול" },
   waSearchChats: { en: "Search chats…", he: "חיפוש צ׳אטים…" },
   waMyLabeledFilter: {
     en: "My labels",
@@ -16260,6 +16393,11 @@ type FirmWorker = {
   emailSignatureName: string;
   /** Signature body (plain text or light HTML-ish). */
   emailSignatureBody: string;
+  /**
+   * Profile picture (data URL or absolute URL) — same source as HeaderUserChip /
+   * Help FAB sysadmin presence. Empty → initials fallback.
+   */
+  photoUrl: string;
 };
 
 /** Derive a stable demo send-from address from worker id / name. */
@@ -16422,6 +16560,37 @@ function hiddenClientTileIdsForDept(deptIds: string | string[]): Set<string> {
 }
 
 /** Migrate legacy single-dept rows and keep deptId === deptIds[0]. */
+/** Demo portrait placeholder (SVG data URL) — real apps store uploaded photo URLs here. */
+function demoStaffPhotoDataUrl(initials: string, bg: string, accent: string): string {
+  const safe = (initials || "?").slice(0, 2).toUpperCase();
+  return (
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${bg}"/>
+      <stop offset="100%" stop-color="${accent}"/>
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" fill="url(#g)"/>
+  <circle cx="48" cy="36" r="18" fill="rgba(255,255,255,0.35)"/>
+  <ellipse cx="48" cy="82" rx="28" ry="22" fill="rgba(255,255,255,0.28)"/>
+  <text x="48" y="54" text-anchor="middle" fill="#ffffff" font-family="system-ui,sans-serif" font-size="28" font-weight="700">${safe}</text>
+</svg>`,
+    )
+  );
+}
+
+const DEMO_STAFF_PHOTO_SEED: Record<string, string> = {
+  "staff-avi": demoStaffPhotoDataUrl("AC", "#3D6FA8", "#1B4F82"),
+  "staff-dana": demoStaffPhotoDataUrl("DL", "#5B8DEF", "#2F5FBF"),
+  "staff-noa": demoStaffPhotoDataUrl("NM", "#E0A05A", "#C07830"),
+  "staff-billing": demoStaffPhotoDataUrl("MB", "#52B896", "#2E8A6C"),
+  "staff-audit": demoStaffPhotoDataUrl("EA", "#8B6FC0", "#5E4490"),
+  "staff-secretariat": demoStaffPhotoDataUrl("RO", "#D4707A", "#A84852"),
+};
+
 function normalizeFirmWorker(w: {
   id: string;
   name: string;
@@ -16433,6 +16602,7 @@ function normalizeFirmWorker(w: {
   phone?: string;
   emailSignatureName?: string;
   emailSignatureBody?: string;
+  photoUrl?: string;
 }): FirmWorker {
   const fallback = "reportDeptAccounting";
   let deptIds = (w.deptIds ?? []).filter(Boolean);
@@ -16458,6 +16628,8 @@ function normalizeFirmWorker(w: {
     (w.phone ?? "").trim() ||
     seed?.phone ||
     deriveWorkerPhoneFromSignature(emailSignatureBody);
+  const photoUrl =
+    (w.photoUrl ?? "").trim() || DEMO_STAFF_PHOTO_SEED[w.id] || "";
   return {
     id: w.id,
     name: w.name,
@@ -16469,6 +16641,7 @@ function normalizeFirmWorker(w: {
     phone,
     emailSignatureName,
     emailSignatureBody,
+    photoUrl,
   };
 }
 
@@ -16494,6 +16667,7 @@ function normalizeFirmWorkers(
     phone?: string;
     emailSignatureName?: string;
     emailSignatureBody?: string;
+    photoUrl?: string;
   }>,
 ): FirmWorker[] {
   return workers.map(normalizeFirmWorker);
@@ -16569,6 +16743,17 @@ const DEMO_STAFF: FirmWorker[] = normalizeFirmWorkers([
       "Rina Office\nSecretariat · Intertax\nrina.office@intertax.example\n+972-3-000-0016",
   },
 ]);
+
+/** Profile photo URL from firm roster (shared CRM staff avatar source). */
+function staffPhotoUrl(
+  workerId: string,
+  workers: FirmWorker[] = DEMO_STAFF,
+): string {
+  const row =
+    workers.find((s) => s.id === workerId) ??
+    DEMO_STAFF.find((s) => s.id === workerId);
+  return (row?.photoUrl ?? "").trim();
+}
 
 /** Resolve signed-in worker send-from + signature (normalized). */
 function resolveWorkerEmailProfile(
@@ -16891,11 +17076,28 @@ function defaultModuleAccessForRole(
   };
 }
 
-/** Seed role: Management dept → Manager; others → Worker. */
+/**
+ * Demo System Admins who staff Help & feedback (can reply).
+ * Same role gate as Systemadmin → Help & feedback inbox.
+ */
+const DEMO_HELP_SYSADMIN_IDS = [
+  "staff-dana",
+  "staff-noa",
+  "staff-secretariat",
+  "staff-audit",
+  "staff-billing",
+] as const;
+
+/** Seed role: demo Help sysadmins → System Admin; Management → Manager; else Worker. */
 function defaultRoleForWorker(
   workerId: string,
   workers: FirmWorker[] = DEMO_STAFF,
 ): Role {
+  if (
+    (DEMO_HELP_SYSADMIN_IDS as readonly string[]).includes(workerId)
+  ) {
+    return "systemadmin";
+  }
   const row =
     workers.find((s) => s.id === workerId) ??
     DEMO_STAFF.find((s) => s.id === workerId);
@@ -16904,6 +17106,65 @@ function defaultRoleForWorker(
     return "admin";
   }
   return "worker";
+}
+
+/** Persisted demo / future real presence for staff (Help FAB sysadmin faces). */
+type StaffPresenceEntry = {
+  online: boolean;
+  /** ISO-ish timestamp of last online / login activity. */
+  lastOnlineAt: string;
+};
+
+type StaffPresenceMap = Record<string, StaffPresenceEntry>;
+
+const DEFAULT_STAFF_PRESENCE: StaffPresenceMap = {
+  "staff-dana": { online: true, lastOnlineAt: "2026-10-13T00:52:00" },
+  "staff-noa": { online: true, lastOnlineAt: "2026-10-13T00:50:00" },
+  "staff-secretariat": { online: false, lastOnlineAt: "2026-10-12T18:20:00" },
+  "staff-audit": { online: true, lastOnlineAt: "2026-10-13T00:41:00" },
+  "staff-billing": { online: false, lastOnlineAt: "2026-10-12T16:05:00" },
+  "staff-avi": { online: true, lastOnlineAt: "2026-10-13T00:55:00" },
+};
+
+function normalizeStaffPresenceMap(
+  raw: StaffPresenceMap | null | undefined,
+): StaffPresenceMap {
+  const base: StaffPresenceMap = { ...DEFAULT_STAFF_PRESENCE };
+  if (!raw || typeof raw !== "object") return base;
+  for (const [id, entry] of Object.entries(raw)) {
+    if (!entry || typeof entry !== "object") continue;
+    base[id] = {
+      online: Boolean(entry.online),
+      lastOnlineAt:
+        typeof entry.lastOnlineAt === "string" && entry.lastOnlineAt.trim()
+          ? entry.lastOnlineAt.trim()
+          : base[id]?.lastOnlineAt ?? "",
+    };
+  }
+  return base;
+}
+
+function staffPresenceFor(
+  workerId: string,
+  presence: StaffPresenceMap | null | undefined,
+  signedInWorkerId?: string,
+): StaffPresenceEntry {
+  const map = normalizeStaffPresenceMap(presence);
+  const me = (signedInWorkerId || "").trim();
+  if (me && workerId === me) {
+    const prev = map[workerId];
+    return {
+      online: true,
+      lastOnlineAt:
+        prev?.lastOnlineAt || new Date().toISOString().slice(0, 19),
+    };
+  }
+  return (
+    map[workerId] ?? {
+      online: false,
+      lastOnlineAt: "",
+    }
+  );
 }
 
 function staffRightsRoleLabel(lang: UiLang, role: Role): string {
@@ -17855,7 +18116,7 @@ function HeaderUserChip({
     "signedInWorkerId.v1",
     DEMO_WORKER.id,
   );
-  const [screen, setScreen] = useCanvasState<Screen>("screen.v2", "home");
+  const [screen, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
   const [, setNavSecondaryOpen] = useCanvasState(
     "crmGmailNavSecondaryOpen.v3",
     true,
@@ -17869,6 +18130,7 @@ function HeaderUserChip({
     firmWorkers,
   );
   const initials = staffInitials(signedInWorkerId, firmWorkers);
+  const photoUrl = staffPhotoUrl(signedInWorkerId, firmWorkers);
   const avatarSize = stacked ? 36 : 28;
   const screenActive = screen === "user-settings";
 
@@ -17887,9 +18149,11 @@ function HeaderUserChip({
         width: avatarSize,
         height: avatarSize,
         borderRadius: 999,
-        background: onDarkRail
-          ? "rgba(255,255,255,0.14)"
-          : waveChipAlpha(profileAccent, "33"),
+        background: photoUrl
+          ? "transparent"
+          : onDarkRail
+            ? "rgba(255,255,255,0.14)"
+            : waveChipAlpha(profileAccent, "33"),
         border: onDarkRail
           ? `1px solid ${CHROME_PRIMARY_RAIL_MENU_BORDER}`
           : `1px solid ${waveChipAlpha(profileAccent, "66")}`,
@@ -17901,9 +18165,24 @@ function HeaderUserChip({
         fontWeight: 600,
         lineHeight: 1,
         flexShrink: 0,
+        overflow: "hidden",
       }}
     >
-      {initials}
+      {photoUrl ? (
+        <img
+          src={photoUrl}
+          alt=""
+          draggable={false}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
+      ) : (
+        initials
+      )}
     </div>
   );
 
@@ -18103,8 +18382,8 @@ function UserSettingsScreen() {
     "signedInWorkerId.v1",
     DEMO_WORKER.id,
   );
-  const [, setScreen] = useCanvasState<Screen>("screen.v2", "home");
-  const [, setSelectedCategory] = useCanvasState("selectedCategory.v2", DEFAULT_PRIMARY_CATEGORY);
+  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  const [, setSelectedCategory] = useCanvasState(SELECTED_CATEGORY_STATE_KEY, DEFAULT_PRIMARY_CATEGORY);
   const [role] = useCanvasState<Role>("role", "worker");
   const [, setTemplateScope] = useCanvasState<FirmEmailTemplateScope>(
     "templateSettingsScope.v1",
@@ -26962,21 +27241,24 @@ const TOOLS_APP_ICON_SRC: Partial<Record<string, string>> = {
 }: {
   tileId: string;
   color: string;
-  /** SVG width/height; compose pills use 16. */
-  size?: number;
+  /** SVG width/height; number px or CSS length (e.g. "78%") for board cards. */
+  size?: number | string;
 }) {
   const appIconSrc = TOOLS_APP_ICON_SRC[tileId];
+  const dimStyle =
+    typeof size === "string"
+      ? { width: size, height: size }
+      : { width: size, height: size };
   if (appIconSrc) {
     return (
       <img
         src={appIconSrc}
-        width={size}
-        height={size}
+        width={typeof size === "number" ? size : undefined}
+        height={typeof size === "number" ? size : undefined}
         alt=""
         aria-hidden
         style={{
-          width: size,
-          height: size,
+          ...dimStyle,
           objectFit: "contain",
           display: "block",
           borderRadius: 4,
@@ -26988,11 +27270,16 @@ const TOOLS_APP_ICON_SRC: Partial<Record<string, string>> = {
   /** Multi-color fills — Tools-PNG spirit; ignore flat grey single-tone. */
   const { p, s, t } = tileIconSwatches(tileId, color);
   const box = {
-    width: size,
-    height: size,
+    width: typeof size === "number" ? size : "100%",
+    height: typeof size === "number" ? size : "100%",
     viewBox: "0 0 24 24",
     fill: "none" as const,
     "aria-hidden": true,
+    style: {
+      ...dimStyle,
+      display: "block",
+      flexShrink: 0,
+    } as CSSProperties,
   };
   const stroke = (c: string, w = 1.85) => ({
     fill: "none" as const,
@@ -27567,43 +27854,54 @@ function ModuleCard({
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
   const badge = tile.badgeCount && tile.badgeCount > 0 ? tile.badgeCount : 0;
   const badgeLabel = badge > 99 ? "99+" : String(badge);
   const iconColor = chromeIconAccent(tile.id, theme.category);
+  /** Packed Sumit-style square (~152×152); icon ~42% of side; text clamped (no clip). */
+  const tileSide = 152;
+  const iconBox = 64;
 
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(tile)}
-      style={{
-        all: "unset",
-        cursor: "pointer",
-        display: "block",
-        boxSizing: "border-box",
-        width: "100%",
-        height: "100%",
-        background: chromeCardBg(theme),
-        border: `1px solid ${waveChipAlpha(iconColor, "55")}`,
-        borderRadius: 12,
-        padding: "20px 16px",
-        minHeight: 112,
-        textAlign: "center",
-        color: theme.text.primary,
-      }}
-    >
-      <Stack gap={8} style={{ alignItems: "center" }}>
+  /** Android / Sumit mobile: wide row, large icon + label — not a square tile. */
+  if (androidPreview) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpen(tile)}
+        data-chrome="module-card-android-row"
+        style={{
+          all: "unset",
+          cursor: "pointer",
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 14,
+          boxSizing: "border-box",
+          width: "100%",
+          minHeight: 76,
+          padding: "12px 14px",
+          background: chromeCardBg(theme),
+          border: `1px solid ${waveChipAlpha(iconColor, "55")}`,
+          borderRadius: 12,
+          color: theme.text.primary,
+        }}
+      >
         <div
           style={{
             position: "relative",
-            width: 44,
-            height: 44,
+            width: 56,
+            height: 56,
+            flexShrink: 0,
           }}
         >
           <div
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 12,
+              width: 56,
+              height: 56,
+              borderRadius: 14,
               background: waveChipAlpha(iconColor, "28"),
               border: `1px solid ${waveChipAlpha(iconColor, "66")}`,
               display: "flex",
@@ -27612,7 +27910,123 @@ function ModuleCard({
               boxSizing: "border-box",
             }}
           >
-            <ModuleTileIcon tileId={tile.id} color={iconColor} />
+            <ModuleTileIcon tileId={tile.id} color={iconColor} size={36} />
+          </div>
+          {badge > 0 ? (
+            <div
+              style={{
+                position: "absolute",
+                top: -4,
+                right: -4,
+                minWidth: 18,
+                height: 18,
+                padding: "0 5px",
+                borderRadius: 999,
+                background: theme.category.red,
+                color: theme.text.onAccent,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxSizing: "border-box",
+                border: `2px solid ${chromeCardBg(theme)}`,
+                fontSize: 10,
+                fontWeight: 700,
+                lineHeight: 1,
+              }}
+              aria-label={`${badge} new`}
+            >
+              {badgeLabel}
+            </div>
+          ) : null}
+        </div>
+        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+          <ChromeText
+            weight="semibold"
+            style={{
+              fontSize: 16,
+              lineHeight: 1.25,
+              color: theme.text.primary,
+            }}
+          >
+            {tileLabel(uiLang, tile.id, tile.label)}
+          </ChromeText>
+          <ChromeText
+            size="small"
+            style={{
+              fontSize: 12,
+              lineHeight: 1.25,
+              color: chromeInkMuted(theme),
+              overflow: "hidden",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+            }}
+          >
+            {tileHint(uiLang, tile.id, tile.hint)}
+          </ChromeText>
+        </Stack>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(tile)}
+      style={{
+        all: "unset",
+        cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
+        boxSizing: "border-box",
+        width: tileSide,
+        height: tileSide,
+        minWidth: tileSide,
+        minHeight: tileSide,
+        maxWidth: tileSide,
+        maxHeight: tileSide,
+        aspectRatio: "1 / 1",
+        background: chromeCardBg(theme),
+        border: `1px solid ${waveChipAlpha(iconColor, "55")}`,
+        borderRadius: 12,
+        padding: "12px 10px 10px",
+        textAlign: "center",
+        color: theme.text.primary,
+        overflow: "hidden",
+      }}
+    >
+      <Stack
+        gap={6}
+        style={{
+          alignItems: "center",
+          justifyContent: "center",
+          flex: 1,
+          minHeight: 0,
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            position: "relative",
+            width: iconBox,
+            height: iconBox,
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              width: iconBox,
+              height: iconBox,
+              borderRadius: 14,
+              background: waveChipAlpha(iconColor, "28"),
+              border: `1px solid ${waveChipAlpha(iconColor, "66")}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+            }}
+          >
+            <ModuleTileIcon tileId={tile.id} color={iconColor} size={44} />
           </div>
           {badge > 0 && (
             <div
@@ -27643,13 +28057,33 @@ function ModuleCard({
         </div>
         <ChromeText
           weight="semibold"
-          style={{ textAlign: "center", color: theme.text.primary }}
+          style={{
+            textAlign: "center",
+            color: theme.text.primary,
+            fontSize: 13,
+            lineHeight: 1.2,
+            maxWidth: "100%",
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+          }}
         >
           {tileLabel(uiLang, tile.id, tile.label)}
         </ChromeText>
         <ChromeText
           size="small"
-          style={{ textAlign: "center", color: chromeInkMuted(theme) }}
+          style={{
+            textAlign: "center",
+            color: chromeInkMuted(theme),
+            fontSize: 11,
+            lineHeight: 1.2,
+            maxWidth: "100%",
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+          }}
         >
           {tileHint(uiLang, tile.id, tile.hint)}
         </ChromeText>
@@ -27657,6 +28091,7 @@ function ModuleCard({
     </button>
   );
 }
+
 
 /**
  * GMAIL_DUAL_NAV_V3 — sole home chrome.
@@ -28630,6 +29065,40 @@ function AppPrimaryRail({
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [helpOpen, setHelpOpen] = useCanvasState("crmHelpFabOpen.v1", false);
+  /**
+   * Primary Help pressed/selected — source of truth for rail pill + docked FAB.
+   * Minimize keeps this true (panel hides, blue FAB stays). Only rail toggle-off clears it.
+   */
+  const [helpRailPressed, setHelpRailPressed] = useCanvasState(
+    "crmHelpFabRailPressed.v1",
+    false,
+  );
+  const [, setHelpFabDocked] = useCanvasState("crmHelpFabDocked.v1", false);
+  const [, setHelpFabUnlocked] = useCanvasState(
+    "crmHelpFabRailUnlocked.v1",
+    false,
+  );
+  const [signedInWorkerId] = useCanvasState(
+    "signedInWorkerId.v1",
+    DEMO_WORKER.id,
+  );
+  const [helpFeedbackRaw] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFeedback.v1",
+    DEFAULT_HELP_FEEDBACK_ITEMS,
+  );
+  const [localAiHelpRaw] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFabLocalAi.v1",
+    [],
+  );
+  /** Same unread signal as WorkerHelpFeedbackFab (new support/AI replies). */
+  const helpUnreadBadge = workerHelpUnreadMessageCount(
+    normalizeHelpFeedbackItems(helpFeedbackRaw),
+    (Array.isArray(localAiHelpRaw) ? localAiHelpRaw : []).filter(
+      (row): row is HelpFeedbackItem =>
+        Boolean(row && typeof row.id === "string"),
+    ),
+    signedInWorkerId,
+  );
   const categories = primaryCategoriesForUser(role, uiLang, {
     chats: chatsBadge,
     whatsapp: whatsappBadge,
@@ -28662,10 +29131,11 @@ function AppPrimaryRail({
     uiLang === "he"
       ? ({ top: -2, right: 2, left: "auto" } as const)
       : ({ top: -2, insetInlineEnd: 2 } as const);
-  /** Help is not a hover-flyout module — pill only while compose popup is open. */
+  /** Help pill follows rail pressed — stays on while minimized to docked FAB. */
+  const helpPressedUi = Boolean(helpRailPressed);
   const helpAccent = chromeNavAccent("help", theme.category);
-  const helpIconColor = helpOpen ? CHROME_PRIMARY_RAIL_FG : helpAccent;
-  const helpLabelColor = helpOpen
+  const helpIconColor = helpPressedUi ? CHROME_PRIMARY_RAIL_FG : helpAccent;
+  const helpLabelColor = helpPressedUi
     ? helpAccent
     : CHROME_PRIMARY_RAIL_FG_MUTED;
 
@@ -28866,19 +29336,36 @@ function AppPrimaryRail({
           data-chrome="worker-help-rail-btn"
           onClick={() => {
             onClearHoverFlyout();
-            setHelpOpen((v) => !v);
+            if (helpPressedUi) {
+              /** Rail alone toggles Help fully off — panel + docked FAB gone. */
+              setHelpRailPressed(false);
+              setHelpOpen(false);
+              setHelpFabDocked(false);
+              setHelpFabUnlocked(false);
+            } else {
+              /** Rail alone turns Help on — press + open panel. */
+              setHelpRailPressed(true);
+              setHelpOpen(true);
+              setHelpFabDocked(false);
+              setHelpFabUnlocked(false);
+            }
           }}
           onMouseEnter={() => {
             /** Do not keep prior module hover flyout while over Help. */
             onClearHoverFlyout();
           }}
           title={
-            helpOpen ? t(uiLang, "helpFabClose") : t(uiLang, "helpFabOpen")
+            helpPressedUi
+              ? t(uiLang, "helpFabClose")
+              : t(uiLang, "helpFabOpen")
           }
           aria-label={
-            helpOpen ? t(uiLang, "helpFabClose") : t(uiLang, "helpFabOpen")
+            helpPressedUi
+              ? t(uiLang, "helpFabClose")
+              : t(uiLang, "helpFabOpen")
           }
           aria-expanded={helpOpen}
+          aria-pressed={helpPressedUi}
           style={{
             all: "unset",
             cursor: "pointer",
@@ -28903,20 +29390,50 @@ function AppPrimaryRail({
                 justifyContent: "center",
                 background: chromeRailPillBackground(
                   theme,
-                  helpOpen,
+                  helpPressedUi,
                   false,
                   "help",
                 ),
-                border: chromeRailPillBorder(theme, helpOpen, "help"),
+                border: chromeRailPillBorder(theme, helpPressedUi, "help"),
                 boxSizing: "border-box",
               }}
             >
-              <RailIcon kind="help" active={helpOpen} color={helpIconColor} />
+              <RailIcon
+                kind="help"
+                active={helpPressedUi}
+                color={helpIconColor}
+              />
             </div>
+            {helpUnreadBadge > 0 ? (
+              <div
+                data-chrome="worker-help-rail-unread-badge"
+                style={{
+                  position: "absolute",
+                  ...badgeCorner,
+                  minWidth: 16,
+                  height: 16,
+                  padding: "0 4px",
+                  borderRadius: 999,
+                  background: theme.category.red,
+                  color: theme.text.onAccent,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  boxSizing: "border-box",
+                  pointerEvents: "none",
+                }}
+                aria-label={`${helpUnreadBadge} new`}
+              >
+                {helpUnreadBadge > 99 ? "99+" : String(helpUnreadBadge)}
+              </div>
+            ) : null}
           </div>
           <ChromeText
             size="small"
-            weight={helpOpen ? "semibold" : "medium"}
+            weight={helpPressedUi ? "semibold" : "medium"}
             style={{
               textAlign: "center",
               fontSize: 11,
@@ -29472,6 +29989,7 @@ function AppSecondarySidebar({
                     <ModuleTileIcon
                       tileId={row.iconId}
                       color={iconAccent}
+                      size={28}
                     />
                   </span>
                 ) : null}
@@ -29767,6 +30285,7 @@ function TempTabPopup({
                     <ModuleTileIcon
                       tileId={row.iconId}
                       color={rowAccent}
+                      size={28}
                     />
                   </span>
                 ) : null}
@@ -33072,6 +33591,10 @@ function HomeScreen({
     return tile;
   });
   const title = categoryTitle(uiLang, activeId);
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
 
   const staffThreads = visibleStaffThreads(threads, role);
   const whatsappThreads = visibleWhatsAppThreads(
@@ -33163,26 +33686,34 @@ function HomeScreen({
             ) : null}
             <Stack gap={12}>
               <H2>{title}</H2>
-              <Grid
-                columns={Math.min(Math.max(tiles.length, 1), 4)}
-                gap={12}
-                align="stretch"
-                style={{ width: "100%" }}
+              <div
+                data-chrome={
+                  androidPreview
+                    ? "client-modules-list-android-v1"
+                    : "client-modules-grid-v2"
+                }
+                style={
+                  androidPreview
+                    ? {
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                        width: "100%",
+                      }
+                    : {
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fill, 152px)",
+                        gap: 6,
+                        width: "100%",
+                        justifyContent: "start",
+                        alignContent: "start",
+                      }
+                }
               >
                 {tiles.map((tile) => (
-                  <div
-                    key={tile.id}
-                    style={{
-                      width: "100%",
-                      minWidth: 0,
-                      height: "100%",
-                      display: "flex",
-                    }}
-                  >
-                    <ModuleCard tile={tile} onOpen={onOpen} />
-                  </div>
+                  <ModuleCard key={tile.id} tile={tile} onOpen={onOpen} />
                 ))}
-              </Grid>
+              </div>
             </Stack>
           </>
         )}
@@ -33636,7 +34167,7 @@ function ClientsScreen({
       </Stack>
 
       {/* Sidebar stays viewport-bound; main list is the scroll owner.
-          When hideSideRail, Gmail secondary owns filters. */}
+          When hideSideRail: desktop Gmail secondary or Android Menu owns filters. */}
       <Row gap={16} align="stretch" style={{ ...SHELL_SPLIT }}>
         {!hideSideRail ? (
           <Stack
@@ -36339,8 +36870,8 @@ function AuditProcessWorkspace({
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const theme = useHostTheme();
   const accent = theme.accent.primary;
-  const [, setScreen] = useCanvasState<Screen>("screen.v2", "home");
-  const [, setSelectedCategory] = useCanvasState("selectedCategory.v2", DEFAULT_PRIMARY_CATEGORY);
+  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  const [, setSelectedCategory] = useCanvasState(SELECTED_CATEGORY_STATE_KEY, DEFAULT_PRIMARY_CATEGORY);
   const [, setToolsModule] = useCanvasState<ToolsModuleId>(
     "toolsModule.v1",
     "catalog",
@@ -41674,7 +42205,7 @@ function ClientFieldsConfigScreen({
   const theme = useHostTheme();
   /** Admin navigates via secondary sidebar icons — hide in-page tabs. */
   const [selectedCategory] = useCanvasState(
-    "selectedCategory.v2",
+    SELECTED_CATEGORY_STATE_KEY,
     DEFAULT_PRIMARY_CATEGORY,
   );
   const hideInPageTabs = selectedCategory === "admin";
@@ -45215,7 +45746,18 @@ type HelpFeedbackStatus =
   | "queued"
   | "ai_replied"
   | "human_replied"
-  | "ai_fixed";
+  | "ai_fixed"
+  | "closed";
+
+type HelpFeedbackThreadMsg = {
+  id: string;
+  from: "worker" | "support" | "ai";
+  text: string;
+  at: string;
+  attachmentName?: string;
+  /** System Admin who sent a human support reply (for presence ranking). */
+  fromWorkerId?: string;
+};
 
 type HelpFeedbackItem = {
   id: string;
@@ -45226,9 +45768,15 @@ type HelpFeedbackItem = {
   authorWorkerId: string;
   createdAt: string;
   read: boolean;
+  /** Worker saw support/AI reply in Help Messages (FAB badge). */
+  workerRead?: boolean;
   status: HelpFeedbackStatus;
   aiReply?: string;
   humanReply?: string;
+  /** Legacy single human reply author (when threadMessages unset). */
+  humanReplyByWorkerId?: string;
+  attachmentName?: string;
+  threadMessages?: HelpFeedbackThreadMsg[];
   /** When true, scheduled AI fix runs may process this bug/suggestion (demo). */
   aiIncludeInFixes?: boolean;
   aiFixedAt?: string;
@@ -45241,7 +45789,7 @@ const DEFAULT_HELP_FEEDBACK_ITEMS: HelpFeedbackItem[] = [
     subject: "Time clock week PDF missing Hebrew header",
     body: "Download PDF for this week drops the Hebrew firm name on page 1.",
     authorName: "Maya Billing",
-    authorWorkerId: "staff-maya",
+    authorWorkerId: "staff-billing",
     createdAt: "2026-10-11T09:14:00",
     read: false,
     status: "queued",
@@ -45252,7 +45800,7 @@ const DEFAULT_HELP_FEEDBACK_ITEMS: HelpFeedbackItem[] = [
     subject: "Pin favorite clients on Worker home",
     body: "Would help to star 3–5 clients so they stay at the top of My assignments.",
     authorName: "Eli Audit",
-    authorWorkerId: "staff-eli",
+    authorWorkerId: "staff-audit",
     createdAt: "2026-10-11T11:40:00",
     read: false,
     status: "queued",
@@ -45265,8 +45813,57 @@ const DEFAULT_HELP_FEEDBACK_ITEMS: HelpFeedbackItem[] = [
     authorName: "Avi Accounting",
     authorWorkerId: "staff-avi",
     createdAt: "2026-10-10T16:05:00",
-    read: false,
-    status: "queued",
+    read: true,
+    status: "human_replied",
+    humanReply:
+      "Fixed — opening a WA thread now clears the primary unread badge immediately.",
+    humanReplyByWorkerId: "staff-dana",
+    threadMessages: [
+      {
+        id: "hf-bug-2-body",
+        from: "worker",
+        text: "Opened Cohen Books WA thread; primary badge still shows 1 until refresh.",
+        at: "2026-10-10T16:05:00",
+      },
+      {
+        id: "hf-bug-2-human",
+        from: "support",
+        text: "Fixed — opening a WA thread now clears the primary unread badge immediately.",
+        at: "2026-10-10T17:40:00",
+        fromWorkerId: "staff-dana",
+      },
+    ],
+    /** Unset workerRead → rail/FAB show new-message badge for signed-in Avi. */
+  },
+  {
+    id: "hf-help-avi-2",
+    kind: "help",
+    subject: "Where is Convert prospect?",
+    body: "I filled required fields but Convert stays disabled.",
+    authorName: "Avi Accounting",
+    authorWorkerId: "staff-avi",
+    createdAt: "2026-10-09T14:22:00",
+    read: true,
+    workerRead: true,
+    status: "human_replied",
+    humanReply:
+      "Open Prospects → select the row → Convert. All required prospect fields must be filled first (Admin → Prospects settings).",
+    humanReplyByWorkerId: "staff-noa",
+    threadMessages: [
+      {
+        id: "hf-help-avi-2-body",
+        from: "worker",
+        text: "I filled required fields but Convert stays disabled.",
+        at: "2026-10-09T14:22:00",
+      },
+      {
+        id: "hf-help-avi-2-human",
+        from: "support",
+        text: "Open Prospects → select the row → Convert. All required prospect fields must be filled first (Admin → Prospects settings).",
+        at: "2026-10-09T15:10:00",
+        fromWorkerId: "staff-noa",
+      },
+    ],
   },
   {
     id: "hf-help-1",
@@ -45274,12 +45871,13 @@ const DEFAULT_HELP_FEEDBACK_ITEMS: HelpFeedbackItem[] = [
     subject: "How do I convert a prospect?",
     body: "I filled required fields but Convert stays disabled.",
     authorName: "Maya Billing",
-    authorWorkerId: "staff-maya",
+    authorWorkerId: "staff-billing",
     createdAt: "2026-10-09T14:22:00",
     read: true,
     status: "human_replied",
     humanReply:
       "Open Prospects → select the row → Convert. All required prospect fields must be filled first (Admin → Prospects settings).",
+    humanReplyByWorkerId: "staff-noa",
   },
 ];
 
@@ -45300,9 +45898,24 @@ function normalizeHelpFeedbackItems(
       item.status === "ai_replied" ||
       item.status === "human_replied" ||
       item.status === "ai_fixed" ||
+      item.status === "closed" ||
       item.status === "queued"
         ? item.status
         : "queued",
+    workerRead: Boolean(item.workerRead),
+    humanReplyByWorkerId:
+      typeof item.humanReplyByWorkerId === "string"
+        ? item.humanReplyByWorkerId
+        : undefined,
+    attachmentName:
+      typeof item.attachmentName === "string" ? item.attachmentName : undefined,
+    threadMessages: Array.isArray(item.threadMessages)
+      ? item.threadMessages.map((m) => ({
+          ...m,
+          fromWorkerId:
+            typeof m.fromWorkerId === "string" ? m.fromWorkerId : undefined,
+        }))
+      : undefined,
     aiIncludeInFixes:
       item.kind === "bug" || item.kind === "suggestion"
         ? item.aiIncludeInFixes !== false
@@ -45310,13 +45923,92 @@ function normalizeHelpFeedbackItems(
   }));
 }
 
-/** Unread bugs + suggestions drive Systemadmin rail / module badges. */
+/** Unread open help/bug/suggestion items → Systemadmin rail / module badges. */
 function helpFeedbackBadgeCount(items: HelpFeedbackItem[]): number {
   return items.filter(
     (item) =>
-      !item.read && (item.kind === "bug" || item.kind === "suggestion"),
+      !item.read &&
+      item.status !== "closed" &&
+      (item.kind === "bug" ||
+        item.kind === "suggestion" ||
+        item.kind === "help"),
   ).length;
 }
+
+/** Support/AI has replied on this Help thread (worker-facing “new message”). */
+function helpFeedbackItemHasSupportReply(item: HelpFeedbackItem): boolean {
+  return (
+    Boolean(item.humanReply) ||
+    Boolean(item.aiReply) ||
+    (item.threadMessages ?? []).some(
+      (m) => m.from === "ai" || m.from === "support",
+    )
+  );
+}
+
+/**
+ * Worker Help unread count — shared by AppPrimaryRail Help badge + FAB.
+ * Counts the signed-in worker’s open threads with a support/AI reply that
+ * have not been opened yet (`workerRead` false). Cleared when the worker
+ * opens that thread in Help Messages (same as FAB).
+ */
+function workerHelpUnreadMessageCount(
+  items: HelpFeedbackItem[],
+  localAiHelp: HelpFeedbackItem[],
+  authorWorkerId: string,
+): number {
+  const me = (authorWorkerId || "").trim();
+  if (!me) return 0;
+  const sharedMine = items.filter((i) => i.authorWorkerId === me);
+  const localMine = (Array.isArray(localAiHelp) ? localAiHelp : []).filter(
+    (i) => i.authorWorkerId === me,
+  );
+  return [...localMine, ...sharedMine].filter(
+    (i) =>
+      !i.workerRead &&
+      helpFeedbackItemHasSupportReply(i) &&
+      i.status !== "closed",
+  ).length;
+}
+
+/** Shared thread bubbles for admin inbox + worker FAB (synth when unset). */
+function helpFeedbackThreadBubbles(
+  item: HelpFeedbackItem | null,
+): HelpFeedbackThreadMsg[] {
+  if (!item) return [];
+  if (item.threadMessages && item.threadMessages.length > 0) {
+    return item.threadMessages;
+  }
+  const out: HelpFeedbackThreadMsg[] = [
+    {
+      id: `${item.id}-body`,
+      from: "worker",
+      text: item.body,
+      at: item.createdAt,
+      attachmentName: item.attachmentName,
+    },
+  ];
+  if (item.aiReply) {
+    out.push({
+      id: `${item.id}-ai`,
+      from: "ai",
+      text: item.aiReply,
+      at: item.createdAt,
+    });
+  }
+  if (item.humanReply) {
+    out.push({
+      id: `${item.id}-human`,
+      from: "support",
+      text: item.humanReply,
+      at: item.createdAt,
+      fromWorkerId: item.humanReplyByWorkerId,
+    });
+  }
+  return out;
+}
+
+type HelpFeedbackListFilter = HelpFeedbackKind | "all" | "closed";
 
 function helpFeedbackDemoAiReply(
   kind: HelpFeedbackKind,
@@ -45341,6 +46033,83 @@ function helpFeedbackDemoAiReply(
   return `Thanks for the suggestion “${subject}”. Saved to the System Admin Help & feedback inbox.`;
 }
 
+/** Follow-up ask after a completed James AI answer (id mark for yes/no handling). */
+function isHelpAiResolveAskMsg(
+  msg: HelpFeedbackThreadMsg | null | undefined,
+): boolean {
+  return Boolean(msg && msg.from === "ai" && /ai-ask/i.test(msg.id));
+}
+
+/** Demo AI help / fix replies count as completed answers; the ask itself does not. */
+function helpAiReplyLooksComplete(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length < 20) return false;
+  return true;
+}
+
+function parseHelpAiResolveYesNo(text: string): "yes" | "no" | null {
+  const n = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/u, "");
+  if (!n) return null;
+  if (
+    n === "yes" ||
+    n === "y" ||
+    n === "yeah" ||
+    n === "yep" ||
+    n === "כן" ||
+    n === "כֵן"
+  ) {
+    return "yes";
+  }
+  if (n === "no" || n === "n" || n === "nope" || n === "לא") {
+    return "no";
+  }
+  return null;
+}
+
+function helpAiResolveAskMessage(
+  stamp: number | string,
+  at: string,
+  uiLang: UiLang,
+): HelpFeedbackThreadMsg {
+  return {
+    id: `hf-msg-ai-ask-${stamp}`,
+    from: "ai",
+    text: t(uiLang, "helpFabAiResolveAsk"),
+    at,
+  };
+}
+
+/** AI answer bubble + resolve follow-up (yes → close case). */
+function helpAiCompletedReplyMessages(
+  stamp: number | string,
+  at: string,
+  aiText: string,
+  uiLang: UiLang,
+): HelpFeedbackThreadMsg[] {
+  if (!helpAiReplyLooksComplete(aiText)) {
+    return [
+      {
+        id: `hf-msg-ai-${stamp}`,
+        from: "ai",
+        text: aiText,
+        at,
+      },
+    ];
+  }
+  return [
+    {
+      id: `hf-msg-ai-${stamp}`,
+      from: "ai",
+      text: aiText,
+      at,
+    },
+    helpAiResolveAskMessage(stamp, at, uiLang),
+  ];
+}
+
 function HelpFeedbackScreen() {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
@@ -45349,7 +46118,7 @@ function HelpFeedbackScreen() {
     DEFAULT_HELP_FEEDBACK_ITEMS,
   );
   const items = normalizeHelpFeedbackItems(itemsRaw);
-  const [filter, setFilter] = useCanvasState<HelpFeedbackKind | "all">(
+  const [filter, setFilter] = useCanvasState<HelpFeedbackListFilter>(
     "crmHelpFeedbackFilter.v1",
     "all",
   );
@@ -45361,14 +46130,41 @@ function HelpFeedbackScreen() {
     "crmHelpFeedbackReplyDraft.v1",
     "",
   );
-
-  const visible = items.filter(
-    (item) => filter === "all" || item.kind === filter,
+  const [replyAttachName, setReplyAttachName] = useCanvasState(
+    "crmHelpFeedbackReplyAttach.v1",
+    "",
   );
+  const [deskSettings] = useCanvasState(
+    "whatsappDeskSettings.v1",
+    DEFAULT_WHATSAPP_DESK_SETTINGS,
+  );
+  const [chatComposerPrefs] = useCanvasState<ChatComposerPrefsByWorker>(
+    "chatComposerPrefsByWorker.v1",
+    {},
+  );
+  const [signedInWorkerId] = useCanvasState(
+    "signedInWorkerId.v1",
+    DEMO_WORKER.id,
+  );
+  const enterIsSend = effectiveEnterIsSend(
+    deskSettings,
+    workerEnterIsSendPref(chatComposerPrefs, signedInWorkerId),
+  );
+  const enterSendHint = enterIsSend
+    ? t(uiLang, "chatEnterIsSendOnHint")
+    : t(uiLang, "chatEnterIsSendOffHint");
+
+  const visible = items.filter((item) => {
+    if (filter === "all") return true;
+    if (filter === "closed") return item.status === "closed";
+    return item.kind === filter;
+  });
   const selected =
     visible.find((item) => item.id === selectedId) ??
     visible[0] ??
     null;
+  const bubbles = helpFeedbackThreadBubbles(selected);
+  const caseClosed = selected?.status === "closed";
 
   const kindLabel = (kind: HelpFeedbackKind) => {
     if (kind === "bug") return t(uiLang, "helpFeedbackFilterBug");
@@ -45387,7 +46183,36 @@ function HelpFeedbackScreen() {
     );
   };
 
-  const filterTabs: { id: HelpFeedbackKind | "all"; label: string }[] = [
+  const sendHumanReply = () => {
+    if (!selected || selected.status === "closed") return;
+    const text = replyDraft.trim();
+    const attach = replyAttachName.trim();
+    if (!text && !attach) return;
+    const stamp = new Date().toISOString().slice(0, 19);
+    const replyMsg: HelpFeedbackThreadMsg = {
+      id: `hf-msg-admin-${Date.now()}`,
+      from: "support",
+      text: text || attach,
+      at: stamp,
+      attachmentName: attach || undefined,
+      fromWorkerId: signedInWorkerId,
+    };
+    const prevThread = selected.threadMessages?.length
+      ? selected.threadMessages
+      : helpFeedbackThreadBubbles(selected);
+    patchItem(selected.id, {
+      humanReply: text || attach,
+      humanReplyByWorkerId: signedInWorkerId,
+      status: "human_replied",
+      read: true,
+      workerRead: false,
+      threadMessages: [...prevThread, replyMsg],
+    });
+    setReplyDraft("");
+    setReplyAttachName("");
+  };
+
+  const filterTabs: { id: HelpFeedbackListFilter; label: string }[] = [
     { id: "all", label: t(uiLang, "helpFeedbackFilterAll") },
     { id: "help", label: t(uiLang, "helpFeedbackFilterHelp") },
     { id: "bug", label: t(uiLang, "helpFeedbackFilterBug") },
@@ -45395,7 +46220,15 @@ function HelpFeedbackScreen() {
       id: "suggestion",
       label: t(uiLang, "helpFeedbackFilterSuggestion"),
     },
+    { id: "closed", label: t(uiLang, "helpFeedbackFilterClosed") },
   ];
+
+  const initialsOf = (name: string) => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+    return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+  };
 
   return (
     <Stack gap={12} style={{ width: "100%", minHeight: 0, flex: 1 }}>
@@ -45489,7 +46322,11 @@ function HelpFeedbackScreen() {
                     >
                       {item.subject}
                     </ChromeText>
-                    {!item.read ? (
+                    {item.status === "closed" ? (
+                      <Pill size="sm" tone="neutral">
+                        {t(uiLang, "helpFeedbackClosed")}
+                      </Pill>
+                    ) : !item.read ? (
                       <span
                         style={{
                           minWidth: 8,
@@ -45514,88 +46351,421 @@ function HelpFeedbackScreen() {
             flex: 1,
             minWidth: 0,
             minHeight: 0,
-            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
             border: CHROME_FIELD_BORDER,
             borderRadius: 10,
             background: CHROME_WHITE,
-            padding: 16,
             boxSizing: "border-box",
+            overflow: "hidden",
           }}
         >
           {selected ? (
-            <Stack gap={10}>
-              <H2>{selected.subject}</H2>
-              <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
-                {kindLabel(selected.kind)} · {selected.authorName} ·{" "}
-                {selected.createdAt.replace("T", " ").slice(0, 16)}
-                {!selected.read
-                  ? ` · ${t(uiLang, "helpFeedbackUnread")}`
-                  : ""}
-              </ChromeText>
-              <ChromeText>{selected.body}</ChromeText>
-              {selected.aiReply ? (
-                <Callout tone="info" title={t(uiLang, "helpFeedbackAiReply")}>
-                  {selected.aiReply}
-                </Callout>
-              ) : null}
-              {selected.status === "ai_fixed" ? (
-                <Callout tone="success" title={t(uiLang, "aiMaintenanceFixed")}>
-                  {selected.aiFixedAt
-                    ? selected.aiFixedAt.replace("T", " ").slice(0, 16)
-                    : t(uiLang, "aiMaintenanceFixed")}
-                </Callout>
-              ) : null}
-              {selected.humanReply ? (
-                <Callout
-                  tone="success"
-                  title={t(uiLang, "helpFeedbackHumanReply")}
-                >
-                  {selected.humanReply}
-                </Callout>
-              ) : selected.status === "ai_fixed" ? null : (
-                <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
-                  {t(uiLang, "helpFeedbackQueued")}
-                </ChromeText>
-              )}
-              <Row gap={8} style={{ flexWrap: "wrap" }}>
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    patchItem(selected.id, { read: !selected.read })
-                  }
-                >
-                  {selected.read
-                    ? t(uiLang, "helpFeedbackMarkUnread")
-                    : t(uiLang, "helpFeedbackMarkRead")}
-                </Button>
-              </Row>
-              <FieldLabel>{t(uiLang, "helpFeedbackHumanReply")}</FieldLabel>
-              <TextArea
-                value={replyDraft}
-                onChange={setReplyDraft}
-                placeholder={t(uiLang, "helpFeedbackReplyPlaceholder")}
-                rows={4}
-                style={chromeFieldStyle({ width: "100%", minHeight: 96 })}
-              />
-              <Button
-                variant="primary"
-                disabled={!replyDraft.trim()}
-                onClick={() => {
-                  const text = replyDraft.trim();
-                  if (!text) return;
-                  patchItem(selected.id, {
-                    humanReply: text,
-                    status: "human_replied",
-                    read: true,
-                  });
-                  setReplyDraft("");
+            <>
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderBottom: `1px solid ${CHROME_SOFT_BLUE}`,
+                  flexShrink: 0,
+                  background: CHROME_PANE_BG,
                 }}
               >
-                {t(uiLang, "helpFeedbackReply")}
-              </Button>
-            </Stack>
+                <Row
+                  gap={8}
+                  align="center"
+                  style={{ width: "100%", flexWrap: "wrap" }}
+                >
+                  <H2 style={{ flex: 1, minWidth: 0, margin: 0 }}>
+                    {selected.subject}
+                  </H2>
+                  {caseClosed ? (
+                    <Pill size="sm" tone="neutral">
+                      {t(uiLang, "helpFeedbackClosed")}
+                    </Pill>
+                  ) : null}
+                </Row>
+                <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                  {kindLabel(selected.kind)} · {selected.authorName} ·{" "}
+                  {selected.createdAt.replace("T", " ").slice(0, 16)}
+                  {!selected.read
+                    ? ` · ${t(uiLang, "helpFeedbackUnread")}`
+                    : ""}
+                </ChromeText>
+                <Row gap={8} style={{ flexWrap: "wrap", marginTop: 8 }}>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      patchItem(selected.id, { read: !selected.read })
+                    }
+                  >
+                    {selected.read
+                      ? t(uiLang, "helpFeedbackMarkUnread")
+                      : t(uiLang, "helpFeedbackMarkRead")}
+                  </Button>
+                  {caseClosed ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        patchItem(selected.id, {
+                          status: selected.aiFixedAt
+                            ? "ai_fixed"
+                            : selected.humanReply
+                              ? "human_replied"
+                              : selected.aiReply
+                                ? "ai_replied"
+                                : "queued",
+                        })
+                      }
+                    >
+                      {t(uiLang, "helpFeedbackReopenCase")}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        patchItem(selected.id, {
+                          status: "closed",
+                          read: true,
+                        })
+                      }
+                    >
+                      {t(uiLang, "helpFeedbackCloseCase")}
+                    </Button>
+                  )}
+                </Row>
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: "auto",
+                  padding: 14,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  background: CHROME_PANE_BG,
+                }}
+              >
+                {bubbles.map((msg) => {
+                  const mine = msg.from === "support";
+                  const isAi = msg.from === "ai";
+                  const label = isAi
+                    ? t(uiLang, "helpFeedbackAiReply")
+                    : mine
+                      ? t(uiLang, "helpFeedbackHumanReply")
+                      : selected.authorName;
+                  const avatarBg = isAi
+                    ? "#2F7D6D"
+                    : mine
+                      ? CHROME_SELECTED_BLUE
+                      : CHROME_SOFT_BLUE;
+                  const avatarLabel = isAi
+                    ? t(uiLang, "helpFabAiAgentInitials")
+                    : mine
+                      ? "SA"
+                      : initialsOf(selected.authorName);
+                  return (
+                    <div
+                      key={msg.id}
+                      style={{
+                        alignSelf: mine ? "flex-end" : "flex-start",
+                        maxWidth: "82%",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4,
+                      }}
+                    >
+                      <Row gap={8} align="center">
+                        <span
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 999,
+                            background: avatarBg,
+                            color: isAi || mine ? CHROME_WHITE : CHROME_INK,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {avatarLabel}
+                        </span>
+                        <ChromeText
+                          size="small"
+                          weight="semibold"
+                          style={{
+                            color: isAi
+                              ? "#2F7D6D"
+                              : mine
+                                ? theme.accent.primary
+                                : CHROME_INK_MUTED,
+                          }}
+                        >
+                          {label}
+                        </ChromeText>
+                        <ChromeText
+                          size="small"
+                          style={{ color: CHROME_INK_MUTED }}
+                        >
+                          {msg.at.replace("T", " ").slice(0, 16)}
+                        </ChromeText>
+                      </Row>
+                      <div
+                        style={{
+                          padding: "8px 11px",
+                          borderRadius: mine
+                            ? "12px 12px 4px 12px"
+                            : "12px 12px 12px 4px",
+                          background: mine
+                            ? CHROME_SELECTED_BLUE
+                            : isAi
+                              ? "rgba(47,125,109,0.12)"
+                              : CHROME_WHITE,
+                          border: `1px solid ${
+                            mine
+                              ? CHROME_BORDER_BLUE
+                              : isAi
+                                ? "rgba(47,125,109,0.35)"
+                                : CHROME_SOFT_BLUE
+                          }`,
+                        }}
+                      >
+                        <ChromeText size="small">{msg.text}</ChromeText>
+                        {msg.attachmentName ? (
+                          <ChromeText
+                            size="small"
+                            style={{ color: CHROME_INK_MUTED, marginTop: 4 }}
+                          >
+                            {msg.attachmentName}
+                          </ChromeText>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+                {selected.status === "ai_fixed" ? (
+                  <ChromeText
+                    size="small"
+                    style={{
+                      color: theme.category.green,
+                      alignSelf: "center",
+                    }}
+                  >
+                    {t(uiLang, "aiMaintenanceFixed")}
+                    {selected.aiFixedAt
+                      ? ` · ${selected.aiFixedAt.replace("T", " ").slice(0, 16)}`
+                      : ""}
+                  </ChromeText>
+                ) : null}
+                {bubbles.length === 0 ? (
+                  <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                    {t(uiLang, "helpFeedbackQueued")}
+                  </ChromeText>
+                ) : null}
+              </div>
+              <div
+                style={{
+                  padding: 12,
+                  borderTop: `1px solid ${CHROME_SOFT_BLUE}`,
+                  flexShrink: 0,
+                  background: CHROME_WHITE,
+                }}
+              >
+                {caseClosed ? (
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 14,
+                      background: "#E8F1F8",
+                      border: `1px solid ${CHROME_SOFT_BLUE}`,
+                      color: CHROME_INK,
+                      direction: uiLang === "he" ? "rtl" : "ltr",
+                      textAlign: uiLang === "he" ? "right" : "left",
+                      whiteSpace: "pre-line",
+                      fontSize: 12,
+                      lineHeight: 1.45,
+                      fontWeight: 400,
+                    }}
+                  >
+                    {t(uiLang, "helpFeedbackCaseClosed")}
+                  </div>
+                ) : (
+                  <Stack gap={6} style={{ width: "100%" }}>
+                    <Row
+                      gap={8}
+                      align="end"
+                      style={{
+                        width: "100%",
+                        direction: uiLang === "he" ? "rtl" : "ltr",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        title={t(uiLang, "helpFabSend")}
+                        aria-label={t(uiLang, "helpFabSend")}
+                        disabled={!replyDraft.trim() && !replyAttachName.trim()}
+                        onClick={sendHumanReply}
+                        style={{
+                          all: "unset",
+                          cursor:
+                            !replyDraft.trim() && !replyAttachName.trim()
+                              ? "not-allowed"
+                              : "pointer",
+                          width: 40,
+                          height: 40,
+                          borderRadius: 999,
+                          background:
+                            !replyDraft.trim() && !replyAttachName.trim()
+                              ? "#D0D5DD"
+                              : "#1B5FDB",
+                          color: CHROME_WHITE,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                          fontSize: 18,
+                          fontWeight: 700,
+                          order: uiLang === "he" ? 0 : 2,
+                        }}
+                      >
+                        ↑
+                      </button>
+                      <div
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          borderRadius: 18,
+                          border: `1px solid ${CHROME_BORDER_BLUE}`,
+                          background: CHROME_WHITE,
+                          padding: "8px 10px 6px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 4,
+                          boxSizing: "border-box",
+                          order: 1,
+                        }}
+                      >
+                        <ChatComposerTextArea
+                          value={replyDraft}
+                          onChange={setReplyDraft}
+                          enterIsSend={enterIsSend}
+                          onSend={sendHumanReply}
+                          placeholder={t(
+                            uiLang,
+                            "helpFeedbackReplyPlaceholder",
+                          )}
+                          rows={2}
+                          style={{
+                            flex: 1,
+                            minHeight: 44,
+                            border: "none",
+                            background: "transparent",
+                            boxShadow: "none",
+                            padding: "2px 4px",
+                            resize: "none",
+                          }}
+                        />
+                        {replyAttachName ? (
+                          <ChromeText
+                            size="small"
+                            style={{ color: CHROME_INK_MUTED }}
+                          >
+                            {replyAttachName}
+                          </ChromeText>
+                        ) : null}
+                        <Row
+                          gap={12}
+                          align="center"
+                          style={{
+                            width: "100%",
+                            justifyContent: "flex-end",
+                            paddingInline: 2,
+                            paddingBottom: 2,
+                          }}
+                        >
+                          {(
+                            [
+                              {
+                                key: "mic",
+                                label: t(uiLang, "helpFabMicDemo"),
+                                icon: "🎤",
+                                onClick: () =>
+                                  setReplyDraft(
+                                    `${replyDraft || ""}${replyDraft ? " " : ""}[Voice]`,
+                                  ),
+                              },
+                              {
+                                key: "gif",
+                                label: t(uiLang, "helpFabGifDemo"),
+                                icon: "GIF",
+                                onClick: () =>
+                                  setReplyDraft(
+                                    `${replyDraft || ""}${replyDraft ? " " : ""}[GIF]`,
+                                  ),
+                              },
+                              {
+                                key: "emoji",
+                                label: t(uiLang, "helpFabEmojiDemo"),
+                                icon: "🙂",
+                                onClick: () =>
+                                  setReplyDraft(`${replyDraft || ""} 🙂`),
+                              },
+                              {
+                                key: "attach",
+                                label: t(uiLang, "helpFabAttachDemo"),
+                                icon: "📎",
+                                onClick: () =>
+                                  setReplyAttachName(
+                                    `demo-file-${Date.now().toString().slice(-6)}.pdf`,
+                                  ),
+                              },
+                            ] as const
+                          ).map((tool) => (
+                            <button
+                              key={tool.key}
+                              type="button"
+                              title={tool.label}
+                              aria-label={tool.label}
+                              onClick={tool.onClick}
+                              style={{
+                                all: "unset",
+                                cursor: "pointer",
+                                minWidth: 28,
+                                height: 28,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                                fontSize: tool.key === "gif" ? 11 : 16,
+                                fontWeight: tool.key === "gif" ? 700 : 500,
+                                color: CHROME_INK_MUTED,
+                              }}
+                            >
+                              {tool.icon}
+                            </button>
+                          ))}
+                        </Row>
+                      </div>
+                    </Row>
+                    <ChromeText
+                      size="small"
+                      style={{ color: CHROME_INK_MUTED }}
+                    >
+                      {enterSendHint}
+                    </ChromeText>
+                  </Stack>
+                )}
+              </div>
+            </>
           ) : (
-            <ChromeText size="small">{t(uiLang, "helpFeedbackEmpty")}</ChromeText>
+            <div style={{ padding: 16 }}>
+              <ChromeText size="small">
+                {t(uiLang, "helpFeedbackEmpty")}
+              </ChromeText>
+            </div>
           )}
         </div>
       </div>
@@ -46043,6 +47213,122 @@ function helpFeedbackDemoAiFix(
  * Systemadmin — AI maintenance near Help & feedback.
  * Always visible; interactive controls require Company settings AI integration ON.
  */
+
+type AiScanFindingSeverity = "bug" | "security" | "warning";
+type AiScanFindingStatus = "open" | "fixed";
+
+type AiScanFinding = {
+  id: string;
+  title: string;
+  titleHe: string;
+  detail: string;
+  detailHe: string;
+  severity: AiScanFindingSeverity;
+  /** When true, included in the next Run fixes pass. */
+  fixSelected: boolean;
+  status: AiScanFindingStatus;
+};
+
+const DEFAULT_AI_SCAN_FINDINGS: AiScanFinding[] = [
+  {
+    id: "asf-1",
+    title: "Stale session cookie without Secure flag",
+    titleHe: "עוגיית סשן ללא דגל Secure",
+    detail:
+      "Demo: portal auth cookie missing Secure attribute on HTTPS paths.",
+    detailHe: "דמו: לעוגיית התחברות בפורטל חסר מאפיין Secure בנתיבי HTTPS.",
+    severity: "security",
+    fixSelected: true,
+    status: "open",
+  },
+  {
+    id: "asf-2",
+    title: "Client list export truncates Hebrew names",
+    titleHe: "ייצוא רשימת לקוחות חותך שמות בעברית",
+    detail: "Demo: CSV export cuts multi-byte characters after 40 bytes.",
+    detailHe: "דמו: ייצוא CSV חותך תווים מרובי-בתים אחרי 40 בתים.",
+    severity: "bug",
+    fixSelected: true,
+    status: "open",
+  },
+  {
+    id: "asf-3",
+    title: "Overdue invoice reminder fires twice",
+    titleHe: "תזכורת חשבונית באיחור נשלחת פעמיים",
+    detail: "Demo: scheduler enqueues duplicate reminder jobs overnight.",
+    detailHe: "דמו: המתזמן מכניס לתור תזכורות כפולות בלילה.",
+    severity: "bug",
+    fixSelected: false,
+    status: "open",
+  },
+  {
+    id: "asf-4",
+    title: "API token preview logged in demo console",
+    titleHe: "תצוגת טוקן API נכתבת לקונסול דמו",
+    detail:
+      "Demo: connection test prints truncated token to browser console.",
+    detailHe: "דמו: בדיקת חיבור מדפיסה טוקן מקוצר לקונסול הדפדפן.",
+    severity: "security",
+    fixSelected: true,
+    status: "open",
+  },
+];
+
+function isAiScanFindingSeverity(v: unknown): v is AiScanFindingSeverity {
+  return v === "bug" || v === "security" || v === "warning";
+}
+
+function normalizeAiScanFindings(raw: unknown): AiScanFinding[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AiScanFinding[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Partial<AiScanFinding>;
+    const id = typeof r.id === "string" ? r.id.trim() : "";
+    const title = typeof r.title === "string" ? r.title.trim() : "";
+    if (!id || !title || !isAiScanFindingSeverity(r.severity)) continue;
+    const status: AiScanFindingStatus =
+      r.status === "fixed" ? "fixed" : "open";
+    out.push({
+      id,
+      title,
+      titleHe:
+        typeof r.titleHe === "string" && r.titleHe.trim()
+          ? r.titleHe.trim()
+          : title,
+      detail: typeof r.detail === "string" ? r.detail : "",
+      detailHe:
+        typeof r.detailHe === "string" && r.detailHe.trim()
+          ? r.detailHe.trim()
+          : typeof r.detail === "string"
+            ? r.detail
+            : "",
+      severity: r.severity,
+      fixSelected: r.fixSelected !== false,
+      status,
+    });
+  }
+  return out;
+}
+
+function seedDemoAiScanFindings(stamp: string): AiScanFinding[] {
+  return DEFAULT_AI_SCAN_FINDINGS.map((f, i) => ({
+    ...f,
+    id: `${f.id}-${stamp}-${i}`,
+    status: "open" as const,
+  }));
+}
+
+function aiScanFindingLabel(lang: UiLang, finding: AiScanFinding): string {
+  return lang === "he" ? finding.titleHe || finding.title : finding.title;
+}
+
+function aiScanFindingDetail(lang: UiLang, finding: AiScanFinding): string {
+  return lang === "he"
+    ? finding.detailHe || finding.detail
+    : finding.detail;
+}
+
 function AiMaintenanceScreen() {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [companySettingsRaw] = useCanvasState<CompanySettings>(
@@ -46091,6 +47377,15 @@ function AiMaintenanceScreen() {
       DEFAULT_AI_SCAN_SCHEDULE,
     );
   const scanSchedule = normalizeAiScanSchedule(scanScheduleRaw);
+  const [scanFindingsRaw, setScanFindings] = useCanvasState<AiScanFinding[]>(
+    "crmAiScanFindings.v1",
+    [],
+  );
+  const scanFindings = normalizeAiScanFindings(scanFindingsRaw);
+  const openScanFindings = scanFindings.filter((f) => f.status === "open");
+  const selectedScanFixCount = openScanFindings.filter(
+    (f) => f.fixSelected,
+  ).length;
   const [runFlash, setRunFlash] = useCanvasState(
     "crmAiMaintenanceFlash.v1",
     "",
@@ -46211,12 +47506,26 @@ function AiMaintenanceScreen() {
     setItems((prev) =>
       normalizeHelpFeedbackItems(prev).map((item) => {
         if (!targetIds.has(item.id)) return item;
+        const fixText = helpFeedbackDemoAiFix(item.subject, uiLang);
+        const prevThread = item.threadMessages?.length
+          ? item.threadMessages
+          : helpFeedbackThreadBubbles(item);
         return {
           ...item,
           status: "ai_fixed" as const,
           read: true,
+          workerRead: false,
           aiFixedAt: stamp,
-          aiReply: helpFeedbackDemoAiFix(item.subject, uiLang),
+          aiReply: fixText,
+          threadMessages: [
+            ...prevThread,
+            ...helpAiCompletedReplyMessages(
+              `fix-${stamp}`,
+              stamp,
+              fixText,
+              uiLang,
+            ),
+          ],
         };
       }),
     );
@@ -46242,12 +47551,26 @@ function AiMaintenanceScreen() {
     setItems((prev) =>
       normalizeHelpFeedbackItems(prev).map((item) => {
         if (!targetIds.has(item.id)) return item;
+        const fixText = helpFeedbackDemoAiFix(item.subject, uiLang);
+        const prevThread = item.threadMessages?.length
+          ? item.threadMessages
+          : helpFeedbackThreadBubbles(item);
         return {
           ...item,
           status: "ai_fixed" as const,
           read: true,
+          workerRead: false,
           aiFixedAt: stamp,
-          aiReply: helpFeedbackDemoAiFix(item.subject, uiLang),
+          aiReply: fixText,
+          threadMessages: [
+            ...prevThread,
+            ...helpAiCompletedReplyMessages(
+              `fix-${stamp}`,
+              stamp,
+              fixText,
+              uiLang,
+            ),
+          ],
         };
       }),
     );
@@ -46277,19 +47600,86 @@ function AiMaintenanceScreen() {
         lastRun: stamp,
       }),
     );
+    /** Seed demo findings when none are open so the Fix list is visible. */
+    const currentOpen = normalizeAiScanFindings(scanFindingsRaw).filter(
+      (f) => f.status === "open",
+    );
+    let nextFindings = normalizeAiScanFindings(scanFindingsRaw);
+    if (currentOpen.length === 0) {
+      const seeded = seedDemoAiScanFindings(stampIso);
+      const keptFixed = nextFindings.filter((f) => f.status === "fixed");
+      nextFindings = [...seeded, ...keptFixed];
+      setScanFindings(nextFindings);
+    }
+    const openCount = nextFindings.filter((f) => f.status === "open").length;
     appendHistoryEntries([
       {
         id: `aih-scan-${stampIso}`,
         date: stampIso,
         kind: "ai-scan",
         title: scanTitle,
-        description: aiHistoryDemoDescription("ai-scan", scanTitle, uiLang),
+        description:
+          openCount > 0
+            ? uiLang === "he"
+              ? `סריקה הושלמה — נמצאו ${openCount} ממצאים פתוחים (דמו).`
+              : `Scan completed — found ${openCount} open finding(s) (demo).`
+            : aiHistoryDemoDescription("ai-scan", scanTitle, uiLang),
       },
     ]);
     setRunFlash(
-      uiLang === "he"
-        ? "סריקת אבטחה ובאגים לדמו הושלמה — לא נמצאו ממצאים קריטיים."
-        : "Demo security & bug scan completed — no critical findings.",
+      t(uiLang, "aiMaintenanceFindingsSeeded").replace(
+        "{n}",
+        String(openCount),
+      ),
+    );
+  };
+
+  const toggleScanFindingFix = (id: string, fixSelected: boolean) => {
+    setScanFindings((prev) =>
+      normalizeAiScanFindings(prev).map((f) =>
+        f.id === id && f.status === "open" ? { ...f, fixSelected } : f,
+      ),
+    );
+  };
+
+  const runScanFixes = () => {
+    if (!aiOn) return;
+    const stampIso = demoAiFixStamp();
+    const current = normalizeAiScanFindings(scanFindingsRaw);
+    const toFix = current.filter(
+      (f) => f.status === "open" && f.fixSelected,
+    );
+    if (toFix.length === 0) {
+      setRunFlash(t(uiLang, "aiMaintenanceNoFixesSelected"));
+      return;
+    }
+    setScanFindings(
+      current.map((f) =>
+        toFix.some((x) => x.id === f.id)
+          ? { ...f, status: "fixed" as const, fixSelected: false }
+          : f,
+      ),
+    );
+    appendHistoryEntries(
+      toFix.map((f, i) => {
+        const title = aiScanFindingLabel(uiLang, f);
+        return {
+          id: `aih-scan-fix-${stampIso}-${i}`,
+          date: stampIso,
+          kind: "ai-scan" as const,
+          title,
+          description:
+            uiLang === "he"
+              ? `תוקן ממצא סריקה: «${title}».`
+              : `Applied scan finding fix: “${title}”.`,
+        };
+      }),
+    );
+    setRunFlash(
+      t(uiLang, "aiMaintenanceFixesApplied").replace(
+        "{n}",
+        String(toFix.length),
+      ),
     );
   };
 
@@ -46747,6 +48137,103 @@ function AiMaintenanceScreen() {
               </Button>
             </Stack>
             <Stack
+              gap={10}
+              style={{
+                border: CHROME_FIELD_BORDER,
+                borderRadius: 10,
+                background: CHROME_WHITE,
+                padding: 14,
+                boxSizing: "border-box",
+                width: "100%",
+              }}
+            >
+              <ChromeText weight="semibold">
+                {t(uiLang, "aiMaintenanceFindingsTitle")}
+              </ChromeText>
+              {openScanFindings.length === 0 ? (
+                <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                  {t(uiLang, "aiMaintenanceFindingsEmpty")}
+                </ChromeText>
+              ) : (
+                openScanFindings.map((finding, index) => (
+                  <div
+                    key={finding.id}
+                    style={{
+                      padding: "10px 0",
+                      borderTop:
+                        index === 0
+                          ? "none"
+                          : `1px solid ${CHROME_SOFT_BLUE}`,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <Row
+                      gap={12}
+                      align="center"
+                      style={{ width: "100%", flexWrap: "wrap" }}
+                    >
+                      <Stack gap={2} style={{ flex: 1, minWidth: 180 }}>
+                        <ChromeText weight="semibold">
+                          {aiScanFindingLabel(uiLang, finding)}
+                        </ChromeText>
+                        <ChromeText
+                          size="small"
+                          style={{ color: CHROME_INK_MUTED }}
+                        >
+                          {aiScanFindingDetail(uiLang, finding)}
+                        </ChromeText>
+                        <ChromeText
+                          size="small"
+                          style={{ color: CHROME_INK_MUTED }}
+                        >
+                          {finding.severity === "security"
+                            ? uiLang === "he"
+                              ? "אבטחה"
+                              : "Security"
+                            : finding.severity === "warning"
+                              ? uiLang === "he"
+                                ? "אזהרה"
+                                : "Warning"
+                              : uiLang === "he"
+                                ? "באג"
+                                : "Bug"}
+                        </ChromeText>
+                      </Stack>
+                      <Row gap={8} align="center" style={{ flexShrink: 0 }}>
+                        <ChromeText size="small" weight="semibold">
+                          {finding.fixSelected
+                            ? t(uiLang, "aiMaintenanceFindingFix")
+                            : t(uiLang, "aiMaintenanceFindingSkip")}
+                        </ChromeText>
+                        <ChromeToggle
+                          checked={finding.fixSelected}
+                          disabled={!aiOn}
+                          onChange={(v) =>
+                            toggleScanFindingFix(finding.id, v)
+                          }
+                          size="md"
+                        />
+                      </Row>
+                    </Row>
+                  </div>
+                ))
+              )}
+              <Button
+                variant="primary"
+                disabled={
+                  !aiOn ||
+                  openScanFindings.length === 0 ||
+                  selectedScanFixCount === 0
+                }
+                onClick={runScanFixes}
+              >
+                {t(uiLang, "aiMaintenanceRunFixes")}
+                {selectedScanFixCount > 0
+                  ? ` (${selectedScanFixCount})`
+                  : ""}
+              </Button>
+            </Stack>
+            <Stack
               gap={8}
               style={{
                 border: CHROME_FIELD_BORDER,
@@ -46922,9 +48409,647 @@ function AiMaintenanceScreen() {
   );
 }
 
-type HelpFabVia = "ai" | "human";
 
-/** Help compose panel — opposite page corner; AI vs Human choice. */
+/** System Admins who can access Help & feedback / reply (active + systemadmin). */
+function listHelpFeedbackSysAdmins(
+  workers: FirmWorker[] = DEMO_STAFF,
+  rightsMap?: StaffRightsMap | null,
+): FirmWorker[] {
+  const list = normalizeFirmWorkers(
+    Array.isArray(workers) && workers.length > 0 ? workers : DEMO_STAFF,
+  );
+  return list.filter((w) => {
+    const rights = resolveStaffRightsEntry(w.id, rightsMap, list);
+    return rights.active && rights.role === "systemadmin";
+  });
+}
+
+/** Most recent time this sysadmin helped the given worker (thread history). */
+function helpFabLastHelpedAt(
+  adminWorkerId: string,
+  forWorkerId: string,
+  items: HelpFeedbackItem[],
+): string {
+  const me = (forWorkerId || "").trim();
+  const admin = (adminWorkerId || "").trim();
+  if (!me || !admin) return "";
+  let best = "";
+  for (const item of items) {
+    if (item.authorWorkerId !== me) continue;
+    if (item.humanReplyByWorkerId === admin) {
+      const at = item.createdAt || "";
+      if (at && (!best || at > best)) best = at;
+    }
+    for (const msg of helpFeedbackThreadBubbles(item)) {
+      if (msg.from !== "support") continue;
+      if ((msg.fromWorkerId || "").trim() !== admin) continue;
+      const at = msg.at || "";
+      if (at && (!best || at > best)) best = at;
+    }
+  }
+  return best;
+}
+
+const HELP_FAB_PRESENCE_CAP = 4;
+
+/**
+ * Rank Help FAB sysadmin presence faces (max 4):
+ * (a) helped this worker most recently, (b) currently online, (c) last online.
+ * Ensures recent helpers surface when online; fills with other online / recently online.
+ */
+function resolveHelpFabSupportWorkers(
+  workers: FirmWorker[] = DEMO_STAFF,
+  rightsMap?: StaffRightsMap | null,
+  forWorkerId: string = "",
+  helpItems: HelpFeedbackItem[] = [],
+  presence?: StaffPresenceMap | null,
+  signedInWorkerId?: string,
+): FirmWorker[] {
+  const admins = listHelpFeedbackSysAdmins(workers, rightsMap);
+  if (admins.length === 0) return [];
+  const ranked = [...admins].sort((a, b) => {
+    const helpedA = helpFabLastHelpedAt(a.id, forWorkerId, helpItems);
+    const helpedB = helpFabLastHelpedAt(b.id, forWorkerId, helpItems);
+    if (helpedA !== helpedB) {
+      if (!helpedA) return 1;
+      if (!helpedB) return -1;
+      return helpedB.localeCompare(helpedA);
+    }
+    const presA = staffPresenceFor(a.id, presence, signedInWorkerId);
+    const presB = staffPresenceFor(b.id, presence, signedInWorkerId);
+    if (presA.online !== presB.online) return presA.online ? -1 : 1;
+    const lastA = presA.lastOnlineAt || "";
+    const lastB = presB.lastOnlineAt || "";
+    if (lastA !== lastB) {
+      if (!lastA) return 1;
+      if (!lastB) return -1;
+      return lastB.localeCompare(lastA);
+    }
+    return a.name.localeCompare(b.name);
+  });
+  return ranked.slice(0, HELP_FAB_PRESENCE_CAP);
+}
+
+const HELP_FAB_AVATAR_COLORS = [
+  "#5B8DEF",
+  "#E0A05A",
+  "#52B896",
+  "#8B6FC0",
+] as const;
+
+const HELP_FAB_ONLINE_DOT = "#25D366";
+
+function HelpFabSupportAvatar({
+  worker,
+  index,
+  uiLang,
+  workers,
+  online,
+}: {
+  worker: FirmWorker;
+  index: number;
+  uiLang: UiLang;
+  workers: FirmWorker[];
+  online: boolean;
+}) {
+  const name = staffDisplayName(uiLang, worker.id, workers);
+  const initials = staffInitials(worker.id, workers);
+  const photo = staffPhotoUrl(worker.id, workers);
+  const bg = HELP_FAB_AVATAR_COLORS[index % HELP_FAB_AVATAR_COLORS.length]!;
+  const onlineLabel = t(uiLang, "waOnline");
+  const title = online ? `${name} · ${onlineLabel}` : name;
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: 999,
+        background: photo ? "transparent" : bg,
+        border: "2px solid #0B2A6B",
+        marginInlineStart: index === 0 ? 0 : -8,
+        boxSizing: "border-box",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: CHROME_WHITE,
+        fontSize: 10,
+        fontWeight: 700,
+        lineHeight: 1,
+        zIndex: HELP_FAB_PRESENCE_CAP - index,
+        position: "relative",
+        overflow: "visible",
+        flexShrink: 0,
+      }}
+    >
+      {photo ? (
+        <img
+          src={photo}
+          alt=""
+          draggable={false}
+          style={{
+            width: "100%",
+            height: "100%",
+            borderRadius: 999,
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
+      ) : (
+        initials
+      )}
+      {online ? (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            right: -1,
+            bottom: -1,
+            width: 9,
+            height: 9,
+            borderRadius: 999,
+            background: HELP_FAB_ONLINE_DOT,
+            border: "1.5px solid #0B2A6B",
+            boxSizing: "border-box",
+          }}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+type HelpFabVia = "ai" | "human";
+type HelpFabTab = "home" | "messages" | "compose";
+
+const HELP_FAB_BLUE = "#1B5FDB";
+const HELP_FAB_AI = "#2F7D6D";
+const HELP_FAB_BLUE_DEEP = "#0B2A6B";
+const HELP_FAB_VOID =
+  "radial-gradient(120% 90% at 80% -10%, rgba(120,180,255,0.55) 0%, transparent 55%), radial-gradient(90% 70% at 10% 110%, rgba(20,40,90,0.55) 0%, transparent 50%), linear-gradient(165deg, #143A8C 0%, #1B5FDB 42%, #0E3378 100%)";
+/** James · AI mark — geometric hub with 8 radiating nodes (inline SVG). */
+function HelpFabAiFace({ size = 36 }: { size?: number }) {
+  return (
+    <span
+      role="img"
+      aria-label="James AI"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 999,
+        display: "block",
+        flexShrink: 0,
+        overflow: "hidden",
+        boxShadow: `0 0 0 2px ${waveChipAlpha(HELP_FAB_AI, "40")}`,
+        background: "#EEF3FC",
+      }}
+    >
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 40 40"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden
+        style={{ display: "block" }}
+      >
+        <circle cx="20" cy="20" r="20" fill="#EEF3FC" />
+        {/* Abstract AI hub: center square + 8 teardrop nodes (cardinal + diagonal) */}
+        <g fill={HELP_FAB_BLUE_DEEP} transform="translate(20 20)">
+          {/* Cardinal teardrops */}
+          <ellipse cx="0" cy="-11.2" rx="3.05" ry="5.9" />
+          <ellipse cx="0" cy="11.2" rx="3.05" ry="5.9" />
+          <ellipse cx="-11.2" cy="0" rx="5.9" ry="3.05" />
+          <ellipse cx="11.2" cy="0" rx="5.9" ry="3.05" />
+          {/* Diagonal teardrops */}
+          <ellipse
+            cx="0"
+            cy="-11.2"
+            rx="3.05"
+            ry="5.9"
+            transform="rotate(45)"
+          />
+          <ellipse
+            cx="0"
+            cy="-11.2"
+            rx="3.05"
+            ry="5.9"
+            transform="rotate(135)"
+          />
+          <ellipse
+            cx="0"
+            cy="-11.2"
+            rx="3.05"
+            ry="5.9"
+            transform="rotate(225)"
+          />
+          <ellipse
+            cx="0"
+            cy="-11.2"
+            rx="3.05"
+            ry="5.9"
+            transform="rotate(315)"
+          />
+          {/* Central hub square */}
+          <rect x="-4.1" y="-4.1" width="8.2" height="8.2" rx="0.6" />
+        </g>
+        {/* Soft brand accent rim */}
+        <circle
+          cx="20"
+          cy="20"
+          r="18.6"
+          stroke={HELP_FAB_BLUE}
+          strokeOpacity={0.28}
+          strokeWidth={1.1}
+        />
+      </svg>
+    </span>
+  );
+}
+
+function HelpFabGlyph({
+  kind,
+  color,
+  size = 20,
+}: {
+  kind:
+    | "home"
+    | "messages"
+    | "help"
+    | "bug"
+    | "suggestion"
+    | "ai"
+    | "human"
+    | "write"
+    | "chevron"
+    | "chevronDown"
+    | "paperclip"
+    | "sendArrow"
+    | "smileChat"
+    | "mic"
+    | "gif"
+    | "emoji"
+    | "expand"
+    | "collapse";
+  color: string;
+  size?: number;
+}) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    "aria-hidden": true,
+    style: { display: "block", flexShrink: 0 } as CSSProperties,
+  };
+  const stroke = {
+    fill: "none" as const,
+    stroke: color,
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  switch (kind) {
+    case "home":
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M4 11.5L12 4.5l8 7V20a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 20v-8.5z" />
+          <path {...stroke} d="M9.5 21.5v-6h5v6" />
+        </svg>
+      );
+    case "messages":
+      return (
+        <svg {...common}>
+          <path
+            {...stroke}
+            d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z"
+          />
+        </svg>
+      );
+    case "smileChat":
+      return (
+        <svg {...common} fill="none">
+          <path
+            fill={color}
+            d="M5 17.8V7.6A2.6 2.6 0 0 1 7.6 5h8.8A2.6 2.6 0 0 1 19 7.6v6A2.6 2.6 0 0 1 16.4 16.2H9.2L5 18.8V17.8z"
+          />
+          <path
+            stroke={HELP_FAB_BLUE}
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            d="M9.2 11.2c.7 1.1 1.8 1.7 2.8 1.7s2.1-.6 2.8-1.7"
+          />
+        </svg>
+      );
+    case "paperclip":
+      return (
+        <svg {...common}>
+          <path
+            {...stroke}
+            d="M15.5 8.5l-6.8 6.8a2.2 2.2 0 1 1-3.1-3.1l7.4-7.4a3.5 3.5 0 0 1 5 5l-7.6 7.6a4.8 4.8 0 0 1-6.8-6.8L11 4.2"
+          />
+        </svg>
+      );
+    case "mic":
+      return (
+        <svg {...common}>
+          <path
+            {...stroke}
+            d="M12 4.5a2.6 2.6 0 0 1 2.6 2.6v5.2a2.6 2.6 0 0 1-5.2 0V7.1A2.6 2.6 0 0 1 12 4.5z"
+          />
+          <path {...stroke} d="M7.2 12.2a4.8 4.8 0 0 0 9.6 0M12 17v2.5" />
+        </svg>
+      );
+    case "gif":
+      return (
+        <svg {...common}>
+          <rect {...stroke} x="4.5" y="6.5" width="15" height="11" rx="2.2" />
+          <path
+            {...stroke}
+            d="M8.2 14.2V9.8h3.1M8.2 12h2.4M13.4 9.8h2.4v4.4h-2.4M13.4 12h1.8"
+          />
+        </svg>
+      );
+    case "emoji":
+      /** Colorful 🙂 — matches System Admin HelpFeedbackScreen reply composer. */
+      return (
+        <span
+          aria-hidden
+          style={{
+            display: "block",
+            flexShrink: 0,
+            width: size,
+            height: size,
+            lineHeight: `${size}px`,
+            fontSize: Math.round(size * 0.9),
+            textAlign: "center",
+            userSelect: "none",
+          }}
+        >
+          🙂
+        </span>
+      );
+    case "sendArrow":
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M12 18V7M7.5 11.5 12 7l4.5 4.5" />
+        </svg>
+      );
+    case "chevronDown":
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M6 9l6 6 6-6" />
+        </svg>
+      );
+    case "expand":
+      /** Arrows outward — make larger / full-bleed. */
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M15 4h5v5" />
+          <path {...stroke} d="M9 20H4v-5" />
+          <path {...stroke} d="M20 4l-7 7M4 20l7-7" />
+        </svg>
+      );
+    case "collapse":
+      /** Arrows inward — opposite of expand (shrink panel). */
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M20 9V4h-5" />
+          <path {...stroke} d="M4 15v5h5" />
+          <path {...stroke} d="M20 4l-7 7M4 20l7-7" />
+        </svg>
+      );
+    case "help":
+      return (
+        <svg {...common}>
+          <circle {...stroke} cx="12" cy="12" r="8.5" />
+          <path
+            {...stroke}
+            d="M9.6 9.4a2.5 2.5 0 0 1 4.7 1.1c0 1.5-1.4 2-2.1 2.5-.5.35-.7.7-.7 1.3"
+          />
+          <path {...stroke} d="M12 17.2v.2" />
+        </svg>
+      );
+    case "bug":
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M8 9.5h8v6.5a4 4 0 0 1-8 0V9.5z" />
+          <path {...stroke} d="M9 9.5V8a3 3 0 0 1 6 0v1.5" />
+          <path {...stroke} d="M4.5 12h3.5M16 12h3.5M5 16.5l2.5-1M19 16.5l-2.5-1M5 8.5l2.5 1M19 8.5l-2.5 1" />
+        </svg>
+      );
+    case "suggestion":
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M9 18h6" />
+          <path {...stroke} d="M10 21h4" />
+          <path
+            {...stroke}
+            d="M8.5 15.5c-2.2-1.3-3.5-3.4-3.5-5.7A5 5 0 0 1 12 5a5 5 0 0 1 7 4.8c0 2.3-1.3 4.4-3.5 5.7H8.5z"
+          />
+        </svg>
+      );
+    case "ai":
+      return (
+        <svg {...common}>
+          <rect {...stroke} x="5" y="7" width="14" height="11" rx="2.5" />
+          <path {...stroke} d="M9 11.5h6M9 14.5h4" />
+          <path {...stroke} d="M9 7V5.5M15 7V5.5" />
+        </svg>
+      );
+    case "human":
+      return (
+        <svg {...common}>
+          <circle {...stroke} cx="12" cy="9" r="3.2" />
+          <path {...stroke} d="M6.5 19c.7-3.2 2.9-5 5.5-5s4.8 1.8 5.5 5" />
+        </svg>
+      );
+    case "write":
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M4 18.5l1.8-6.2L16.5 2.6l3.2 3.2L9 16.5 4 18.5z" />
+          <path {...stroke} d="M13.8 5.2l3.2 3.2" />
+        </svg>
+      );
+    case "chevron":
+      return (
+        <svg {...common}>
+          <path {...stroke} d="M10 6l6 6-6 6" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+/** Shared WhatsApp-style composer: text + mic / GIF / emoji / attach + send. */
+function HelpChatComposerBar({
+  uiLang,
+  value,
+  onChange,
+  onSend,
+  enterIsSend,
+  enterSendHint,
+  attachName,
+  onAttachDemo,
+  onEmoji,
+  onGifDemo,
+  onMicDemo,
+  placeholder,
+}: {
+  uiLang: UiLang;
+  value: string;
+  onChange: (v: string) => void;
+  onSend: () => void;
+  enterIsSend: boolean;
+  enterSendHint: string;
+  attachName: string;
+  onAttachDemo: () => void;
+  onEmoji: () => void;
+  onGifDemo: () => void;
+  onMicDemo: () => void;
+  placeholder: string;
+}) {
+  const canSend = Boolean(value.trim() || attachName.trim());
+  return (
+    <>
+      <Row
+        gap={8}
+        align="end"
+        style={{
+          width: "100%",
+          direction: uiLang === "he" ? "rtl" : "ltr",
+        }}
+      >
+        <button
+          type="button"
+          title={t(uiLang, "helpFabSend")}
+          aria-label={t(uiLang, "helpFabSend")}
+          disabled={!canSend}
+          onClick={onSend}
+          style={{
+            all: "unset",
+            cursor: canSend ? "pointer" : "not-allowed",
+            width: 40,
+            height: 40,
+            borderRadius: 999,
+            background: canSend ? HELP_FAB_BLUE : "#D0D5DD",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            boxSizing: "border-box",
+            order: uiLang === "he" ? 0 : 2,
+          }}
+        >
+          <HelpFabGlyph
+            kind="sendArrow"
+            color={canSend ? CHROME_WHITE : "#667085"}
+            size={18}
+          />
+        </button>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            borderRadius: 18,
+            border: "1px solid #D0D5DD",
+            background: CHROME_WHITE,
+            padding: "8px 10px 6px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            boxSizing: "border-box",
+            order: 1,
+          }}
+        >
+          <ChatComposerTextArea
+            value={value}
+            onChange={onChange}
+            enterIsSend={enterIsSend}
+            onSend={onSend}
+            placeholder={placeholder}
+            rows={2}
+            style={{
+              flex: 1,
+              minHeight: 44,
+              border: "none",
+              background: "transparent",
+              boxShadow: "none",
+              padding: "2px 4px",
+              resize: "none",
+            }}
+          />
+          {attachName ? (
+            <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+              {attachName}
+            </ChromeText>
+          ) : null}
+          <Row
+            gap={12}
+            align="center"
+            style={{
+              width: "100%",
+              justifyContent: "flex-end",
+              paddingInline: 2,
+              paddingBottom: 2,
+            }}
+          >
+            {(
+              [
+                {
+                  kind: "mic" as const,
+                  labelKey: "helpFabMicDemo" as const,
+                  onClick: onMicDemo,
+                },
+                {
+                  kind: "gif" as const,
+                  labelKey: "helpFabGifDemo" as const,
+                  onClick: onGifDemo,
+                },
+                {
+                  kind: "emoji" as const,
+                  labelKey: "helpFabEmojiDemo" as const,
+                  onClick: onEmoji,
+                },
+                {
+                  kind: "paperclip" as const,
+                  labelKey: "helpFabAttachDemo" as const,
+                  onClick: onAttachDemo,
+                },
+              ]
+            ).map((tool) => (
+              <button
+                key={tool.kind}
+                type="button"
+                title={t(uiLang, tool.labelKey)}
+                aria-label={t(uiLang, tool.labelKey)}
+                onClick={tool.onClick}
+                style={{
+                  all: "unset",
+                  cursor: "pointer",
+                  width: 28,
+                  height: 28,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <HelpFabGlyph kind={tool.kind} color="#667085" size={20} />
+              </button>
+            ))}
+          </Row>
+        </div>
+      </Row>
+      <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+        {enterSendHint}
+      </ChromeText>
+    </>
+  );
+}
+
+/** Help chat panel — bubbles + composer; AI local / human → System Admin. */
 function WorkerHelpFeedbackFab({
   visible,
   authorName,
@@ -46937,12 +49062,38 @@ function WorkerHelpFeedbackFab({
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [open, setOpen] = useCanvasState("crmHelpFabOpen.v1", false);
+  /**
+   * Primary Help pressed/selected — shared with AppPrimaryRail.
+   * Minimize keeps this true (docked FAB). Only rail toggle-off / visibility loss clear it.
+   */
+  const [helpRailPressed, setHelpRailPressed] = useCanvasState(
+    "crmHelpFabRailPressed.v1",
+    false,
+  );
+  /** Legacy dock flag — synced for storage hygiene; UI gates on helpRailPressed. */
+  const [, setDocked] = useCanvasState("crmHelpFabDocked.v1", false);
+  /** Legacy sticky unlock — cleared on full off; not used to gate FAB. */
+  const [, setRailUnlocked] = useCanvasState(
+    "crmHelpFabRailUnlocked.v1",
+    false,
+  );
+  
+  const [expanded, setExpanded] = useCanvasState(
+    "crmHelpFabExpanded.v1",
+    false,
+  );
   const [mode, setMode] = useCanvasState<HelpFeedbackKind>(
     "crmHelpFabMode.v1",
     "help",
   );
   const [via, setVia] = useCanvasState<HelpFabVia>("crmHelpFabVia.v1", "human");
-  const [subject, setSubject] = useCanvasState("crmHelpFabSubject.v1", "");
+  const [tab, setTab] = useCanvasState<HelpFabTab>(HELP_FAB_TAB_STATE_KEY, "home");
+  /** Stale/unknown tab → Home (never land on Messages after reopen). */
+  useEffect(() => {
+    if (tab !== "home" && tab !== "messages" && tab !== "compose") {
+      setTab("home");
+    }
+  }, [tab]);
   const [body, setBody] = useCanvasState("crmHelpFabBody.v1", "");
   const [flash, setFlash] = useCanvasState("crmHelpFabFlash.v1", "");
   const [aiBusy, setAiBusy] = useCanvasState("crmHelpFabAiBusy.v1", false);
@@ -46950,27 +49101,163 @@ function WorkerHelpFeedbackFab({
     "crmHelpFabLastAiReply.v1",
     "",
   );
-  const [, setItems] = useCanvasState<HelpFeedbackItem[]>(
+  const [activeThreadId, setActiveThreadId] = useCanvasState(
+    "crmHelpFabActiveThreadId.v1",
+    "",
+  );
+  const [attachName, setAttachName] = useCanvasState(
+    "crmHelpFabAttachName.v1",
+    "",
+  );
+  const [typingDemo, setTypingDemo] = useCanvasState(
+    "crmHelpFabTypingDemo.v1",
+    false,
+  );
+  const [itemsRaw, setItems] = useCanvasState<HelpFeedbackItem[]>(
     "crmHelpFeedback.v1",
     DEFAULT_HELP_FEEDBACK_ITEMS,
+  );
+  const items = normalizeHelpFeedbackItems(itemsRaw);
+  /** AI Help threads stay local — not in System Admin inbox. */
+  const [localAiHelpRaw, setLocalAiHelp] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFabLocalAi.v1",
+    [],
+  );
+  const localAiHelp = (
+    Array.isArray(localAiHelpRaw) ? localAiHelpRaw : []
+  ).filter(
+    (row): row is HelpFeedbackItem =>
+      Boolean(row && typeof row.id === "string"),
   );
   const [companySettingsRaw] = useCanvasState<CompanySettings>(
     "crmCompanySettings.v1",
     DEFAULT_COMPANY_SETTINGS,
   );
+  const [deskSettings] = useCanvasState(
+    "whatsappDeskSettings.v1",
+    DEFAULT_WHATSAPP_DESK_SETTINGS,
+  );
+  const [chatComposerPrefs] = useCanvasState<ChatComposerPrefsByWorker>(
+    "chatComposerPrefsByWorker.v1",
+    {},
+  );
+  const enterIsSend = effectiveEnterIsSend(
+    deskSettings,
+    workerEnterIsSendPref(chatComposerPrefs, authorWorkerId),
+  );
+  const enterSendHint = enterIsSend
+    ? t(uiLang, "chatEnterIsSendOnHint")
+    : t(uiLang, "chatEnterIsSendOffHint");
+  const [firmWorkersRaw] = useCanvasState<FirmWorker[]>(
+    "firmWorkers.v3",
+    DEMO_STAFF,
+  );
+  const firmWorkers = normalizeFirmWorkers(
+    Array.isArray(firmWorkersRaw) && firmWorkersRaw.length > 0
+      ? firmWorkersRaw
+      : DEMO_STAFF,
+  );
+  const [staffRightsMap] = useCanvasState<StaffRightsMap>(
+    "crmStaffRights.v1",
+    {},
+  );
+  const [staffPresenceRaw, setStaffPresence] = useCanvasState<StaffPresenceMap>(
+    "crmStaffPresence.v1",
+    DEFAULT_STAFF_PRESENCE,
+  );
+  const staffPresence = normalizeStaffPresenceMap(staffPresenceRaw);
+  /** Keep signed-in worker marked online (demo ↔ real presence hook). */
+  useEffect(() => {
+    const id = (authorWorkerId || "").trim();
+    if (!id) return;
+    const stamp = new Date().toISOString().slice(0, 19);
+    setStaffPresence((prev) => {
+      const map = normalizeStaffPresenceMap(prev);
+      const cur = map[id];
+      if (cur?.online && cur.lastOnlineAt) return map;
+      return {
+        ...map,
+        [id]: { online: true, lastOnlineAt: stamp },
+      };
+    });
+  }, [authorWorkerId]);
+  const supportFaces = resolveHelpFabSupportWorkers(
+    firmWorkers,
+    staffRightsMap,
+    authorWorkerId,
+    items,
+    staffPresence,
+    authorWorkerId,
+  );
   const aiEnabled = firmAiIntegrationEnabled(companySettingsRaw);
   const effectiveVia: HelpFabVia =
     aiEnabled && via === "ai" ? "ai" : "human";
+  const firstName = (authorName || "").trim().split(/\s+/)[0] || authorName;
+  const greeting = t(uiLang, "helpFabGreeting").replace(
+    "{name}",
+    firstName || "there",
+  );
+  const rtl = uiLang === "he";
+  const sharedMine = items.filter((i) => i.authorWorkerId === authorWorkerId);
+  const localMine = localAiHelp.filter(
+    (i) => i.authorWorkerId === authorWorkerId,
+  );
+  const myItems = [...localMine, ...sharedMine].sort((a, b) =>
+    String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+  );
+  const itemHasReply = helpFeedbackItemHasSupportReply;
+  const unreadMessages = workerHelpUnreadMessageCount(
+    items,
+    localAiHelp,
+    authorWorkerId,
+  );
+  const activeThread =
+    localAiHelp.find((i) => i.id === activeThreadId) ??
+    items.find((i) => i.id === activeThreadId) ??
+    myItems.find((i) => i.id === activeThreadId) ??
+    null;
+  const activeIsLocal = Boolean(
+    activeThread && localAiHelp.some((i) => i.id === activeThread.id),
+  );
+
+  /** Full Help off — rail toggle-off and visibility loss only (not Minimize). */
+  const closeHelpFully = () => {
+    setHelpRailPressed(false);
+    setDocked(false);
+    setRailUnlocked(false);
+    setExpanded(false);
+    setOpen(false);
+  };
+
+  /** Minimize — hide panel, keep Help pressed, show docked blue FAB. */
+  const minimizeHelpToFab = () => {
+    setExpanded(false);
+    setDocked(true);
+    setOpen(false);
+    if (!helpRailPressed) setHelpRailPressed(true);
+  };
 
   useEffect(() => {
-    if (!visible && open) setOpen(false);
-  }, [visible, open]);
+    if (!visible && (open || helpRailPressed)) {
+      closeHelpFully();
+    }
+  }, [visible, open, helpRailPressed]);
+
+  /** Keep expanded false while docked closed; do NOT clear helpRailPressed on Minimize. */
+  useEffect(() => {
+    if (open) return;
+    if (expanded) setExpanded(false);
+  }, [open, expanded]);
 
   useEffect(() => {
     if (!aiEnabled && via === "ai") setVia("human");
   }, [aiEnabled, via]);
 
-  if (!visible || !open) return null;
+  useEffect(() => {
+    if (!typingDemo) return;
+    const timer = setTimeout(() => setTypingDemo(false), 2400);
+    return () => clearTimeout(timer);
+  }, [typingDemo]);
 
   const bodyPlaceholder =
     mode === "bug"
@@ -46979,37 +49266,238 @@ function WorkerHelpFeedbackFab({
         ? t(uiLang, "helpFabBodyPlaceholderSuggestion")
         : t(uiLang, "helpFabBodyPlaceholderHelp");
 
-  const modes: { id: HelpFeedbackKind; label: string }[] = [
-    { id: "help", label: t(uiLang, "helpFabModeHelp") },
-    { id: "bug", label: t(uiLang, "helpFabModeBug") },
-    { id: "suggestion", label: t(uiLang, "helpFabModeSuggestion") },
-  ];
+  const openCompose = (nextMode: HelpFeedbackKind) => {
+    setMode(nextMode);
+    setActiveThreadId("");
+    setTab("compose");
+    setFlash("");
+    setTypingDemo(false);
+    setAttachName("");
+  };
 
-  const viaOptions: {
-    id: HelpFabVia;
-    label: string;
-    disabled: boolean;
-  }[] = [
-    {
-      id: "ai",
-      label: t(uiLang, "helpFabViaAi"),
-      disabled: !aiEnabled,
-    },
-    {
-      id: "human",
-      label: t(uiLang, "helpFabViaHuman"),
-      disabled: false,
-    },
-  ];
+  const openThread = (id: string) => {
+    const item =
+      localAiHelp.find((i) => i.id === id) ?? items.find((i) => i.id === id);
+    if (!item) return;
+    const isLocal = localAiHelp.some((i) => i.id === id);
+    setActiveThreadId(id);
+    setMode(item.kind);
+    if (item.aiReply || (item.threadMessages ?? []).some((m) => m.from === "ai")) {
+      setVia("ai");
+    } else {
+      setVia("human");
+    }
+    setTab("compose");
+    setFlash("");
+    setTypingDemo(false);
+    if (!item.workerRead) {
+      if (isLocal) {
+        setLocalAiHelp((prev) =>
+          (Array.isArray(prev) ? prev : []).map((row) =>
+            row.id === id ? { ...row, workerRead: true } : row,
+          ),
+        );
+      } else {
+        setItems((prev) =>
+          normalizeHelpFeedbackItems(prev).map((row) =>
+            row.id === id ? { ...row, workerRead: true } : row,
+          ),
+        );
+      }
+    }
+  };
+
+  const threadBubbles = (
+    item: HelpFeedbackItem | null,
+  ): HelpFeedbackThreadMsg[] => {
+    if (!item) return [];
+    if (item.threadMessages && item.threadMessages.length > 0) {
+      return item.threadMessages;
+    }
+    const out: HelpFeedbackThreadMsg[] = [
+      {
+        id: `${item.id}-body`,
+        from: "worker",
+        text: item.body,
+        at: item.createdAt,
+        attachmentName: item.attachmentName,
+      },
+    ];
+    if (item.aiReply) {
+      out.push({
+        id: `${item.id}-ai`,
+        from: "ai",
+        text: item.aiReply,
+        at: item.createdAt,
+      });
+    }
+    if (item.humanReply) {
+      out.push({
+        id: `${item.id}-human`,
+        from: "support",
+        text: item.humanReply,
+        at: item.createdAt,
+        fromWorkerId: item.humanReplyByWorkerId,
+      });
+    }
+    return out;
+  };
+
+  const lastNonWorker = (item: HelpFeedbackItem) => {
+    const bubbles = threadBubbles(item);
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      if (bubbles[i]!.from !== "worker") return bubbles[i]!;
+    }
+    return null;
+  };
+
+  const replyLabel = (item: HelpFeedbackItem) => {
+    const last = lastNonWorker(item);
+    if (last?.from === "ai") return t(uiLang, "helpFabRepliedAi");
+    if (last?.from === "support") return t(uiLang, "helpFabRepliedHuman");
+    if (item.status === "queued") return t(uiLang, "helpFabWaitingReply");
+    return item.subject;
+  };
+
+  const patchThread = (
+    id: string,
+    isLocal: boolean,
+    patch: (row: HelpFeedbackItem) => HelpFeedbackItem,
+  ) => {
+    if (isLocal) {
+      setLocalAiHelp((prev) =>
+        (Array.isArray(prev) ? prev : []).map((row) =>
+          row.id === id ? patch(row) : row,
+        ),
+      );
+    } else {
+      setItems((prev) =>
+        normalizeHelpFeedbackItems(prev).map((row) =>
+          row.id === id ? patch(row) : row,
+        ),
+      );
+    }
+  };
+
+  const answerAiResolve = (resolved: boolean) => {
+    if (!activeThread || activeThread.status === "closed") return;
+    const prev = activeThread.threadMessages?.length
+      ? activeThread.threadMessages
+      : threadBubbles(activeThread);
+    const last = prev[prev.length - 1];
+    if (!isHelpAiResolveAskMsg(last)) return;
+    const stamp = Date.now();
+    const at = new Date(stamp).toISOString().slice(0, 19);
+    const workerMsg: HelpFeedbackThreadMsg = {
+      id: `hf-msg-${stamp}`,
+      from: "worker",
+      text: resolved
+        ? t(uiLang, "helpFabAiResolveYes")
+        : t(uiLang, "helpFabAiResolveNo"),
+      at,
+    };
+    const nextMsgs: HelpFeedbackThreadMsg[] = [
+      ...prev,
+      workerMsg,
+      {
+        id: resolved
+          ? `hf-msg-ai-closed-${stamp}`
+          : `hf-msg-ai-cont-${stamp}`,
+        from: "ai",
+        text: resolved
+          ? t(uiLang, "helpFabAiResolveClosedAck")
+          : t(uiLang, "helpFabAiResolveContinue"),
+        at,
+      },
+    ];
+    patchThread(activeThread.id, activeIsLocal, (row) => ({
+      ...row,
+      threadMessages: nextMsgs,
+      status: resolved ? "closed" : row.status,
+      read: activeIsLocal ? true : resolved ? true : row.read,
+      workerRead: true,
+    }));
+    setFlash("");
+    setBody("");
+    setAttachName("");
+  };
 
   const send = () => {
-    const subj = subject.trim();
+    if (activeThread?.status === "closed") return;
     const details = body.trim();
-    if (!subj || !details) return;
+    if (!details && !attachName.trim()) return;
     const stamp = Date.now();
+    const at = new Date(stamp).toISOString().slice(0, 19);
+    const subj =
+      details.slice(0, 72) ||
+      attachName.trim() ||
+      (mode === "bug"
+        ? t(uiLang, "helpFabModeBug")
+        : mode === "suggestion"
+          ? t(uiLang, "helpFabModeSuggestion")
+          : t(uiLang, "helpFabModeHelp"));
     const useAi = effectiveVia === "ai" && aiEnabled;
-    /** Only Bug + Suggestion report to Systemadmin — never Help type. */
-    const reportsToInbox = mode === "bug" || mode === "suggestion";
+    const attach = attachName.trim() || undefined;
+    const workerMsg: HelpFeedbackThreadMsg = {
+      id: `hf-msg-${stamp}`,
+      from: "worker",
+      text: details || (attach ? attach : ""),
+      at,
+      attachmentName: attach,
+    };
+
+    if (activeThread) {
+      const prev = activeThread.threadMessages?.length
+        ? activeThread.threadMessages
+        : threadBubbles(activeThread);
+      const lastPrev = prev[prev.length - 1];
+      /** Explicit yes/no to James resolve ask → close only on yes. */
+      if (isHelpAiResolveAskMsg(lastPrev)) {
+        const yn = parseHelpAiResolveYesNo(details);
+        if (yn === "yes" || yn === "no") {
+          answerAiResolve(yn === "yes");
+          return;
+        }
+      }
+      let nextMsgs = [...prev, workerMsg];
+      let aiReply = activeThread.aiReply;
+      let status = activeThread.status;
+      if (useAi) {
+        setAiBusy(true);
+        aiReply = helpFeedbackDemoAiReply(mode, subj, uiLang);
+        setLastAiReply(aiReply);
+        setAiBusy(false);
+        nextMsgs = [
+          ...nextMsgs,
+          ...helpAiCompletedReplyMessages(stamp, at, aiReply, uiLang),
+        ];
+        status = "ai_replied";
+      } else {
+        setTypingDemo(true);
+        status = "queued";
+      }
+      patchThread(activeThread.id, activeIsLocal, (row) => ({
+        ...row,
+        body: row.body || details,
+        threadMessages: nextMsgs,
+        attachmentName: attach || row.attachmentName,
+        aiReply,
+        status,
+        read: activeIsLocal ? true : false,
+        workerRead: true,
+      }));
+      setFlash(
+        useAi
+          ? mode === "help" || activeIsLocal
+            ? t(uiLang, "helpFabSentAi")
+            : t(uiLang, "helpFabSentBugAi")
+          : t(uiLang, "helpFabSentHuman"),
+      );
+      setBody("");
+      setAttachName("");
+      return;
+    }
+
     let aiReply: string | undefined;
     if (useAi) {
       setAiBusy(true);
@@ -47018,195 +49506,1282 @@ function WorkerHelpFeedbackFab({
       setAiBusy(false);
     } else {
       setLastAiReply("");
+      setTypingDemo(true);
     }
-    if (reportsToInbox) {
-      const item: HelpFeedbackItem = {
-        id: `hf-${mode}-${stamp}`,
-        kind: mode,
-        subject: subj,
-        body: details,
-        authorName,
-        authorWorkerId,
-        createdAt: new Date(stamp).toISOString().slice(0, 19),
-        read: false,
-        status: aiReply ? "ai_replied" : "queued",
-        aiReply,
-      };
-      setItems((prev) => [item, ...normalizeHelpFeedbackItems(prev)]);
-      setFlash(
-        aiReply ? t(uiLang, "helpFabSentBugAi") : t(uiLang, "helpFabSentHuman"),
-      );
+    const msgs: HelpFeedbackThreadMsg[] = [workerMsg];
+    if (aiReply) {
+      msgs.push(...helpAiCompletedReplyMessages(stamp, at, aiReply, uiLang));
+    }
+    /** AI Help stays local; human Help + Bug/Suggestion → System Admin inbox. */
+    const stayLocal = useAi && mode === "help";
+    const item: HelpFeedbackItem = {
+      id: stayLocal ? `hf-local-${mode}-${stamp}` : `hf-${mode}-${stamp}`,
+      kind: mode,
+      subject: subj,
+      body: details || (attach ? attach : subj),
+      authorName,
+      authorWorkerId,
+      createdAt: at,
+      read: stayLocal,
+      workerRead: true,
+      status: aiReply ? "ai_replied" : "queued",
+      aiReply,
+      attachmentName: attach,
+      threadMessages: msgs,
+    };
+    if (stayLocal) {
+      setLocalAiHelp((prev) => [item, ...(Array.isArray(prev) ? prev : [])]);
     } else {
-      /** Help type: local / AI reply only — never Systemadmin inbox. */
-      setFlash(
-        useAi ? t(uiLang, "helpFabSentAi") : t(uiLang, "helpFabSentHelpLocal"),
-      );
+      setItems((prev) => [item, ...normalizeHelpFeedbackItems(prev)]);
     }
-    setSubject("");
+    setActiveThreadId(item.id);
+    setFlash(
+      useAi
+        ? mode === "help"
+          ? t(uiLang, "helpFabSentAi")
+          : t(uiLang, "helpFabSentBugAi")
+        : t(uiLang, "helpFabSentHuman"),
+    );
     setBody("");
+    setAttachName("");
   };
+
+  if (!visible) return null;
+
+  /**
+   * Panel closed: show blue collapsed FAB only while primary Help is pressed.
+   * Rail toggle-off clears pressed → no FAB. Minimize keeps pressed → FAB stays.
+   */
+  if (!open) {
+    if (!helpRailPressed) return null;
+    return (
+      <button
+        type="button"
+        data-chrome="worker-help-fab-collapsed"
+        onClick={() => setOpen(true)}
+        title={t(uiLang, "helpFabTitle")}
+        aria-label={t(uiLang, "helpFabTitle")}
+        style={{
+          all: "unset",
+          cursor: "pointer",
+          position: "absolute",
+          bottom: 10,
+          insetInlineEnd: 10,
+          zIndex: 50,
+          width: 56,
+          height: 56,
+          borderRadius: 999,
+          background: HELP_FAB_BLUE,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "auto",
+        }}
+      >
+        <HelpFabGlyph kind="smileChat" color={CHROME_WHITE} size={28} />
+        {unreadMessages > 0 ? (
+          <span
+            data-chrome="worker-help-fab-unread-badge"
+            style={{
+              position: "absolute",
+              top: -2,
+              insetInlineEnd: -2,
+              minWidth: 18,
+              height: 18,
+              padding: "0 5px",
+              borderRadius: 999,
+              background: "#E53935",
+              color: CHROME_WHITE,
+              fontSize: 10,
+              fontWeight: 700,
+              lineHeight: "18px",
+              textAlign: "center",
+              boxSizing: "border-box",
+            }}
+          >
+            {unreadMessages > 99 ? "99+" : String(unreadMessages)}
+          </span>
+        ) : null}
+      </button>
+    );
+  }
+
+
+  const navItems: {
+    id: string;
+    label: string;
+    glyph: "home" | "messages" | "help" | "bug" | "suggestion";
+    active: boolean;
+    onClick: () => void;
+    badge?: number;
+  }[] = [
+    {
+      id: "home",
+      label: t(uiLang, "helpFabNavHome"),
+      glyph: "home",
+      active: tab === "home",
+      onClick: () => setTab("home"),
+    },
+    {
+      id: "messages",
+      label: t(uiLang, "helpFabNavMessages"),
+      glyph: "messages",
+      active: tab === "messages",
+      onClick: () => setTab("messages"),
+      badge: unreadMessages > 0 ? unreadMessages : undefined,
+    },
+    {
+      id: "help",
+      label: t(uiLang, "helpFabModeHelp"),
+      glyph: "help",
+      active: tab === "compose" && mode === "help",
+      onClick: () => openCompose("help"),
+    },
+    {
+      id: "bug",
+      label: t(uiLang, "helpFabModeBug"),
+      glyph: "bug",
+      active: tab === "compose" && mode === "bug",
+      onClick: () => openCompose("bug"),
+    },
+    {
+      id: "suggestion",
+      label: t(uiLang, "helpFabModeSuggestion"),
+      glyph: "suggestion",
+      active: tab === "compose" && mode === "suggestion",
+      onClick: () => openCompose("suggestion"),
+    },
+  ];
+
+  const actionCard = (
+    key: string,
+    title: string,
+    subtitle: string,
+    glyph: "write" | "ai" | "human" | "bug" | "suggestion" | "help",
+    onClick: () => void,
+    disabled?: boolean,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        all: "unset",
+        cursor: disabled ? "not-allowed" : "pointer",
+        display: "block",
+        width: "100%",
+        boxSizing: "border-box",
+        background: CHROME_WHITE,
+        borderRadius: 14,
+        padding: "12px 14px",
+        border: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "33")}`,
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      <Row gap={10} align="center" style={{ width: "100%" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 999,
+              background: waveChipAlpha(HELP_FAB_BLUE, "22"),
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <HelpFabGlyph kind={glyph} color={HELP_FAB_BLUE} size={18} />
+          </span>
+          <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+            <ChromeText weight="semibold" style={{ color: CHROME_INK }}>
+              {title}
+            </ChromeText>
+            <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+              {subtitle}
+            </ChromeText>
+          </Stack>
+        </div>
+        <HelpFabGlyph kind="chevron" color={HELP_FAB_BLUE} size={16} />
+      </Row>
+    </button>
+  );
+
+  const bubbles = threadBubbles(activeThread);
+  const threadClosed = activeThread?.status === "closed";
+  const awaitingAiResolve =
+    !threadClosed &&
+    isHelpAiResolveAskMsg(bubbles[bubbles.length - 1]);
+  const modeLabel =
+    mode === "bug"
+      ? t(uiLang, "helpFabModeBug")
+      : mode === "suggestion"
+        ? t(uiLang, "helpFabModeSuggestion")
+        : t(uiLang, "helpFabModeHelp");
 
   return (
     <div
-      data-chrome="worker-help-panel-v5"
+      data-chrome="worker-help-panel-v7"
       role="dialog"
       aria-label={t(uiLang, "helpFabTitle")}
       style={{
-        /**
-         * Sibling of AppPrimaryRail (overflow:hidden clips children).
-         * Opposite corner from rail-bottom Help: bottom + inline-end.
-         */
         position: "absolute",
-        bottom: 4,
-        insetInlineEnd: 2,
-        top: "auto",
-        insetInlineStart: "auto",
+        bottom: expanded ? 12 : 4,
+        insetInlineEnd: expanded ? 12 : 2,
+        top: expanded ? 12 : "auto",
+        insetInlineStart: expanded ? 12 : "auto",
         zIndex: 50,
-        width: 320,
-        maxWidth: "min(320px, calc(100% - 24px))",
-        maxHeight: "min(480px, calc(100% - 24px))",
-        overflowY: "auto",
-        background: CHROME_WHITE,
-        border: `1px solid ${CHROME_BORDER_BLUE}`,
-        borderRadius: 14,
-        padding: 14,
+        width: expanded ? "auto" : 340,
+        maxWidth: expanded
+          ? "calc(100% - 24px)"
+          : "min(340px, calc(100% - 24px))",
+        maxHeight: expanded
+          ? "calc(100% - 24px)"
+          : "min(560px, calc(100% - 24px))",
+        height: expanded ? "auto" : undefined,
+        overflow: "hidden",
+        background: CHROME_PANE_BG,
+        border: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "55")}`,
+        borderRadius: 20,
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
-        gap: 10,
         pointerEvents: "auto",
+        direction: rtl ? "rtl" : "ltr",
       }}
     >
-      <Row gap={8} align="center" style={{ width: "100%" }}>
-        <ChromeText weight="semibold" style={{ flex: 1 }}>
-          {t(uiLang, "helpFabTitle")}
-        </ChromeText>
+      <div
+        style={{
+          position: "relative",
+          flexShrink: 0,
+          padding: "14px 14px 28px",
+          background: HELP_FAB_VOID,
+          color: CHROME_WHITE,
+          overflow: "visible",
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "radial-gradient(circle at 20% 30%, rgba(255,255,255,0.14), transparent 42%), radial-gradient(circle at 85% 70%, rgba(0,0,0,0.22), transparent 50%)",
+            pointerEvents: "none",
+          }}
+        />
         <button
           type="button"
-          onClick={() => setOpen(false)}
-          title={t(uiLang, "helpFabClose")}
-          aria-label={t(uiLang, "helpFabClose")}
+          data-chrome="worker-help-expand"
+          onMouseDown={(e: { preventDefault: () => void }) => {
+            e.preventDefault();
+            setExpanded(!expanded);
+          }}
+          onClick={() => setExpanded(!expanded)}
+          title={
+            expanded
+              ? t(uiLang, "helpFabCollapseSize")
+              : t(uiLang, "helpFabExpand")
+          }
+          aria-label={
+            expanded
+              ? t(uiLang, "helpFabCollapseSize")
+              : t(uiLang, "helpFabExpand")
+          }
           style={{
             all: "unset",
             cursor: "pointer",
-            color: CHROME_INK_MUTED,
-            fontSize: 18,
-            lineHeight: 1,
-            padding: 4,
+            pointerEvents: "auto",
+            position: "absolute",
+            top: 14,
+            insetInlineEnd: 14,
+            width: 32,
+            height: 32,
+            borderRadius: 999,
+            background: HELP_FAB_BLUE,
+            border: `2px solid ${CHROME_WHITE}`,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxSizing: "border-box",
+            zIndex: 5,
           }}
         >
-          ×
+          <HelpFabGlyph
+            kind={expanded ? "collapse" : "expand"}
+            color={CHROME_WHITE}
+            size={16}
+          />
         </button>
-      </Row>
-      <Row gap={6} style={{ flexWrap: "wrap" }}>
-        {modes.map((m) => {
-          const active = mode === m.id;
+        <Row
+          align="center"
+          gap={8}
+          style={{
+            width: "100%",
+            position: "relative",
+            zIndex: 1,
+            boxSizing: "border-box",
+            paddingInlineEnd: 40,
+          }}
+        >
+          <button
+            type="button"
+            data-chrome="worker-help-minimize"
+            onMouseDown={(e: { preventDefault: () => void }) => {
+              e.preventDefault();
+              /** Minimize = hide popup, keep Help pressed, show docked blue FAB. */
+              minimizeHelpToFab();
+            }}
+            onClick={() => {
+              /** Minimize = hide popup, keep Help pressed, show docked blue FAB. */
+              minimizeHelpToFab();
+            }}
+            title={uiLang === "he" ? "מזער" : "Minimize"}
+            aria-label={uiLang === "he" ? "מזער" : "Minimize"}
+            style={{
+              all: "unset",
+              cursor: "pointer",
+              pointerEvents: "auto",
+              width: 32,
+              height: 32,
+              borderRadius: 999,
+              background: HELP_FAB_BLUE,
+              border: `2px solid ${CHROME_WHITE}`,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+              flex: "0 0 auto",
+              position: "relative",
+              zIndex: 2,
+            }}
+          >
+            <HelpFabGlyph kind="chevronDown" color={CHROME_WHITE} size={18} />
+          </button>
+          <Row
+            gap={0}
+            style={{
+              flex: "0 0 auto",
+              width: "fit-content",
+              maxWidth: "calc(100% - 40px)",
+              paddingInlineEnd: 0,
+            }}
+          >
+            {supportFaces.map((worker, i) => {
+              const online = staffPresenceFor(
+                worker.id,
+                staffPresence,
+                authorWorkerId,
+              ).online;
+              return (
+                <HelpFabSupportAvatar
+                  key={worker.id}
+                  worker={worker}
+                  index={i}
+                  uiLang={uiLang}
+                  workers={firmWorkers}
+                  online={online}
+                />
+              );
+            })}
+          </Row>
+        </Row>
+        <Stack
+          gap={4}
+          style={{
+            marginTop: 18,
+            position: "relative",
+            zIndex: 1,
+            paddingInline: 4,
+          }}
+        >
+          <ChromeText
+            weight="semibold"
+            style={{ color: CHROME_WHITE, fontSize: 20, lineHeight: 1.25 }}
+          >
+            {greeting}
+          </ChromeText>
+          <ChromeText
+            style={{ color: "rgba(255,255,255,0.92)", fontSize: 16 }}
+          >
+            {t(uiLang, "helpFabGreetingSub")}
+          </ChromeText>
+        </Stack>
+      </div>
+
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          marginTop: -14,
+          padding: "0 12px 12px",
+          position: "relative",
+          zIndex: 2,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        {tab === "home" ? (
+          <>
+            <div
+              style={{
+                background: CHROME_WHITE,
+                borderRadius: 14,
+                border: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "28")}`,
+                padding: 12,
+                boxSizing: "border-box",
+              }}
+            >
+              <ChromeText
+                size="small"
+                weight="semibold"
+                style={{ color: CHROME_INK_MUTED, marginBottom: 8 }}
+              >
+                {t(uiLang, "helpFabChooseVia")}
+              </ChromeText>
+              <Stack gap={8}>
+                {actionCard(
+                  "ai",
+                  t(uiLang, "helpFabViaAi"),
+                  aiEnabled
+                    ? t(uiLang, "helpFabViaAiHint")
+                    : t(uiLang, "helpFabViaAiDisabled"),
+                  "ai",
+                  () => {
+                    if (!aiEnabled) return;
+                    setVia("ai");
+                    openCompose("help");
+                  },
+                  !aiEnabled,
+                )}
+                {actionCard(
+                  "human",
+                  t(uiLang, "helpFabViaHuman"),
+                  t(uiLang, "helpFabViaHumanHint"),
+                  "human",
+                  () => {
+                    setVia("human");
+                    openCompose("help");
+                  },
+                )}
+              </Stack>
+            </div>
+            <div
+              style={{
+                background: CHROME_WHITE,
+                borderRadius: 14,
+                border: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "28")}`,
+                padding: 12,
+                boxSizing: "border-box",
+                width: "100%",
+              }}
+            >
+              <ChromeText
+                size="small"
+                weight="semibold"
+                style={{ color: CHROME_INK_MUTED, marginBottom: 8 }}
+              >
+                {t(uiLang, "helpFabHomeReportTitle")}
+              </ChromeText>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  width: "100%",
+                }}
+              >
+                {actionCard(
+                  "bug",
+                  t(uiLang, "helpFabModeBug"),
+                  t(uiLang, "helpFabBodyPlaceholderBug"),
+                  "bug",
+                  () => openCompose("bug"),
+                )}
+                {actionCard(
+                  "suggestion",
+                  t(uiLang, "helpFabModeSuggestion"),
+                  t(uiLang, "helpFabBodyPlaceholderSuggestion"),
+                  "suggestion",
+                  () => openCompose("suggestion"),
+                )}
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {tab === "messages" ? (
+          <div
+            style={{
+              background: CHROME_WHITE,
+              borderRadius: 14,
+              border: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "28")}`,
+              padding: 12,
+              boxSizing: "border-box",
+            }}
+          >
+            <ChromeText weight="semibold" style={{ marginBottom: 10 }}>
+              {t(uiLang, "helpFabMessagesTitle")}
+            </ChromeText>
+            {myItems.length === 0 ? (
+              <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                {t(uiLang, "helpFabMessagesEmpty")}
+              </ChromeText>
+            ) : (
+              <Stack gap={6}>
+                {myItems.map((item) => {
+                  const last = lastNonWorker(item);
+                  const unread = !item.workerRead && itemHasReply(item);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => openThread(item.id)}
+                      style={{
+                        all: "unset",
+                        cursor: "pointer",
+                        display: "block",
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: `1px solid ${
+                          unread
+                            ? HELP_FAB_BLUE
+                            : waveChipAlpha(HELP_FAB_BLUE, "28")
+                        }`,
+                        background: unread
+                          ? waveChipAlpha(HELP_FAB_BLUE, "10")
+                          : CHROME_PANE_BG,
+                      }}
+                    >
+                      <Row gap={10} align="center" style={{ width: "100%" }}>
+                        <span
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 999,
+                            background:
+                              last?.from === "ai"
+                                ? waveChipAlpha(HELP_FAB_AI, "28")
+                                : last?.from === "support"
+                                  ? waveChipAlpha(HELP_FAB_BLUE, "28")
+                                  : waveChipAlpha(HELP_FAB_BLUE, "18"),
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <HelpFabGlyph
+                            kind={
+                              last?.from === "ai"
+                                ? "ai"
+                                : last?.from === "support"
+                                  ? "human"
+                                  : item.kind === "bug"
+                                    ? "bug"
+                                    : item.kind === "suggestion"
+                                      ? "suggestion"
+                                      : "help"
+                            }
+                            color={
+                              last?.from === "ai"
+                                ? HELP_FAB_AI
+                                : HELP_FAB_BLUE
+                            }
+                            size={16}
+                          />
+                        </span>
+                        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                          <Row gap={6} align="center" style={{ width: "100%" }}>
+                            <ChromeText
+                              weight="semibold"
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {item.subject}
+                            </ChromeText>
+                            {unread ? (
+                              <span
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 999,
+                                  background: theme.category.red,
+                                  flexShrink: 0,
+                                }}
+                              />
+                            ) : null}
+                          </Row>
+                          <ChromeText
+                            size="small"
+                            style={{ color: CHROME_INK_MUTED }}
+                          >
+                            {replyLabel(item)}
+                          </ChromeText>
+                        </Stack>
+                        <HelpFabGlyph
+                          kind="chevron"
+                          color={HELP_FAB_BLUE}
+                          size={14}
+                        />
+                      </Row>
+                    </button>
+                  );
+                })}
+              </Stack>
+            )}
+          </div>
+        ) : null}
+
+        {tab === "compose" ? (
+          <div
+            style={{
+              background: CHROME_WHITE,
+              borderRadius: 14,
+              border: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "28")}`,
+              padding: 12,
+              boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              minHeight: 280,
+              flex: 1,
+            }}
+          >
+            <Row gap={8} align="center" style={{ width: "100%" }}>
+              <button
+                type="button"
+                onClick={() =>
+                  setTab(activeThread ? "messages" : "home")
+                }
+                style={{
+                  all: "unset",
+                  cursor: "pointer",
+                  color: HELP_FAB_BLUE,
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                {t(uiLang, "helpFabComposeBack")}
+              </button>
+              <span
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 999,
+                  background: waveChipAlpha(HELP_FAB_BLUE, "22"),
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <HelpFabGlyph
+                  kind={
+                    mode === "bug"
+                      ? "bug"
+                      : mode === "suggestion"
+                        ? "suggestion"
+                        : "help"
+                  }
+                  color={HELP_FAB_BLUE}
+                  size={18}
+                />
+              </span>
+              <ChromeText weight="semibold" style={{ flex: 1 }}>
+                {modeLabel}
+              </ChromeText>
+              {threadClosed ? (
+                <ChromeText
+                  size="small"
+                  weight="semibold"
+                  style={{ color: CHROME_INK_MUTED }}
+                >
+                  {t(uiLang, "helpFeedbackClosed")}
+                </ChromeText>
+              ) : null}
+            </Row>
+
+            {!activeThread ? (
+              <Row gap={6} style={{ flexWrap: "wrap" }}>
+                {(
+                  [
+                    {
+                      id: "ai" as const,
+                      label: t(uiLang, "helpFabViaAi"),
+                      disabled: !aiEnabled,
+                      glyph: "ai" as const,
+                    },
+                    {
+                      id: "human" as const,
+                      label: t(uiLang, "helpFabViaHuman"),
+                      disabled: false,
+                      glyph: "human" as const,
+                    },
+                  ] as const
+                ).map((opt) => {
+                  const active = effectiveVia === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={opt.disabled}
+                      title={
+                        opt.disabled
+                          ? t(uiLang, "helpFabViaAiDisabled")
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (opt.disabled) return;
+                        setVia(opt.id);
+                        setFlash("");
+                      }}
+                      style={{
+                        all: "unset",
+                        cursor: opt.disabled ? "not-allowed" : "pointer",
+                        padding: "5px 10px",
+                        borderRadius: 999,
+                        background: active ? HELP_FAB_BLUE : CHROME_PANE_BG,
+                        border: `1px solid ${
+                          active ? HELP_FAB_BLUE : CHROME_BORDER_BLUE
+                        }`,
+                        color: opt.disabled
+                          ? CHROME_INK_MUTED
+                          : active
+                            ? CHROME_WHITE
+                            : CHROME_INK,
+                        fontSize: 12,
+                        fontWeight: active ? 700 : 500,
+                        opacity: opt.disabled ? 0.55 : 1,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <HelpFabGlyph
+                        kind={opt.glyph}
+                        color={
+                          active && !opt.disabled
+                            ? CHROME_WHITE
+                            : HELP_FAB_BLUE
+                        }
+                        size={14}
+                      />
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </Row>
+            ) : null}
+
+            <div
+              style={{
+                flex: 1,
+                minHeight: 140,
+                maxHeight: 220,
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                padding: "4px 2px",
+              }}
+            >
+              {bubbles.length === 0 ? (
+                <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                  {bodyPlaceholder}
+                </ChromeText>
+              ) : (
+                bubbles.map((msg) => {
+                  const mine = msg.from === "worker";
+                  const isAi = msg.from === "ai";
+                  /** Sysadmin who authored this human support reply. */
+                  const humanAuthorId = (
+                    msg.fromWorkerId ||
+                    activeThread?.humanReplyByWorkerId ||
+                    ""
+                  ).trim();
+                  const humanPhoto = humanAuthorId
+                    ? staffPhotoUrl(humanAuthorId, firmWorkers)
+                    : "";
+                  const humanInitials = humanAuthorId
+                    ? staffInitials(humanAuthorId, firmWorkers)
+                    : "?";
+                  const humanName = humanAuthorId
+                    ? staffDisplayName(uiLang, humanAuthorId, firmWorkers)
+                    : "";
+                  return (
+                    <div
+                      key={msg.id}
+                      style={{
+                        alignSelf: mine ? "flex-end" : "flex-start",
+                        maxWidth: "88%",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4,
+                      }}
+                    >
+                      {!mine ? (
+                        <Row gap={6} align="center">
+                          {isAi ? (
+                            <HelpFabAiFace size={32} />
+                          ) : (
+                            <span
+                              title={humanName || undefined}
+                              aria-label={
+                                humanName ||
+                                t(uiLang, "helpFeedbackHumanReply")
+                              }
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 999,
+                                background: humanPhoto
+                                  ? "transparent"
+                                  : HELP_FAB_BLUE,
+                                color: CHROME_WHITE,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                                overflow: "hidden",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                lineHeight: 1,
+                                boxShadow: `0 0 0 2px ${waveChipAlpha(HELP_FAB_BLUE, "30")}`,
+                              }}
+                            >
+                              {humanPhoto ? (
+                                <img
+                                  src={humanPhoto}
+                                  alt=""
+                                  draggable={false}
+                                  style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    borderRadius: 999,
+                                    objectFit: "cover",
+                                    display: "block",
+                                  }}
+                                />
+                              ) : (
+                                humanInitials
+                              )}
+                            </span>
+                          )}
+                          <ChromeText
+                            size="small"
+                            weight="semibold"
+                            style={{
+                              color: isAi
+                                ? HELP_FAB_AI
+                                : HELP_FAB_BLUE,
+                              fontSize: 12,
+                            }}
+                          >
+                            {isAi
+                              ? t(uiLang, "helpFeedbackAiReply")
+                              : humanName ||
+                                t(uiLang, "helpFeedbackHumanReply")}
+                          </ChromeText>
+                        </Row>
+                      ) : null}
+                      <div
+                        style={{
+                          padding: "8px 11px",
+                          borderRadius: mine
+                            ? "12px 12px 4px 12px"
+                            : "12px 12px 12px 4px",
+                          background: mine
+                            ? HELP_FAB_BLUE
+                            : isAi
+                              ? waveChipAlpha(HELP_FAB_AI, "14")
+                              : CHROME_PANE_BG,
+                          border: mine
+                            ? `1px solid ${HELP_FAB_BLUE_DEEP}`
+                            : `1px solid ${
+                                isAi
+                                  ? waveChipAlpha(HELP_FAB_AI, "40")
+                                  : waveChipAlpha(HELP_FAB_BLUE, "30")
+                              }`,
+                          color: mine ? CHROME_WHITE : CHROME_INK,
+                        }}
+                      >
+                        <ChromeText
+                          size="small"
+                          style={{ color: mine ? CHROME_WHITE : CHROME_INK }}
+                        >
+                          {msg.text}
+                        </ChromeText>
+                        {msg.attachmentName ? (
+                          <ChromeText
+                            size="small"
+                            style={{
+                              color: mine
+                                ? "rgba(255,255,255,0.85)"
+                                : CHROME_INK_MUTED,
+                              marginTop: 4,
+                            }}
+                          >
+                            {msg.attachmentName}
+                          </ChromeText>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              {aiBusy ? (
+                <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                  {t(uiLang, "helpFabAiThinking")}
+                </ChromeText>
+              ) : null}
+              {typingDemo ? (
+                <div
+                  style={{
+                    alignSelf: "flex-start",
+                    padding: "8px 12px",
+                    borderRadius: 12,
+                    background: CHROME_PANE_BG,
+                    border: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "28")}`,
+                  }}
+                >
+                  <Row gap={8} align="center">
+                    <Row gap={4} align="center">
+                      {[0, 1, 2].map((dot) => (
+                        <span
+                          key={dot}
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 999,
+                            background: HELP_FAB_BLUE,
+                            opacity: 0.35 + dot * 0.25,
+                          }}
+                        />
+                      ))}
+                    </Row>
+                    <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                      {t(uiLang, "helpFabTyping")}
+                    </ChromeText>
+                  </Row>
+                </div>
+              ) : null}
+            </div>
+
+            {flash ? (
+              <ChromeText size="small" style={{ color: theme.category.green }}>
+                {flash}
+              </ChromeText>
+            ) : null}
+            {attachName ? (
+              <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                {attachName}
+              </ChromeText>
+            ) : null}
+
+            {awaitingAiResolve ? (
+              <Row gap={8} style={{ flexWrap: "wrap", width: "100%" }}>
+                <button
+                  type="button"
+                  onClick={() => answerAiResolve(true)}
+                  style={{
+                    all: "unset",
+                    cursor: "pointer",
+                    padding: "8px 16px",
+                    borderRadius: 999,
+                    background: HELP_FAB_AI,
+                    color: CHROME_WHITE,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  {t(uiLang, "helpFabAiResolveYes")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => answerAiResolve(false)}
+                  style={{
+                    all: "unset",
+                    cursor: "pointer",
+                    padding: "8px 16px",
+                    borderRadius: 999,
+                    background: CHROME_PANE_BG,
+                    border: `1px solid ${waveChipAlpha(HELP_FAB_AI, "55")}`,
+                    color: CHROME_INK,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  {t(uiLang, "helpFabAiResolveNo")}
+                </button>
+              </Row>
+            ) : null}
+
+            {threadClosed ? (
+              <div
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "12px 14px",
+                  borderRadius: 14,
+                  background: "#E8F1F8",
+                  border: `1px solid ${CHROME_SOFT_BLUE}`,
+                  color: CHROME_INK,
+                  direction: uiLang === "he" ? "rtl" : "ltr",
+                  textAlign: uiLang === "he" ? "right" : "left",
+                  whiteSpace: "pre-line",
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  fontWeight: 400,
+                }}
+              >
+                {t(uiLang, "helpFabCaseClosed")}
+              </div>
+            ) : (
+              <>
+                <Row
+                  gap={8}
+                  align="end"
+                  style={{ width: "100%", direction: uiLang === "he" ? "rtl" : "ltr" }}
+                >
+                  <button
+                    type="button"
+                    title={t(uiLang, "helpFabSend")}
+                    aria-label={t(uiLang, "helpFabSend")}
+                    disabled={!body.trim() && !attachName.trim()}
+                    onClick={send}
+                    style={{
+                      all: "unset",
+                      cursor:
+                        !body.trim() && !attachName.trim()
+                          ? "not-allowed"
+                          : "pointer",
+                      width: 40,
+                      height: 40,
+                      borderRadius: 999,
+                      background:
+                        !body.trim() && !attachName.trim()
+                          ? "#D0D5DD"
+                          : HELP_FAB_BLUE,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      boxSizing: "border-box",
+                      order: uiLang === "he" ? 0 : 2,
+                    }}
+                  >
+                    <HelpFabGlyph
+                      kind="sendArrow"
+                      color={
+                        !body.trim() && !attachName.trim()
+                          ? "#667085"
+                          : CHROME_WHITE
+                      }
+                      size={18}
+                    />
+                  </button>
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      borderRadius: 18,
+                      border: "1px solid #D0D5DD",
+                      background: CHROME_WHITE,
+                      padding: "8px 10px 6px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      boxSizing: "border-box",
+                      order: 1,
+                    }}
+                  >
+                    <ChatComposerTextArea
+                      value={body}
+                      onChange={setBody}
+                      enterIsSend={enterIsSend}
+                      onSend={send}
+                      placeholder={t(uiLang, "helpFabTypeHere")}
+                      rows={2}
+                      style={{
+                        flex: 1,
+                        minHeight: 44,
+                        border: "none",
+                        background: "transparent",
+                        boxShadow: "none",
+                        padding: "2px 4px",
+                        resize: "none",
+                      }}
+                    />
+                    <Row
+                      gap={12}
+                      align="center"
+                      style={{
+                        width: "100%",
+                        justifyContent: "flex-end",
+                        paddingInline: 2,
+                        paddingBottom: 2,
+                      }}
+                    >
+                      {(
+                        [
+                          {
+                            kind: "mic" as const,
+                            labelKey: "helpFabMicDemo" as const,
+                            onClick: () =>
+                              setFlash(t(uiLang, "helpFabMicDemo") + " (demo)"),
+                          },
+                          {
+                            kind: "gif" as const,
+                            labelKey: "helpFabGifDemo" as const,
+                            onClick: () =>
+                              setFlash(t(uiLang, "helpFabGifDemo") + " (demo)"),
+                          },
+                          {
+                            kind: "emoji" as const,
+                            labelKey: "helpFabEmojiDemo" as const,
+                            onClick: () => setBody(`${body || ""} 🙂`),
+                          },
+                          {
+                            kind: "paperclip" as const,
+                            labelKey: "helpFabAttachDemo" as const,
+                            onClick: () =>
+                              setAttachName(
+                                `demo-file-${Date.now().toString().slice(-6)}.pdf`,
+                              ),
+                          },
+                        ]
+                      ).map((tool) => (
+                        <button
+                          key={tool.kind}
+                          type="button"
+                          title={t(uiLang, tool.labelKey)}
+                          aria-label={t(uiLang, tool.labelKey)}
+                          onClick={tool.onClick}
+                          style={{
+                            all: "unset",
+                            cursor: "pointer",
+                            width: 28,
+                            height: 28,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            color: "#667085",
+                          }}
+                        >
+                          <HelpFabGlyph
+                            kind={tool.kind}
+                            color="#667085"
+                            size={20}
+                          />
+                        </button>
+                      ))}
+                    </Row>
+                  </div>
+                </Row>
+                <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                  {enterSendHint}
+                </ChromeText>
+              </>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      <div
+        style={{
+          flexShrink: 0,
+          borderTop: `1px solid ${waveChipAlpha(HELP_FAB_BLUE, "28")}`,
+          background: CHROME_WHITE,
+          padding: "8px 6px 10px",
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          gap: 2,
+        }}
+      >
+        {navItems.map((item) => {
+          const color = item.active ? HELP_FAB_BLUE : CHROME_INK_MUTED;
           return (
             <button
-              key={m.id}
+              key={item.id}
               type="button"
-              onClick={() => {
-                setMode(m.id);
-                setFlash("");
-                setLastAiReply("");
-              }}
+              onClick={item.onClick}
               style={{
                 all: "unset",
                 cursor: "pointer",
-                padding: "5px 10px",
-                borderRadius: 8,
-                background: active ? CHROME_SELECTED_BLUE : CHROME_PANE_BG,
-                border: CHROME_FIELD_BORDER,
-                color: CHROME_INK,
-                fontSize: 12,
-                fontWeight: active ? 700 : 500,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 3,
+                padding: "4px 2px",
+                position: "relative",
+                color,
               }}
             >
-              {m.label}
+              <span style={{ position: "relative", display: "inline-flex" }}>
+                <HelpFabGlyph kind={item.glyph} color={color} size={18} />
+                {item.badge ? (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: -4,
+                      insetInlineEnd: -6,
+                      minWidth: 14,
+                      height: 14,
+                      borderRadius: 999,
+                      background: theme.category.red,
+                      color: CHROME_WHITE,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "0 3px",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    {item.badge}
+                  </span>
+                ) : null}
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: item.active ? 700 : 500,
+                  color,
+                  lineHeight: 1.1,
+                  textAlign: "center",
+                }}
+              >
+                {item.label}
+              </span>
             </button>
           );
         })}
-      </Row>
-      <FieldLabel>{t(uiLang, "helpFabViaLabel")}</FieldLabel>
-      <Row gap={6} style={{ flexWrap: "wrap" }}>
-        {viaOptions.map((opt) => {
-          const active = effectiveVia === opt.id;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              disabled={opt.disabled}
-              title={
-                opt.disabled ? t(uiLang, "helpFabViaAiDisabled") : undefined
-              }
-              onClick={() => {
-                if (opt.disabled) return;
-                setVia(opt.id);
-                setFlash("");
-                setLastAiReply("");
-              }}
-              style={{
-                all: "unset",
-                cursor: opt.disabled ? "not-allowed" : "pointer",
-                padding: "5px 10px",
-                borderRadius: 8,
-                background: active ? CHROME_SELECTED_BLUE : CHROME_PANE_BG,
-                border: CHROME_FIELD_BORDER,
-                color: opt.disabled ? CHROME_INK_MUTED : CHROME_INK,
-                fontSize: 12,
-                fontWeight: active ? 700 : 500,
-                opacity: opt.disabled ? 0.55 : 1,
-              }}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </Row>
-      <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
-        {!aiEnabled
-          ? t(uiLang, "helpFabViaAiDisabled")
-          : effectiveVia === "ai"
-            ? t(uiLang, "helpFabViaAiHint")
-            : t(uiLang, "helpFabViaHumanHint")}
-      </ChromeText>
-      <FieldLabel>{t(uiLang, "helpFabSubject")}</FieldLabel>
-      <TextInput
-        value={subject}
-        onChange={setSubject}
-        placeholder={t(uiLang, "helpFabSubjectPlaceholder")}
-        style={chromeFieldStyle({ width: "100%" })}
-      />
-      <FieldLabel>{t(uiLang, "helpFabBody")}</FieldLabel>
-      <TextArea
-        value={body}
-        onChange={setBody}
-        placeholder={bodyPlaceholder}
-        rows={4}
-        style={chromeFieldStyle({ width: "100%", minHeight: 88 })}
-      />
-      {aiBusy ? (
-        <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
-          {t(uiLang, "helpFabAiThinking")}
-        </ChromeText>
-      ) : null}
-      {lastAiReply ? (
-        <Callout tone="info" title={t(uiLang, "helpFeedbackAiReply")}>
-          {lastAiReply}
-        </Callout>
-      ) : null}
-      {flash ? (
-        <ChromeText size="small" style={{ color: theme.category.green }}>
-          {flash}
-        </ChromeText>
-      ) : null}
-      <Button
-        variant="primary"
-        disabled={!subject.trim() || !body.trim()}
-        onClick={send}
-      >
-        {t(uiLang, "helpFabSend")}
-      </Button>
+      </div>
     </div>
   );
 }
@@ -65710,8 +69285,8 @@ function BillingScreen({
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
-  const [, setScreen] = useCanvasState<Screen>("screen.v2", "home");
-  const [, setSelectedCategory] = useCanvasState("selectedCategory.v2", DEFAULT_PRIMARY_CATEGORY);
+  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  const [, setSelectedCategory] = useCanvasState(SELECTED_CATEGORY_STATE_KEY, DEFAULT_PRIMARY_CATEGORY);
   const [, setNavSecondaryOpen] = useCanvasState(
     "crmGmailNavSecondaryOpen.v3",
     true,
@@ -76092,8 +79667,44 @@ export default function CrmModulesHome() {
   const [canvasSurface, setCanvasSurface] = useCanvasState<
     "firm" | "client-wa"
   >("crmCanvasSurface.v1", "firm");
+  const [androidPreview, setAndroidPreviewRaw] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
+  const [androidDrawerOpen, setAndroidDrawerOpen] = useState(false);
+  /**
+   * Hydrate + mirror Android preview to localStorage (survives reload).
+   * Missing/legacy keys → stay off so first paint is Home (Clients), not Android.
+   * Intentional toggle still persists via setAndroidPreview → "1"/"0".
+   */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ANDROID_PREVIEW_LS_KEY);
+      if (raw == null || raw === "0") {
+        if (androidPreview) setAndroidPreviewRaw(false);
+        return;
+      }
+      if (raw === "1" && !androidPreview) setAndroidPreviewRaw(true);
+    } catch {
+      /* private mode / no localStorage — keep default off (Home) */
+      if (androidPreview) setAndroidPreviewRaw(false);
+    }
+  }, []);
+  const setAndroidPreview = (next: boolean) => {
+    setAndroidPreviewRaw(next);
+    try {
+      localStorage.setItem(ANDROID_PREVIEW_LS_KEY, next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    if (next) {
+      setCanvasSurface("firm");
+      setAndroidDrawerOpen(false);
+    }
+  };
   const signedInDeptIds = workerDeptIds(signedInWorkerId, firmWorkers);
-  const [screen, setScreen] = useCanvasState<Screen>("screen.v2", "home");
+
+  const [screen, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
   const [timeClockAdminMode, setTimeClockAdminMode] = useCanvasState<boolean>(
     "timeClockAdminMode.v1",
     false,
@@ -76130,9 +79741,51 @@ export default function CrmModulesHome() {
   >("servicesReturnTo", "home");
   /** Permanent chosen primary (click only). Hover must never replace this. */
   const [selectedCategory, setSelectedCategory] = useCanvasState(
-    "selectedCategory.v2",
+    SELECTED_CATEGORY_STATE_KEY,
     DEFAULT_PRIMARY_CATEGORY,
   );
+  /** Shared with HelpFab — landing coerce must reset Messages → Home. */
+  const [, setHelpFabTab] = useCanvasState<HelpFabTab>(
+    HELP_FAB_TAB_STATE_KEY,
+    "home",
+  );
+  const [, setHelpOpenLanding] = useCanvasState("crmHelpFabOpen.v1", false);
+  const [, setHelpRailPressedLanding] = useCanvasState(
+    "crmHelpFabRailPressed.v1",
+    false,
+  );
+  const [, setHelpFabDockedLanding] = useCanvasState(
+    "crmHelpFabDocked.v1",
+    false,
+  );
+  const [landingSeed, setLandingSeed] = useCanvasState<string>(
+    DEFAULT_LANDING_SEED_KEY,
+    "",
+  );
+  /**
+   * Force Clients Home on fresh load / typical reopen.
+   * v716 only changed useCanvasState defaults — persisted screen.v2 /
+   * selectedCategory.v2 (often "chats") and crmHelpFabTab.v1 ("messages")
+   * still won first paint. Key bump + seed coerce closes that hole.
+   */
+  useEffect(() => {
+    setSelectedCategory(DEFAULT_PRIMARY_CATEGORY);
+    setScreen("home");
+    setHelpFabTab("home");
+    setHelpOpenLanding(false);
+    setHelpRailPressedLanding(false);
+    setHelpFabDockedLanding(false);
+    if (androidPreview) setAndroidPreviewRaw(false);
+    try {
+      localStorage.setItem(ANDROID_PREVIEW_LS_KEY, "0");
+      localStorage.removeItem("crmAndroidPreview.v1");
+    } catch {
+      /* private mode */
+    }
+    if (landingSeed !== GMAIL_DUAL_NAV_BUILD) {
+      setLandingSeed(GMAIL_DUAL_NAV_BUILD);
+    }
+  }, []);
   const [, setTemplateSettingsScope] = useCanvasState<FirmEmailTemplateScope>(
     "templateSettingsScope.v1",
     "all",
@@ -76311,23 +79964,16 @@ export default function CrmModulesHome() {
     "overview",
   );
   /**
-   * Billing-dept demo users (Maya): land on Billing primary + secondary once per
-   * signed-in worker — not Clients. Later explicit Clients opens are kept until
-   * the signed-in worker changes (seed resets).
+   * Billing-dept demo users used to auto-land on Billing and steal first paint
+   * from Clients Home. Seed still tracks the signed-in worker; navigation is
+   * opt-in via the Billing primary only (default landing is Home).
    */
   const [deptPrimaryHomeSeed, setDeptPrimaryHomeSeed] = useCanvasState<{
     workerId: string;
-  }>("deptPrimaryHomeSeed.v1", { workerId: "" });
+  }>("deptPrimaryHomeSeed.v2", { workerId: "" });
   useEffect(() => {
     if (deptPrimaryHomeSeed.workerId === signedInWorkerId) return;
     setDeptPrimaryHomeSeed({ workerId: signedInWorkerId });
-    if (preferredPrimaryCategoryForDepts(signedInDeptIds) !== "billing") {
-      return;
-    }
-    setSelectedCategory("billing");
-    setBillingNavShell("overview");
-    setNavSecondaryOpen(true);
-    setScreen("billing");
   }, [signedInWorkerId, signedInDeptIds.join("|")]);
   const [toolsNavShell, setToolsNavShell] = useCanvasState<ToolsNavId>(
     "toolsNav.v1",
@@ -77242,8 +80888,15 @@ export default function CrmModulesHome() {
           >
             {t(uiLang, "clientWaSurface")}
           </Button>
+          <Button
+            variant={androidPreview ? "primary" : "secondary"}
+            onClick={() => setAndroidPreview(!androidPreview)}
+          >
+            {t(uiLang, "androidPreviewSurface")}
+          </Button>
         </div>
         <div style={{ flex: 1, minWidth: 12 }} />
+
         <div
           style={{
             display: "flex",
@@ -77590,7 +81243,12 @@ export default function CrmModulesHome() {
       normalizePrimaryCategory(hoverKey) !== "client"
     );
   /** Pinned secondary only — hamburger / click. Hover uses TempTabPopup instead. */
-  const secondaryVisible = pinnedOpen;
+  const secondaryVisible = pinnedOpen && !androidPreview;
+  /**
+   * Android preview: desktop secondary rail is off, but list boards must still
+   * hide their in-content Filters column — those items live in the Menu drawer.
+   */
+  const hideContentSideRail = secondaryVisible || androidPreview;
 
   const staffChatsUnreadBadge = visibleStaffThreads(threads, role).filter(
     (th) => th.unread,
@@ -78180,7 +81838,7 @@ export default function CrmModulesHome() {
           onOpenClient={(id, entry) => openClient(id, entry ?? filter)}
           onEditClient={openEditClientForm}
           onOpenServices={() => openServices("clients")}
-          hideSideRail={secondaryVisible}
+          hideSideRail={hideContentSideRail}
           onSecondaryBack={onSecondaryBack}
         />
       )}
@@ -78371,14 +82029,14 @@ export default function CrmModulesHome() {
           clients={demoRows}
           services={services}
           setServices={setServices}
-          hideSideRail={secondaryVisible}
+          hideSideRail={hideContentSideRail}
           onSecondaryBack={onSecondaryBack}
         />
       )}
       {screen === "tools" && (
         <ToolsScreen
           clients={demoRows}
-          hideSideRail={secondaryVisible}
+          hideSideRail={hideContentSideRail}
           onSecondaryBack={onSecondaryBack}
         />
       )}
@@ -78403,7 +82061,7 @@ export default function CrmModulesHome() {
           />
           <TimeClockScreen
             role={role}
-            hideSideRail={secondaryVisible}
+            hideSideRail={hideContentSideRail}
           />
         </Stack>
       )}
@@ -78532,6 +82190,370 @@ export default function CrmModulesHome() {
             />
           </div>
         </Stack>
+      ) : androidPreview ? (
+        (() => {
+          const androidCats = primaryCategoriesForUser(
+            role,
+            uiLang,
+            {
+              chats: staffChatsUnreadBadge,
+              whatsapp: whatsappUnreadBadge,
+              work: workRailBadge,
+              tools: toolsUnreadSignedCount(signDocPackets),
+              systemadmin: helpFeedbackRailBadge,
+            },
+            signedInDeptIds,
+          );
+          const androidActive = normalizePrimaryCategory(selectedCategory);
+          return (
+            <div
+              data-chrome="android-preview-phone-v1"
+              style={{
+                flex: 1,
+                minHeight: 0,
+                height: "100%",
+                width: "100%",
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                background: chromeMainBg(theme),
+                boxSizing: "border-box",
+                padding: "8px 0",
+              }}
+            >
+              <div
+                style={{
+                  width: "100%",
+                  maxWidth: 420,
+                  height: "100%",
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  borderRadius: 18,
+                  border: `1px solid ${CHROME_BORDER_BLUE}`,
+                  background: chromeMainBg(theme),
+                  boxSizing: "border-box",
+                }}
+              >
+                <Stack
+                  gap={4}
+                  style={{
+                    flexShrink: 0,
+                    padding: "4px 8px 0 8px",
+                    boxSizing: "border-box",
+                    background: CHROME_SOFT_BLUE,
+                  }}
+                >
+                  {topChrome}
+                  <Divider />
+                </Stack>
+                {androidDrawerOpen ? (
+                  <div
+                    data-chrome="android-secondary-drawer"
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                      background: CHROME_WHITE,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <Row
+                      gap={8}
+                      align="center"
+                      style={{
+                        flexShrink: 0,
+                        padding: "10px 12px 8px",
+                        borderBottom: `1px solid ${CHROME_BORDER_BLUE}`,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <ChromeText weight="semibold" size="small">
+                        {secondaryTitle || t(uiLang, "androidSecondaryNav")}
+                      </ChromeText>
+                      <Spacer />
+                      <Button
+                        variant="ghost"
+                        onClick={() => setAndroidDrawerOpen(false)}
+                      >
+                        {t(uiLang, "androidNavClose")}
+                      </Button>
+                    </Row>
+                    {/*
+                      Android Menu = scrollable 3rd-bar / overflow secondary tabs
+                      (Clients filters, Billing nav, Tools, etc.). Bottom nav stays
+                      primary modules only — scroll here for the rest.
+                    */}
+                    <div
+                      style={{
+                        flex: 1,
+                        minHeight: 0,
+                        overflowY: "auto",
+                        WebkitOverflowScrolling: "touch",
+                        padding: "8px 10px 12px",
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      {secondaryTopActions ? (
+                        <div
+                          onClickCapture={() => setAndroidDrawerOpen(false)}
+                          style={{ marginBottom: 10 }}
+                        >
+                          {secondaryTopActions}
+                        </div>
+                      ) : null}
+                      <Stack gap={6}>
+                        {secondaryRows.map((row) => {
+                          const iconAccent = chromeIconAccent(
+                            row.iconId ?? row.id,
+                            theme.category,
+                          );
+                          return (
+                            <button
+                              key={row.id}
+                              type="button"
+                              onClick={() => {
+                                row.onClick();
+                                setAndroidDrawerOpen(false);
+                              }}
+                              style={{
+                                all: "unset",
+                                cursor: "pointer",
+                                display: "flex",
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 12,
+                                width: "100%",
+                                boxSizing: "border-box",
+                                padding: "12px 12px",
+                                minHeight: 52,
+                                borderRadius: 10,
+                                background: row.active
+                                  ? chromeSelectedFill(theme)
+                                  : chromeCardBg(theme),
+                                border: `1px solid ${
+                                  row.active
+                                    ? waveChipAlpha(iconAccent, "66")
+                                    : CHROME_BORDER_BLUE
+                                }`,
+                              }}
+                            >
+                              {row.iconId ? (
+                                <ModuleTileIcon
+                                  tileId={row.iconId}
+                                  color={iconAccent}
+                                  size={28}
+                                />
+                              ) : null}
+                              <ChromeText
+                                weight={row.active ? "semibold" : "medium"}
+                                style={{ flex: 1, fontSize: 15 }}
+                              >
+                                {row.label}
+                              </ChromeText>
+                              {row.badge && row.badge > 0 ? (
+                                <ChromeText
+                                  size="small"
+                                  weight="semibold"
+                                  style={{ color: theme.category.red }}
+                                >
+                                  {row.badge > 99 ? "99+" : String(row.badge)}
+                                </ChromeText>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </Stack>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
+                      padding: "10px 12px 8px",
+                      boxSizing: "border-box",
+                      ...chromeMainPaneSurface(theme),
+                    }}
+                  >
+                    {mainContent}
+                  </div>
+                )}
+                <nav
+                  data-chrome="android-primary-bottom-nav"
+                  aria-label={t(uiLang, "androidNavMenu")}
+                  style={{
+                    flexShrink: 0,
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "stretch",
+                    gap: 2,
+                    padding: "6px 4px 8px",
+                    borderTop: `1px solid ${CHROME_BORDER_BLUE}`,
+                    background: chromePrimaryRailBg(theme),
+                    overflowX: "auto",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setAndroidDrawerOpen((o) => !o)}
+                    title={t(uiLang, "androidNavMenu")}
+                    aria-label={t(uiLang, "androidNavMenu")}
+                    aria-expanded={androidDrawerOpen}
+                    style={{
+                      all: "unset",
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 2,
+                      minWidth: 52,
+                      padding: "4px 2px",
+                      color: CHROME_PRIMARY_RAIL_FG,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <RailIcon
+                      kind="menu"
+                      active={androidDrawerOpen}
+                      color={CHROME_PRIMARY_RAIL_FG}
+                    />
+                    <ChromeText
+                      size="small"
+                      style={{
+                        fontSize: 10,
+                        color: CHROME_PRIMARY_RAIL_FG_MUTED,
+                      }}
+                    >
+                      {t(uiLang, "androidNavMenu")}
+                    </ChromeText>
+                  </button>
+                  {androidCats.map((cat) => {
+                    const selected = androidActive === cat.id;
+                    const itemAccent = chromeNavAccent(cat.id, theme.category);
+                    const badge = cat.badge && cat.badge > 0 ? cat.badge : 0;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          selectPrimaryCategory(cat.id);
+                          setAndroidDrawerOpen(false);
+                        }}
+                        title={cat.title}
+                        aria-current={selected ? "page" : undefined}
+                        style={{
+                          all: "unset",
+                          cursor: "pointer",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 2,
+                          minWidth: 56,
+                          padding: "4px 2px",
+                          flexShrink: 0,
+                          position: "relative",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 40,
+                            height: 28,
+                            borderRadius: 14,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: selected
+                              ? waveChipAlpha(itemAccent, "55")
+                              : "transparent",
+                          }}
+                        >
+                          <RailIcon
+                            kind={cat.id}
+                            active={selected}
+                            color={
+                              selected
+                                ? CHROME_PRIMARY_RAIL_FG
+                                : itemAccent
+                            }
+                          />
+                        </div>
+                        {badge > 0 ? (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              right: 4,
+                              minWidth: 14,
+                              height: 14,
+                              padding: "0 3px",
+                              borderRadius: 999,
+                              background: theme.category.red,
+                              color: theme.text.onAccent,
+                              fontSize: 9,
+                              fontWeight: 700,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {badge > 99 ? "99+" : String(badge)}
+                          </div>
+                        ) : null}
+                        <ChromeText
+                          size="small"
+                          weight={selected ? "semibold" : "medium"}
+                          style={{
+                            fontSize: 10,
+                            lineHeight: 1.1,
+                            color: selected
+                              ? itemAccent
+                              : CHROME_PRIMARY_RAIL_FG_MUTED,
+                            maxWidth: 56,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {cat.title}
+                        </ChromeText>
+                      </button>
+                    );
+                  })}
+                </nav>
+                <WorkerHelpFeedbackFab
+                  visible={showWorkerHelpFeedbackFab(
+                    role,
+                    effectivePrimaryCategoryForHelp(
+                      role,
+                      selectedCategory,
+                      signedInDeptIds,
+                    ),
+                    null,
+                    screen,
+                    signedInDeptIds,
+                  )}
+                  authorName={staffDisplayName(
+                    uiLang,
+                    signedInWorkerId,
+                    firmWorkers,
+                  )}
+                  authorWorkerId={signedInWorkerId}
+                />
+              </div>
+            </div>
+          );
+        })()
       ) : (
       <div
         style={{
