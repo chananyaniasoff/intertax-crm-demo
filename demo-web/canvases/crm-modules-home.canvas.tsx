@@ -33,9 +33,19 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — today's elapsed resets at local midnight. */
-const GMAIL_DUAL_NAV_BUILD = "v717-2026-10-13-android-preview-v1-key";
-/** Persisted Android phone-preview toggle (useCanvasState key + localStorage). */
-const ANDROID_PREVIEW_LS_KEY = "crmAndroidPreview.v1";
+const GMAIL_DUAL_NAV_BUILD = "v723-2026-10-13-android-header-round-punch";
+/**
+ * Persisted Android phone-preview toggle (useCanvasState key + localStorage).
+ * v2 — stale v1 is cleared on hydrate so Home wins; intentional ON persists as "1".
+ */
+const ANDROID_PREVIEW_LS_KEY = "crmAndroidPreview.v2";
+const ANDROID_PREVIEW_LS_KEY_LEGACY = "crmAndroidPreview.v1";
+/**
+ * Live ModuleSectionTabs (side layout) published into Android Menu while preview is on.
+ * Cleared when the section unmounts or Android turns off.
+ */
+const ANDROID_MODULE_SECTION_MENU_KEY = "androidModuleSectionMenu.v1";
+const ANDROID_MODULE_SECTION_SELECT_KEY = "androidModuleSectionSelect.v1";
 /** Default AppPrimaryRail module + landing view — Home (Clients modules). */
 const DEFAULT_PRIMARY_CATEGORY = "client";
 /**
@@ -48,6 +58,18 @@ const SELECTED_CATEGORY_STATE_KEY = "selectedCategory.v3";
 const HELP_FAB_TAB_STATE_KEY = "crmHelpFabTab.v2";
 /** Reopen seed — must match GMAIL_DUAL_NAV_BUILD so each ship re-forces Home. */
 const DEFAULT_LANDING_SEED_KEY = "crmDefaultLandingSeed.v2";
+
+type AndroidModuleSectionMenuState = {
+  title: string;
+  ariaLabel: string;
+  items: { id: string; label: string; badge?: string }[];
+  activeId: string;
+} | null;
+
+type AndroidModuleSectionSelectState = {
+  id: string;
+  n: number;
+};
 
 /**
  * Systemadmin primary id is exactly "systemadmin" (not Admin / system-admin).
@@ -15117,9 +15139,69 @@ function ModuleSectionTabs({
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
+  const [, setAndroidSectionMenu] =
+    useCanvasState<AndroidModuleSectionMenuState>(
+      ANDROID_MODULE_SECTION_MENU_KEY,
+      null,
+    );
+  const [androidSectionSelect, setAndroidSectionSelect] =
+    useCanvasState<AndroidModuleSectionSelectState>(
+      ANDROID_MODULE_SECTION_SELECT_KEY,
+      { id: "", n: 0 },
+    );
   const accent = theme.accent.primary;
   const dir = uiDir(uiLang);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const sectionItemsKey = items
+    .map((it) => `${it.id}:${it.label}:${it.badge ?? ""}`)
+    .join("|");
+
+  /**
+   * Android: hide 180px side rail; publish sections into Menu (3rd-bar).
+   * Top layout (Inbox tabs) stays in-content — not a desktop side rail.
+   */
+  useEffect(() => {
+    if (!androidPreview || layout === "top") return;
+    setAndroidSectionMenu({
+      title: title || ariaLabel,
+      ariaLabel,
+      items: items.map((it) => ({
+        id: it.id,
+        label: it.label,
+        badge: it.badge,
+      })),
+      activeId,
+    });
+    return () => {
+      setAndroidSectionMenu((prev) =>
+        prev && prev.ariaLabel === ariaLabel ? null : prev,
+      );
+    };
+  }, [
+    androidPreview,
+    layout,
+    ariaLabel,
+    title,
+    activeId,
+    sectionItemsKey,
+  ]);
+
+  useEffect(() => {
+    if (!androidPreview || layout === "top") return;
+    const pick = (androidSectionSelect.id || "").trim();
+    if (!pick) return;
+    if (!items.some((it) => it.id === pick)) return;
+    onSelect(pick);
+    setAndroidSectionSelect({ id: "", n: androidSectionSelect.n });
+  }, [androidSectionSelect.n, androidPreview, layout]);
+
+  if (androidPreview && layout !== "top") {
+    return null;
+  }
 
   if (layout === "top") {
     return (
@@ -15398,7 +15480,13 @@ function ModuleSectionFrame({
   popOutPanelId?: string;
 }) {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
   const dir = uiDir(uiLang);
+  /** Android: side rail is in Menu — content uses full phone width. */
+  const frameMinHeight = androidPreview ? 0 : minHeight;
   return (
     <div
       dir={dir}
@@ -15407,10 +15495,12 @@ function ModuleSectionFrame({
         flexDirection: "row",
         flexWrap: "nowrap",
         alignItems: "stretch",
-        gap: 12,
-        minHeight,
+        gap: androidPreview ? 0 : 12,
+        minHeight: frameMinHeight,
         width: "100%",
+        maxWidth: "100%",
         boxSizing: "border-box",
+        overflow: androidPreview ? "hidden" : undefined,
       }}
     >
       <ModuleSectionTabs
@@ -15427,6 +15517,8 @@ function ModuleSectionFrame({
         style={{
           flex: "1 1 0",
           minWidth: 0,
+          width: "100%",
+          maxWidth: "100%",
           minHeight: 0,
           alignSelf: "stretch",
           boxSizing: "border-box",
@@ -54789,6 +54881,8 @@ function applyPunchMutationToDay(
 
 /** Shared diameter for Modules-home and Time Clock punch buttons. */
 const PUNCH_BUTTON_SIZE = 208;
+/** Android phone header — same round punch, compact diameter. */
+const ANDROID_HEADER_PUNCH_SIZE = 68;
 
 /**
  * Round punch control for Modules home shell (sidebar).
@@ -54834,16 +54928,18 @@ function CompactHomePunchButton({
         : t(uiLang, "clockStatusOut");
 
   const scale = size / PUNCH_BUTTON_SIZE;
-  const labelSize = Math.max(11, Math.round(13 * scale));
-  const elapsedSize = Math.max(24, Math.round(32 * scale));
-  const labelMaxWidth = Math.round(176 * scale);
-  const breakMinHeight = Math.max(28, Math.round(44 * scale));
-  const breakFontSize = Math.max(10, Math.round(12 * scale));
-  const breakPadY = Math.max(4, Math.round(7 * scale));
-  const breakPadX = Math.max(8, Math.round(14 * scale));
-  const breakMarginTop = Math.max(3, Math.round(6 * scale));
-  const breakRadius = Math.max(6, Math.round(8 * scale));
-  const punchPad = Math.max(8, Math.round(14 * scale));
+  /** Header / tiny: drop floor so labels fit inside the circle. */
+  const dense = size < 100;
+  const labelSize = Math.max(dense ? 9 : 11, Math.round(13 * scale));
+  const elapsedSize = Math.max(dense ? 15 : 24, Math.round(32 * scale));
+  const labelMaxWidth = Math.round((dense ? 56 : 176) * (dense ? 1 : scale));
+  const breakMinHeight = Math.max(dense ? 18 : 28, Math.round(44 * scale));
+  const breakFontSize = Math.max(dense ? 8 : 10, Math.round(12 * scale));
+  const breakPadY = Math.max(dense ? 2 : 4, Math.round(7 * scale));
+  const breakPadX = Math.max(dense ? 6 : 8, Math.round(14 * scale));
+  const breakMarginTop = Math.max(dense ? 2 : 3, Math.round(6 * scale));
+  const breakRadius = Math.max(dense ? 5 : 6, Math.round(8 * scale));
+  const punchPad = Math.max(dense ? 4 : 8, Math.round(14 * scale));
 
   const addPunch = (kind: PunchKind) => {
     const atMs = Date.now();
@@ -54918,29 +55014,32 @@ function CompactHomePunchButton({
       >
         {statusLabel}
       </span>
-      <span
-        style={{
-          fontSize: labelSize,
-          fontWeight: 500,
-          lineHeight: 1.3,
-          color: "#000000",
-          maxWidth: labelMaxWidth,
-        }}
-      >
-        {t(uiLang, "todayElapsed")}
-        {status !== "out" && lastIn
-          ? ` · ${t(uiLang, "sinceTime")} ${formatClockHm(lastIn.time)}`
-          : ""}
-      </span>
+      {!dense ? (
+        <span
+          style={{
+            fontSize: labelSize,
+            fontWeight: 500,
+            lineHeight: 1.3,
+            color: "#000000",
+            maxWidth: labelMaxWidth,
+          }}
+        >
+          {t(uiLang, "todayElapsed")}
+          {status !== "out" && lastIn
+            ? ` · ${t(uiLang, "sinceTime")} ${formatClockHm(lastIn.time)}`
+            : ""}
+        </span>
+      ) : null}
       <span
         style={{
           fontSize: elapsedSize,
           fontWeight: 700,
           lineHeight: 1.05,
           letterSpacing: "-0.02em",
-          marginTop: 2,
-          marginBottom: 2,
+          marginTop: dense ? 0 : 2,
+          marginBottom: dense ? 0 : 2,
           color: "#000000",
+          fontVariantNumeric: "tabular-nums",
         }}
       >
         {elapsed}
@@ -54955,7 +55054,7 @@ function CompactHomePunchButton({
       >
         {status === "out" ? t(uiLang, "clockIn") : t(uiLang, "clockOut")}
       </span>
-      {status === "in" || status === "break" ? (
+      {!dense && (status === "in" || status === "break") ? (
         <span
           role="button"
           tabIndex={0}
@@ -55003,6 +55102,26 @@ function CompactHomePunchButton({
         </span>
       ) : null}
     </button>
+  );
+}
+
+/**
+ * Android header center: original round punch clock (CompactHomePunchButton),
+ * same component as secondary rail / Time clock — not a text HH:MM:SS label.
+ */
+function AndroidHeaderLiveClock() {
+  return (
+    <div
+      data-chrome="android-header-round-punch"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      }}
+    >
+      <CompactHomePunchButton size={ANDROID_HEADER_PUNCH_SIZE} />
+    </div>
   );
 }
 
@@ -68496,6 +68615,10 @@ function ToolsScreen({
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
   const accent = theme.accent.primary;
   const [companySettingsRaw] = useCanvasState<CompanySettings>(
     "crmCompanySettings.v1",
@@ -69086,13 +69209,17 @@ function ToolsScreen({
       {toolsModule === "catalog" ? (
         /**
          * Same big-square grid as Clients HomeScreen (`ModuleCard` tiles):
-         * Grid columns ≤4, stretch cells, centered icon + label + hint; whole tile opens.
+         * Grid columns ≤4 desktop; Android phone → single column full width.
          */
         <Grid
-          columns={Math.min(Math.max(toolsVisible.length, 1), 4)}
-          gap={12}
+          columns={
+            androidPreview
+              ? 1
+              : Math.min(Math.max(toolsVisible.length, 1), 4)
+          }
+          gap={androidPreview ? 8 : 12}
           align="stretch"
-          style={{ width: "100%" }}
+          style={{ width: "100%", maxWidth: "100%" }}
         >
           {toolsVisible.map((tool) => {
             const iconAccent = chromeIconAccent(tool.id, theme.category);
@@ -69285,6 +69412,13 @@ function BillingScreen({
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
+  /** Phone frame: one column — side-by-side chart cards overflow ~420px. */
+  const billingChartCols = androidPreview ? 1 : 2;
+  const billingPieSize = androidPreview ? 168 : 220;
   const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
   const [, setSelectedCategory] = useCanvasState(SELECTED_CATEGORY_STATE_KEY, DEFAULT_PRIMARY_CATEGORY);
   const [, setNavSecondaryOpen] = useCanvasState(
@@ -71650,15 +71784,23 @@ function BillingScreen({
         onSecondaryBack={onSecondaryBack}
       />
 
-      <Stack gap={4} style={{ flexShrink: 0 }}>
+      <Stack gap={androidPreview ? 2 : 4} style={{ flexShrink: 0 }}>
         <H1>{t(uiLang, "billingHomeTitle")}</H1>
-        <ChromeText tone="secondary">{t(uiLang, "billingHomeHint")}</ChromeText>
+        {!androidPreview ? (
+          <ChromeText tone="secondary">{t(uiLang, "billingHomeHint")}</ChromeText>
+        ) : null}
       </Stack>
 
       <Row
         gap={16}
         align="stretch"
-        style={{ ...SHELL_SPLIT, minWidth: 0, width: "100%", maxWidth: "100%" }}
+        style={{
+          ...SHELL_SPLIT,
+          minWidth: 0,
+          width: "100%",
+          maxWidth: "100%",
+          overflowX: androidPreview ? "hidden" : undefined,
+        }}
       >
         {!hideSideRail ? (
           <Stack
@@ -72666,21 +72808,27 @@ function BillingScreen({
                 </ChromeText>
               </Stack>
 
-              <Grid columns={2} gap={16}>
+              <Grid columns={billingChartCols} gap={androidPreview ? 10 : 16}>
                 <Stack
-                  gap={12}
+                  gap={androidPreview ? 8 : 12}
                   style={{
-                    padding: 14,
+                    padding: androidPreview ? 10 : 14,
                     borderRadius: 10,
                     border: `1px solid ${chromeBorder(theme)}`,
                     background: CHROME_WHITE,
+                    width: "100%",
+                    maxWidth: "100%",
+                    minWidth: 0,
+                    boxSizing: "border-box",
                   }}
                 >
                   <Stack gap={2}>
                     <H2>{t(uiLang, "netIncomeChartTitle")}</H2>
-                    <ChromeText size="small" tone="secondary">
-                      {t(uiLang, "netIncomeChartSubtitle")}
-                    </ChromeText>
+                    {!androidPreview ? (
+                      <ChromeText size="small" tone="secondary">
+                        {t(uiLang, "netIncomeChartSubtitle")}
+                      </ChromeText>
+                    ) : null}
                   </Stack>
                   <BarChart
                     categories={[
@@ -72697,7 +72845,7 @@ function BillingScreen({
                         tone: "success",
                       },
                     ]}
-                    height={200}
+                    height={androidPreview ? 160 : 200}
                     valuePrefix="₪"
                     beginAtZero
                     showValues
@@ -72707,19 +72855,25 @@ function BillingScreen({
                   </ChromeText>
                 </Stack>
                 <Stack
-                  gap={12}
+                  gap={androidPreview ? 8 : 12}
                   style={{
-                    padding: 14,
+                    padding: androidPreview ? 10 : 14,
                     borderRadius: 10,
                     border: `1px solid ${chromeBorder(theme)}`,
                     background: CHROME_WHITE,
+                    width: "100%",
+                    maxWidth: "100%",
+                    minWidth: 0,
+                    boxSizing: "border-box",
                   }}
                 >
                   <Stack gap={2}>
                     <H2>{t(uiLang, "payableOwingTitle")}</H2>
-                    <ChromeText size="small" tone="secondary">
-                      {t(uiLang, "payableOwingSubtitle")}
-                    </ChromeText>
+                    {!androidPreview ? (
+                      <ChromeText size="small" tone="secondary">
+                        {t(uiLang, "payableOwingSubtitle")}
+                      </ChromeText>
+                    ) : null}
                   </Stack>
                   <BarChart
                     categories={agingCategories}
@@ -72730,7 +72884,7 @@ function BillingScreen({
                         tone: "info",
                       },
                     ]}
-                    height={200}
+                    height={androidPreview ? 160 : 200}
                     horizontal
                     valuePrefix="₪"
                     beginAtZero
@@ -72742,34 +72896,44 @@ function BillingScreen({
                 </Stack>
               </Grid>
 
-              <Grid columns={2} gap={16}>
+              <Grid columns={billingChartCols} gap={androidPreview ? 10 : 16}>
                 <Stack
-                  gap={10}
+                  gap={androidPreview ? 8 : 10}
                   style={{
-                    padding: 14,
+                    padding: androidPreview ? 10 : 14,
                     borderRadius: 10,
                     border: `1px solid ${chromeBorder(theme)}`,
                     background: CHROME_WHITE,
+                    width: "100%",
+                    maxWidth: "100%",
+                    minWidth: 0,
+                    boxSizing: "border-box",
+                    overflow: "hidden",
                   }}
                 >
                   <H2>{t(uiLang, "pieByClientTypeTitle")}</H2>
-                  <PieChart data={pieByClientType} size={220} donut />
+                  <PieChart data={pieByClientType} size={billingPieSize} donut />
                   <ChromeText size="small" tone="tertiary">
                     {t(uiLang, "pieByClientTypeCaption")}
                     {pieYearSuffix}
                   </ChromeText>
                 </Stack>
                 <Stack
-                  gap={10}
+                  gap={androidPreview ? 8 : 10}
                   style={{
-                    padding: 14,
+                    padding: androidPreview ? 10 : 14,
                     borderRadius: 10,
                     border: `1px solid ${chromeBorder(theme)}`,
                     background: CHROME_WHITE,
+                    width: "100%",
+                    maxWidth: "100%",
+                    minWidth: 0,
+                    boxSizing: "border-box",
+                    overflow: "hidden",
                   }}
                 >
                   <H2>{t(uiLang, "pieByServiceTitle")}</H2>
-                  <PieChart data={pieByService} size={220} donut />
+                  <PieChart data={pieByService} size={billingPieSize} donut />
                   <ChromeText size="small" tone="tertiary">
                     {t(uiLang, "pieByServiceCaption")}
                     {pieYearSuffix}
@@ -72795,7 +72959,7 @@ function BillingScreen({
                   {reminderFlash}
                 </Callout>
               ) : null}
-              <Grid columns={2} gap={12}>
+              <Grid columns={billingChartCols} gap={12}>
                 <Stack gap={4}>
                   <FieldLabel>{t(uiLang, "reminderWhen")}</FieldLabel>
                   <Select
@@ -73007,7 +73171,7 @@ function BillingScreen({
                   {settingsFlash}
                 </Callout>
               ) : null}
-              <Grid columns={2} gap={12}>
+              <Grid columns={billingChartCols} gap={12}>
                 <Stack gap={4}>
                   <FieldLabel>{t(uiLang, "billingInvPrefix")}</FieldLabel>
                   <ChromeTextInput
@@ -79672,13 +79836,23 @@ export default function CrmModulesHome() {
     false,
   );
   const [androidDrawerOpen, setAndroidDrawerOpen] = useState(false);
+  const [androidSectionMenu, setAndroidSectionMenu] =
+    useCanvasState<AndroidModuleSectionMenuState>(
+      ANDROID_MODULE_SECTION_MENU_KEY,
+      null,
+    );
+  const [, setAndroidSectionSelect] =
+    useCanvasState<AndroidModuleSectionSelectState>(
+      ANDROID_MODULE_SECTION_SELECT_KEY,
+      { id: "", n: 0 },
+    );
   /**
-   * Hydrate + mirror Android preview to localStorage (survives reload).
-   * Missing/legacy keys → stay off so first paint is Home (Clients), not Android.
-   * Intentional toggle still persists via setAndroidPreview → "1"/"0".
+   * Hydrate Android preview from v2 only. Drop stale v1 so Home wins.
+   * Intentional v2 toggle still persists via setAndroidPreview → "1"/"0".
    */
   useEffect(() => {
     try {
+      localStorage.removeItem(ANDROID_PREVIEW_LS_KEY_LEGACY);
       const raw = localStorage.getItem(ANDROID_PREVIEW_LS_KEY);
       if (raw == null || raw === "0") {
         if (androidPreview) setAndroidPreviewRaw(false);
@@ -79694,6 +79868,7 @@ export default function CrmModulesHome() {
     setAndroidPreviewRaw(next);
     try {
       localStorage.setItem(ANDROID_PREVIEW_LS_KEY, next ? "1" : "0");
+      localStorage.removeItem(ANDROID_PREVIEW_LS_KEY_LEGACY);
     } catch {
       /* ignore */
     }
@@ -79767,6 +79942,8 @@ export default function CrmModulesHome() {
    * v716 only changed useCanvasState defaults — persisted screen.v2 /
    * selectedCategory.v2 (often "chats") and crmHelpFabTab.v1 ("messages")
    * still won first paint. Key bump + seed coerce closes that hole.
+   * Do NOT force Android preview off here — v2 intentional ON must persist;
+   * only clear legacy v1 so a stale "1" cannot steal first paint.
    */
   useEffect(() => {
     setSelectedCategory(DEFAULT_PRIMARY_CATEGORY);
@@ -79775,10 +79952,8 @@ export default function CrmModulesHome() {
     setHelpOpenLanding(false);
     setHelpRailPressedLanding(false);
     setHelpFabDockedLanding(false);
-    if (androidPreview) setAndroidPreviewRaw(false);
     try {
-      localStorage.setItem(ANDROID_PREVIEW_LS_KEY, "0");
-      localStorage.removeItem("crmAndroidPreview.v1");
+      localStorage.removeItem(ANDROID_PREVIEW_LS_KEY_LEGACY);
     } catch {
       /* private mode */
     }
@@ -79841,6 +80016,20 @@ export default function CrmModulesHome() {
   useEffect(() => {
     return () => clearHoverLeaveTimer();
   }, []);
+
+  /**
+   * Android Menu: drop stale ModuleSectionTabs overflow when the route no
+   * longer mounts a side-section publisher (publishers re-seed on mount).
+   */
+  useEffect(() => {
+    if (!androidPreview) {
+      if (androidSectionMenu) setAndroidSectionMenu(null);
+      return;
+    }
+    if (screen !== "client-card" && screen !== "new-client") {
+      if (androidSectionMenu) setAndroidSectionMenu(null);
+    }
+  }, [androidPreview, screen, selectedCategory]);
 
   /** Seed Individual Tax Return into firmDepartments + one random worker (once). */
   useEffect(() => {
@@ -80848,17 +81037,19 @@ export default function CrmModulesHome() {
                                                     );
 
   const topChrome = (
-    <Stack gap={4} style={{ width: "100%" }}>
+    <Stack gap={4} style={{ width: "100%", overflow: "visible" }}>
       {/* Plain flex — nested SDK Row is width:100% and shoved Language off-screen */}
       <div
         style={{
           display: "flex",
           flexDirection: "row",
+          flexWrap: "wrap",
           alignItems: "center",
           gap: 8,
           width: "100%",
           minHeight: 30,
           boxSizing: "border-box",
+          overflow: "visible",
         }}
       >
         <ChromeText
@@ -80868,34 +81059,54 @@ export default function CrmModulesHome() {
           {t(uiLang, "appBrand")}
         </ChromeText>
         <div
+          data-chrome="surface-toggle-row"
           style={{
             display: "flex",
             flexDirection: "row",
+            flexWrap: "wrap",
             alignItems: "center",
             gap: 4,
-            flexShrink: 0,
+            flex: "1 1 auto",
+            minWidth: 0,
+            overflow: "visible",
           }}
         >
-          <Button
-            variant={canvasSurface === "firm" ? "primary" : "secondary"}
-            onClick={() => setCanvasSurface("firm")}
+          {/* Android phone frame is ~420px — hide Firm/Client WA (forced firm). */}
+          {!androidPreview ? (
+            <>
+              <Button
+                variant={canvasSurface === "firm" ? "primary" : "secondary"}
+                onClick={() => setCanvasSurface("firm")}
+              >
+                {t(uiLang, "firmCrmSurface")}
+              </Button>
+              <Button
+                variant={canvasSurface === "client-wa" ? "primary" : "secondary"}
+                onClick={() => setCanvasSurface("client-wa")}
+              >
+                {t(uiLang, "clientWaSurface")}
+              </Button>
+            </>
+          ) : null}
+          <span
+            style={{
+              display: "inline-flex",
+              flexShrink: 0,
+              minWidth: "max-content",
+              overflow: "visible",
+            }}
           >
-            {t(uiLang, "firmCrmSurface")}
-          </Button>
-          <Button
-            variant={canvasSurface === "client-wa" ? "primary" : "secondary"}
-            onClick={() => setCanvasSurface("client-wa")}
-          >
-            {t(uiLang, "clientWaSurface")}
-          </Button>
-          <Button
-            variant={androidPreview ? "primary" : "secondary"}
-            onClick={() => setAndroidPreview(!androidPreview)}
-          >
-            {t(uiLang, "androidPreviewSurface")}
-          </Button>
+            <GmailButton
+              variant={androidPreview ? "primary" : "secondary"}
+              size="compact"
+              title={t(uiLang, "androidPreviewSurface")}
+              onClick={() => setAndroidPreview(!androidPreview)}
+            >
+              {t(uiLang, "androidPreviewSurface")}
+            </GmailButton>
+          </span>
         </div>
-        <div style={{ flex: 1, minWidth: 12 }} />
+        {!androidPreview ? <div style={{ flex: 1, minWidth: 12 }} /> : null}
 
         <div
           style={{
@@ -80903,14 +81114,15 @@ export default function CrmModulesHome() {
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "flex-end",
-            gap: 10,
+            gap: androidPreview ? 6 : 10,
             flexShrink: 0,
-            marginInlineStart: "auto",
+            marginInlineStart: androidPreview ? 0 : "auto",
             marginInlineEnd: 0,
             paddingInlineEnd: 0,
+            flexWrap: "wrap",
           }}
         >
-          {canvasSurface === "firm" ? (
+          {canvasSurface === "firm" && !androidPreview ? (
             <>
               <div
                 style={{
@@ -80971,9 +81183,11 @@ export default function CrmModulesHome() {
               flexShrink: 0,
             }}
           >
-            <ChromeText size="small" weight="semibold" tone="secondary">
-              {t(uiLang, "uiLanguage")}
-            </ChromeText>
+            {!androidPreview ? (
+              <ChromeText size="small" weight="semibold" tone="secondary">
+                {t(uiLang, "uiLanguage")}
+              </ChromeText>
+            ) : null}
             <div style={{ flexShrink: 0, width: "max-content" }}>
               <Select
                 value={uiLang}
@@ -80993,7 +81207,7 @@ export default function CrmModulesHome() {
           style={{
             display: "flex",
             flexDirection: "row",
-            flexWrap: "wrap",
+            flexWrap: androidPreview ? "nowrap" : "wrap",
             alignItems: "center",
             gap: 6,
             width: "100%",
@@ -81009,7 +81223,7 @@ export default function CrmModulesHome() {
               flexWrap: "wrap",
               alignItems: "center",
               gap: 6,
-              flex: "1 1 auto",
+              flex: androidPreview ? "0 1 auto" : "1 1 auto",
               minWidth: 0,
             }}
           >
@@ -81028,21 +81242,40 @@ export default function CrmModulesHome() {
             >
               {t(uiLang, "manager")}
             </Button>
-            <Button
-              variant={role === "systemadmin" ? "primary" : "secondary"}
-              onClick={() => setRole("systemadmin")}
-            >
-              {t(uiLang, "systemAdmin")}
-            </Button>
-            {/* Short name only in header — full roleLabel text overflows ~842px */}
-            <Pill tone="info">
-              {isWorker(role)
-                ? t(uiLang, "worker")
-                : isManager(role)
-                  ? t(uiLang, "manager")
-                  : t(uiLang, "systemAdmin")}
-            </Pill>
+            {!androidPreview ? (
+              <Button
+                variant={role === "systemadmin" ? "primary" : "secondary"}
+                onClick={() => setRole("systemadmin")}
+              >
+                {t(uiLang, "systemAdmin")}
+              </Button>
+            ) : null}
+            {!androidPreview ? (
+              <Pill tone="info">
+                {isWorker(role)
+                  ? t(uiLang, "worker")
+                  : isManager(role)
+                    ? t(uiLang, "manager")
+                    : t(uiLang, "systemAdmin")}
+              </Pill>
+            ) : null}
           </div>
+          {androidPreview ? (
+            <div
+              data-chrome="android-header-live-clock-slot"
+              style={{
+                flex: "1 1 auto",
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                paddingInline: 4,
+              }}
+            >
+              <AndroidHeaderLiveClock />
+            </div>
+          ) : null}
           <div
             style={{
               display: "flex",
@@ -81051,20 +81284,25 @@ export default function CrmModulesHome() {
               justifyContent: "flex-end",
               gap: 6,
               flexShrink: 0,
-              marginInlineStart: "auto",
+              marginInlineStart: androidPreview ? 0 : "auto",
               marginInlineEnd: 0,
               paddingInlineEnd: 0,
               width: "max-content",
-              maxWidth: "100%",
+              maxWidth: androidPreview ? "46%" : "100%",
+              minWidth: 0,
             }}
           >
-            <ChromeText size="small" weight="semibold" style={{ flexShrink: 0 }}>
-              {t(uiLang, "signedInWorker")}
-            </ChromeText>
+            {!androidPreview ? (
+              <ChromeText size="small" weight="semibold" style={{ flexShrink: 0 }}>
+                {t(uiLang, "signedInWorker")}
+              </ChromeText>
+            ) : null}
             <div
               style={{
-                flexShrink: 0,
+                flexShrink: 1,
                 width: "max-content",
+                maxWidth: "100%",
+                minWidth: 0,
                 whiteSpace: "nowrap",
               }}
             >
@@ -82249,143 +82487,232 @@ export default function CrmModulesHome() {
                   {topChrome}
                   <Divider />
                 </Stack>
-                {androidDrawerOpen ? (
+                {/*
+                  Keep mainContent mounted while Menu is open (display:none).
+                  Unmounting cleared ModuleSectionTabs publishers and left the
+                  drawer showing a stale previous androidSectionMenu / secondary.
+                */}
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    position: "relative",
+                  }}
+                >
                   <div
-                    data-chrome="android-secondary-drawer"
+                    data-chrome="android-main-pane"
+                    aria-hidden={androidDrawerOpen}
                     style={{
                       flex: 1,
                       minHeight: 0,
                       overflow: "hidden",
-                      display: "flex",
+                      overflowX: "hidden",
+                      display: androidDrawerOpen ? "none" : "flex",
                       flexDirection: "column",
-                      background: CHROME_WHITE,
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    <Row
-                      gap={8}
-                      align="center"
-                      style={{
-                        flexShrink: 0,
-                        padding: "10px 12px 8px",
-                        borderBottom: `1px solid ${CHROME_BORDER_BLUE}`,
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      <ChromeText weight="semibold" size="small">
-                        {secondaryTitle || t(uiLang, "androidSecondaryNav")}
-                      </ChromeText>
-                      <Spacer />
-                      <Button
-                        variant="ghost"
-                        onClick={() => setAndroidDrawerOpen(false)}
-                      >
-                        {t(uiLang, "androidNavClose")}
-                      </Button>
-                    </Row>
-                    {/*
-                      Android Menu = scrollable 3rd-bar / overflow secondary tabs
-                      (Clients filters, Billing nav, Tools, etc.). Bottom nav stays
-                      primary modules only — scroll here for the rest.
-                    */}
-                    <div
-                      style={{
-                        flex: 1,
-                        minHeight: 0,
-                        overflowY: "auto",
-                        WebkitOverflowScrolling: "touch",
-                        padding: "8px 10px 12px",
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      {secondaryTopActions ? (
-                        <div
-                          onClickCapture={() => setAndroidDrawerOpen(false)}
-                          style={{ marginBottom: 10 }}
-                        >
-                          {secondaryTopActions}
-                        </div>
-                      ) : null}
-                      <Stack gap={6}>
-                        {secondaryRows.map((row) => {
-                          const iconAccent = chromeIconAccent(
-                            row.iconId ?? row.id,
-                            theme.category,
-                          );
-                          return (
-                            <button
-                              key={row.id}
-                              type="button"
-                              onClick={() => {
-                                row.onClick();
-                                setAndroidDrawerOpen(false);
-                              }}
-                              style={{
-                                all: "unset",
-                                cursor: "pointer",
-                                display: "flex",
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: 12,
-                                width: "100%",
-                                boxSizing: "border-box",
-                                padding: "12px 12px",
-                                minHeight: 52,
-                                borderRadius: 10,
-                                background: row.active
-                                  ? chromeSelectedFill(theme)
-                                  : chromeCardBg(theme),
-                                border: `1px solid ${
-                                  row.active
-                                    ? waveChipAlpha(iconAccent, "66")
-                                    : CHROME_BORDER_BLUE
-                                }`,
-                              }}
-                            >
-                              {row.iconId ? (
-                                <ModuleTileIcon
-                                  tileId={row.iconId}
-                                  color={iconAccent}
-                                  size={28}
-                                />
-                              ) : null}
-                              <ChromeText
-                                weight={row.active ? "semibold" : "medium"}
-                                style={{ flex: 1, fontSize: 15 }}
-                              >
-                                {row.label}
-                              </ChromeText>
-                              {row.badge && row.badge > 0 ? (
-                                <ChromeText
-                                  size="small"
-                                  weight="semibold"
-                                  style={{ color: theme.category.red }}
-                                >
-                                  {row.badge > 99 ? "99+" : String(row.badge)}
-                                </ChromeText>
-                              ) : null}
-                            </button>
-                          );
-                        })}
-                      </Stack>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      flex: 1,
-                      minHeight: 0,
-                      overflow: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                      padding: "10px 12px 8px",
+                      padding: "10px 12px 12px",
                       boxSizing: "border-box",
                       ...chromeMainPaneSurface(theme),
                     }}
                   >
                     {mainContent}
                   </div>
-                )}
+                  {androidDrawerOpen ? (
+                    <div
+                      key={`android-menu-${screen}-${normalizePrimaryCategory(selectedCategory)}-${filter}-${billingNavShell}-${toolsModuleShell}-${timeClockNav}`}
+                      data-chrome="android-secondary-drawer"
+                      style={{
+                        flex: 1,
+                        minHeight: 0,
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                        background: CHROME_WHITE,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <Row
+                        gap={8}
+                        align="center"
+                        style={{
+                          flexShrink: 0,
+                          padding: "10px 12px 8px",
+                          borderBottom: `1px solid ${CHROME_BORDER_BLUE}`,
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <ChromeText weight="semibold" size="small">
+                          {androidSectionMenu?.title ||
+                            secondaryTitle ||
+                            t(uiLang, "androidSecondaryNav")}
+                        </ChromeText>
+                        <Spacer />
+                        <Button
+                          variant="ghost"
+                          onClick={() => setAndroidDrawerOpen(false)}
+                        >
+                          {t(uiLang, "androidNavClose")}
+                        </Button>
+                      </Row>
+                      {/*
+                        Android Menu = scrollable 3rd-bar / overflow secondary tabs
+                        (Clients filters, Billing nav, Tools, ModuleSectionTabs).
+                        Bottom nav stays primary only.
+                      */}
+                      <div
+                        style={{
+                          flex: 1,
+                          minHeight: 0,
+                          overflowY: "auto",
+                          WebkitOverflowScrolling: "touch",
+                          padding: "8px 10px 12px",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        {androidSectionMenu &&
+                        androidSectionMenu.items.length > 0 ? (
+                          <Stack gap={6} style={{ marginBottom: 12 }}>
+                            <ChromeText
+                              size="small"
+                              weight="semibold"
+                              style={{
+                                color: theme.category.blue,
+                                paddingInline: 4,
+                              }}
+                            >
+                              {androidSectionMenu.title}
+                            </ChromeText>
+                            {androidSectionMenu.items.map((item) => {
+                              const active =
+                                androidSectionMenu.activeId === item.id;
+                              return (
+                                <button
+                                  key={`section-${screen}-${item.id}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setAndroidSectionSelect({
+                                      id: item.id,
+                                      n: Date.now(),
+                                    });
+                                    setAndroidDrawerOpen(false);
+                                  }}
+                                  style={{
+                                    all: "unset",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 12,
+                                    width: "100%",
+                                    boxSizing: "border-box",
+                                    padding: "12px 12px",
+                                    minHeight: 52,
+                                    borderRadius: 10,
+                                    background: active
+                                      ? chromeSelectedFill(theme)
+                                      : chromeCardBg(theme),
+                                    border: `1px solid ${CHROME_BORDER_BLUE}`,
+                                  }}
+                                >
+                                  <ChromeText
+                                    weight={active ? "semibold" : "medium"}
+                                    style={{ flex: 1, fontSize: 15 }}
+                                  >
+                                    {item.label}
+                                  </ChromeText>
+                                  {item.badge ? (
+                                    <ChromeText
+                                      size="small"
+                                      weight="semibold"
+                                      style={{ color: theme.category.red }}
+                                    >
+                                      {item.badge}
+                                    </ChromeText>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                            <Divider />
+                          </Stack>
+                        ) : null}
+                        {secondaryTopActions ? (
+                          <div
+                            onClickCapture={() => setAndroidDrawerOpen(false)}
+                            style={{ marginBottom: 10 }}
+                          >
+                            {secondaryTopActions}
+                          </div>
+                        ) : null}
+                        <Stack gap={6}>
+                          {secondaryRows.map((row) => {
+                            const iconAccent = chromeIconAccent(
+                              row.iconId ?? row.id,
+                              theme.category,
+                            );
+                            return (
+                              <button
+                                key={`sec-${screen}-${row.id}`}
+                                type="button"
+                                onClick={() => {
+                                  row.onClick();
+                                  setAndroidDrawerOpen(false);
+                                }}
+                                style={{
+                                  all: "unset",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 12,
+                                  width: "100%",
+                                  boxSizing: "border-box",
+                                  padding: "12px 12px",
+                                  minHeight: 52,
+                                  borderRadius: 10,
+                                  background: row.active
+                                    ? chromeSelectedFill(theme)
+                                    : chromeCardBg(theme),
+                                  border: `1px solid ${
+                                    row.active
+                                      ? waveChipAlpha(iconAccent, "66")
+                                      : CHROME_BORDER_BLUE
+                                  }`,
+                                }}
+                              >
+                                {row.iconId ? (
+                                  <ModuleTileIcon
+                                    tileId={row.iconId}
+                                    color={iconAccent}
+                                    size={28}
+                                  />
+                                ) : null}
+                                <ChromeText
+                                  weight={row.active ? "semibold" : "medium"}
+                                  style={{ flex: 1, fontSize: 15 }}
+                                >
+                                  {row.label}
+                                </ChromeText>
+                                {row.badge && row.badge > 0 ? (
+                                  <ChromeText
+                                    size="small"
+                                    weight="semibold"
+                                    style={{ color: theme.category.red }}
+                                  >
+                                    {row.badge > 99
+                                      ? "99+"
+                                      : String(row.badge)}
+                                  </ChromeText>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </Stack>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
                 <nav
                   data-chrome="android-primary-bottom-nav"
                   aria-label={t(uiLang, "androidNavMenu")}
