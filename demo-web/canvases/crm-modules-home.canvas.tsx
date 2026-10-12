@@ -33,9 +33,119 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — today's elapsed resets at local midnight. */
-const GMAIL_DUAL_NAV_BUILD = "v600-2026-10-12-chats-settings-side-tab";
+const GMAIL_DUAL_NAV_BUILD = "v668-2026-10-12-ai-history-fixes";
 /** Default AppPrimaryRail module + landing view (Clients). */
 const DEFAULT_PRIMARY_CATEGORY = "client";
+
+/**
+ * Systemadmin primary id is exactly "systemadmin" (not Admin / system-admin).
+ * Also treat Systemadmin hover-flyout and Systemadmin-only screens as that surface.
+ */
+const SYSTEMADMIN_HELP_HIDE_SCREENS = new Set([
+  "help-feedback",
+  "ai-maintenance",
+  "api-connections",
+  "company-settings",
+  "company-docs-folders",
+  "template-merge-fields",
+  "trello-import",
+  "wave-import",
+  "users-rights",
+  "files-root",
+]);
+
+/**
+ * Effective primary for Help gating — ignore stale selectedCategory values that
+ * are not on this role's rail (rail UI already falls back to Clients, but the
+ * raw state can stay "systemadmin" after a role switch and wrongly hide Help).
+ */
+function effectivePrimaryCategoryForHelp(
+  role: Role,
+  selectedCategory: string,
+  deptIds: string | string[] = [],
+): string {
+  const allowed = categoryIdsForUser(role, deptIds);
+  const cat = normalizePrimaryCategory(selectedCategory);
+  return allowed.includes(cat) ? cat : DEFAULT_PRIMARY_CATEGORY;
+}
+
+function isSystemadminNavSurface(
+  role: Role,
+  selectedCategory: string,
+  hoverKey?: string | null,
+  screen?: string,
+  deptIds: string | string[] = [],
+): boolean {
+  const effectiveCat = effectivePrimaryCategoryForHelp(
+    role,
+    selectedCategory,
+    deptIds,
+  );
+  if (effectiveCat === "systemadmin") return true;
+  const allowed = categoryIdsForUser(role, deptIds);
+  if (
+    hoverKey != null &&
+    normalizePrimaryCategory(hoverKey) === "systemadmin" &&
+    allowed.includes("systemadmin")
+  ) {
+    return true;
+  }
+  /**
+   * Systemadmin-only screens hide Help while open — but not when the effective
+   * primary is already a staff module (Clients/Worker/…). That stale-screen
+   * case happens after role switch or Clients fallback while screen.v2 still
+   * points at help-feedback / ai-maintenance / company-settings.
+   */
+  if (
+    screen &&
+    SYSTEMADMIN_HELP_HIDE_SCREENS.has(screen) &&
+    effectiveCat === "systemadmin"
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Staff Help ? on AppPrimaryRail. Hidden when:
+ * - demo role is System Admin (`role === "systemadmin"` / isSystemAdmin), OR
+ * - Systemadmin primary / hover / inbox screens are active (effective rail).
+ * Manager (`admin`) and Worker still see Help on Clients and other staff primaries.
+ */
+function showWorkerHelpFeedbackFab(
+  role: Role,
+  selectedCategory: string,
+  hoverKey?: string | null,
+  screen?: string,
+  deptIds: string | string[] = [],
+): boolean {
+  /** Demo System Admin uses Systemadmin → Help & feedback inbox — no rail ?. */
+  if (isSystemAdmin(role)) return false;
+  const effectiveCat = effectivePrimaryCategoryForHelp(
+    role,
+    selectedCategory,
+    deptIds,
+  );
+  /** Staff primaries (Clients / Worker / Admin / …) always keep Help. */
+  if (effectiveCat !== "systemadmin") {
+    const allowed = categoryIdsForUser(role, deptIds);
+    if (
+      hoverKey != null &&
+      normalizePrimaryCategory(hoverKey) === "systemadmin" &&
+      allowed.includes("systemadmin")
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return !isSystemadminNavSurface(
+    role,
+    selectedCategory,
+    hoverKey,
+    screen,
+    deptIds,
+  );
+}
 
 /**
  * Firm CRM chrome — NO GREY. Use these for every new field / surface.
@@ -410,10 +520,8 @@ const SECONDARY_HOVER_LEAVE_MS = 160;
 
 /** Compact ephemeral flyout width (Sumit clip: floating panel beside rail). */
 const TEMP_TAB_FLYOUT_WIDTH = 228;
-/** Rail hamburger block before first module (padding + button + gap). */
-const TEMP_TAB_FLYOUT_TOP_BASE = 58;
-/** Approx primary-rail module button stride for vertical alignment. */
-const TEMP_TAB_FLYOUT_ITEM_STRIDE = 60;
+/** Max flyout height before inner scroll (viewport clamp may be tighter). */
+const TEMP_TAB_FLYOUT_MAX_HEIGHT = 420;
 
 const MOBILE_BREAKPOINT = 720;
 
@@ -989,6 +1097,9 @@ type Screen =
   | "boards"
   | "users-rights"
   | "files-root"
+  | "help-feedback"
+  | "ai-maintenance"
+  | "reports"
   | "placeholder";
 
 /**
@@ -1020,6 +1131,7 @@ function secondaryIdentity(
     return selectedCategory === "worker" ? "assign-staff-worker" : "workers";
   }
   if (screen === "departments") return "departments";
+  if (screen === "reports") return "reports";
   if (
     screen === "clients" ||
     screen === "new-client" ||
@@ -1045,6 +1157,8 @@ function secondaryIdentity(
     screen === "worker-files" ||
     screen === "users-rights" ||
     screen === "files-root" ||
+    screen === "help-feedback" ||
+    screen === "ai-maintenance" ||
     screen === "placeholder"
   ) {
     return `screen:${screen}`;
@@ -1073,8 +1187,13 @@ type ClientListColumnId =
   | "oneTime"
   | "city";
 
-/** Module context for list-column prefs (Companies / Bookkeeping / Trusts tiles share ClientsScreen). */
-type ClientListModuleKey = "clients" | "companies" | "bookkeeping" | "trusts";
+/** Module context for list-column prefs (Companies / Bookkeeping / Trusts / Prospects share ClientsScreen). */
+type ClientListModuleKey =
+  | "clients"
+  | "prospects"
+  | "companies"
+  | "bookkeeping"
+  | "trusts";
 
 /** Built-in ids plus SysAdmin custom columns (`custom:…`). */
 type ListColumnId = ClientListColumnId | string;
@@ -1100,7 +1219,10 @@ type FieldValueType = "text" | "number" | "date" | "checkbox";
 
 /**
  * Types SysAdmin can scope a field to in Client module settings.
- * Includes Potential (prospect intake) plus engagement types.
+ * Includes Potential (custom fields on prospect cards) plus engagement types.
+ * Filter-by-type on Client form fields lists engagement types only — Prospects
+ * list columns are under Client list columns; New prospect required is under
+ * Prospects (Potential clients).
  * One-time is orthogonal (invoice schedule) — uses the engagement type’s rules.
  */
 type FieldConfigType = EngagementType | "potential";
@@ -1894,6 +2016,58 @@ const CRM_UI = {
     en: "Bank statement PDF → preview/edit → Sumit דפי בנק Excel",
     he: "דף בנק PDF → תצוגה/עריכה → Excel דפי בנק של Sumit",
   },
+  toolsToolAiChat: {
+    en: "AI chat",
+    he: "צ׳אט AI",
+  },
+  toolsToolAiChatHint: {
+    en: "Private per-worker AI chat + downloadable development file",
+    he: "צ׳אט AI פרטי לכל עובד + קובץ פיתוחים להורדה",
+  },
+  toolsAiChatDemoNote: {
+    en: "Demo stub — replies are local. Chat stays on the Chat tab; downloadable outputs accumulate on My development file. Private to the signed-in worker.",
+    he: "דמו — התשובות מקומיות. הצ׳אט בטאב Chat; קבצים להורדה מצטברים ב־קובץ הפיתוחים שלי. פרטי לעובד המחובר.",
+  },
+  toolsAiChatPlaceholder: {
+    en: "Ask the firm AI assistant… (try: make a PDF / Excel)",
+    he: "שאלו את עוזר ה־AI של המשרד… (נסו: צור PDF / Excel)",
+  },
+  toolsAiChatSend: { en: "Send", he: "שליחה" },
+  toolsAiChatEmpty: {
+    en: "No messages yet. Your chat stays private to you.",
+    he: "אין הודעות עדיין. הצ׳אט נשאר פרטי עבורכם.",
+  },
+  toolsAiChatYou: { en: "You", he: "אתם" },
+  toolsAiChatAssistant: { en: "AI", he: "AI" },
+  toolsAiChatTabChat: { en: "Chat", he: "צ׳אט" },
+  toolsAiChatDevFileTitle: {
+    en: "My development file",
+    he: "קובץ הפיתוחים שלי",
+  },
+  toolsAiChatDevFileHint: {
+    en: "Personal artifact store for this worker — PDFs, Excel, and other AI downloadables accumulate here. Other workers cannot see this file.",
+    he: "מאגר קבצים אישי לעובד זה — PDF, Excel וקבצים אחרים מה־AI מצטברים כאן. עובדים אחרים לא רואים קובץ זה.",
+  },
+  toolsAiChatDevEmpty: {
+    en: "No downloadable files yet. Ask the AI (Chat tab) to make a PDF or Excel — it will appear here.",
+    he: "אין עדיין קבצים להורדה. בקשו מה־AI (טאב צ׳אט) ליצור PDF או Excel — הקובץ יופיע כאן.",
+  },
+  toolsAiChatDownload: { en: "Download", he: "הורדה" },
+  toolsAiChatKindPdf: { en: "PDF", he: "PDF" },
+  toolsAiChatKindExcel: { en: "Excel", he: "Excel" },
+  toolsAiChatKindWord: { en: "Word", he: "Word" },
+  toolsAiChatKindOther: { en: "File", he: "קובץ" },
+  toolsAiChatColFile: { en: "File", he: "קובץ" },
+  toolsAiChatColKind: { en: "Kind", he: "סוג" },
+  toolsAiChatColDate: { en: "Added", he: "נוסף" },
+  toolsAiChatStubReply: {
+    en: "Demo AI reply (no live API). Your message was noted. Enable a real AI API in production for live answers.",
+    he: "תשובת AI לדמו (ללא API חי). ההודעה נרשמה. בפרודקשן יש לחבר API אמיתי לתשובות חיות.",
+  },
+  toolsAiChatStubReplyWithFile: {
+    en: "Demo AI: generated {fileName} and saved it to My development file (open that tab to download). Stub only — no live API.",
+    he: "דמו AI: נוצר {fileName} ונשמר ב־קובץ הפיתוחים שלי (פתחו את הטאב להורדה). דמו בלבד — ללא API חי.",
+  },
   toolsConvTabFiles: {
     en: "File convert",
     he: "המרת קבצים",
@@ -2386,32 +2560,32 @@ const CRM_UI = {
   },
   clientTypes: { en: "Client types", he: "סוגי לקוח" },
   prospectRequiredFields: {
-    en: "Prospect required fields",
-    he: "שדות חובה לפוטנציאלי",
+    en: "New prospect — required fields",
+    he: "לקוח פוטנציאלי חדש — שדות חובה",
   },
   prospectRequiredFieldsHint: {
     en: "Choose which New prospect intake fields are required. Managers and System Admin.",
     he: "בחרו אילו שדות חובה בקליטת לקוח פוטנציאלי. למנהלים ולמנהל מערכת.",
   },
   prospectRequiredFieldsBody: {
-    en: "Toggles apply to the New prospect form only. Convert / New client still use Client module settings. Demo default: name + email.",
-    he: "המתגים חלים על טופס לקוח פוטנציאלי חדש בלבד. המרה / לקוח חדש ממשיכים לפי הגדרות מודול לקוחות. ברירת מחדל בדמו: שם + אימייל.",
+    en: "This checklist is the only place that marks built-in fields required on New prospect. It is not the Client form fields dropdown (that screen is for Company / Bookkeeping / etc. client cards, and for custom fields). Demo default: name + email.",
+    he: "רשימה זו היא המקום היחיד שמסמן שדות מובנים כחובה בלקוח פוטנציאלי חדש. זה לא התפריט בשדות טופס לקוח (שם מגדירים כרטיסי חברה / הנה״ח וכו׳, וגם שדות מותאמים). ברירת מחדל בדמו: שם + אימייל.",
   },
   prospectFieldNameEither: {
     en: "Name (EN or HE display)",
     he: "שם (תצוגה EN או HE)",
   },
   prospectSettings: {
-    en: "Prospect settings",
-    he: "הגדרות פוטנציאלי",
+    en: "Prospects (Potential clients)",
+    he: "פוטנציאליים (לקוחות פוטנציאליים)",
   },
   prospectSettingsHint: {
-    en: "Required intake fields and prospect pipeline stages",
-    he: "שדות חובה בקליטה ושלבים בצינור הפוטנציאלי",
+    en: "Set New prospect required fields here, then configure prospect pipeline stages",
+    he: "כאן מגדירים שדות חובה ללקוח פוטנציאלי חדש, ואז שלבי הצינור",
   },
   prospectTabRequired: {
-    en: "Required fields",
-    he: "שדות חובה",
+    en: "New prospect required",
+    he: "חובה בפוטנציאלי חדש",
   },
   prospectTabStages: {
     en: "Stages",
@@ -2501,16 +2675,16 @@ const CRM_UI = {
   },
   /** Client module settings hub — Gmail raised tabs (clearer than old buttons). */
   clientModuleTabFormFields: {
-    en: "Form fields",
-    he: "שדות טופס",
+    en: "Client form fields",
+    he: "שדות טופס לקוח",
   },
   clientModuleTabListColumns: {
-    en: "List columns",
-    he: "עמודות רשימה",
+    en: "Client list columns",
+    he: "עמודות רשימת לקוחות",
   },
   clientModuleTabTypesFilters: {
-    en: "Types & filters",
-    he: "סוגים וסינון",
+    en: "Client types & filters",
+    he: "סוגי לקוח וסינון",
   },
   listColumns: { en: "List columns", he: "עמודות רשימה" },
   moduleColumns: { en: "Module columns", he: "עמודות מודול" },
@@ -2607,6 +2781,77 @@ const CRM_UI = {
     he: "{n} משויכים",
   },
   reports: { en: "Reports", he: "דוחות" },
+  reportsModuleHint: {
+    en: "Firm overview reports — hours, cash flow, client progress, VAT, and WIP. Demo data; Run opens sample results.",
+    he: "דוחות סקירת משרד — שעות, תזרים, התקדמות לקוחות, מע״מ ו־WIP. נתוני דמו; הרצה פותחת תוצאות לדוגמה.",
+  },
+  reportsCategoryHours: { en: "Staff hours", he: "שעות עובדים" },
+  reportsCategoryHoursDesc: {
+    en: "Attendance, billable hours, and utilization by worker (Kate Rudova–style summary).",
+    he: "נוכחות, שעות לחיוב וניצולת לפי עובד (סיכום בסגנון דוח השעות).",
+  },
+  reportsCategoryCashFlow: { en: "Billing / cash flow", he: "גבייה / תזרים מזומנים" },
+  reportsCategoryCashFlowDesc: {
+    en: "Cash-basis inflow, outflow, and net — same demo series as Billing overview.",
+    he: "תזרים נכנס / יוצא / נטו בבסיס מזומן — אותה סדרת דמו כמו בסקירת גבייה.",
+  },
+  reportsCategoryProgress: { en: "Client progress", he: "התקדמות לקוחות" },
+  reportsCategoryProgressDesc: {
+    en: "Pipeline stage snapshot across bookkeeping, audit, and tax engagements.",
+    he: "צילום שלבי צינור בהנהלת חשבונות, ביקורת ומס.",
+  },
+  reportsCategoryVat: { en: "VAT filings", he: "דיווחי מע״מ" },
+  reportsCategoryVatDesc: {
+    en: "Monthly / bimonthly VAT return status and amounts due.",
+    he: "סטטוס דוח מע״מ חודשי / דו־חודשי וסכומים לתשלום.",
+  },
+  reportsCategoryWip: { en: "WIP (unbilled)", he: "WIP (לא חויב)" },
+  reportsCategoryWipDesc: {
+    en: "Work in progress — unbilled hours and estimated fee value.",
+    he: "עבודה בתהליך — שעות לא מחויבות ואומדן שכר טרחה.",
+  },
+  reportsFilterPeriod: { en: "Period", he: "תקופה" },
+  reportsFilterDepartment: { en: "Department", he: "מחלקה" },
+  reportsDeptAll: { en: "All departments", he: "כל המחלקות" },
+  reportsPeriodThisMonth: { en: "This month", he: "החודש" },
+  reportsPeriodLastQuarter: { en: "Last quarter", he: "רבעון אחרון" },
+  reportsPeriodYtd: { en: "Year to date", he: "מתחילת השנה" },
+  reportsPeriodLast12: { en: "Last 12 months", he: "12 החודשים האחרונים" },
+  reportsRun: { en: "Run report", he: "הפעלת דוח" },
+  reportsOpen: { en: "Open", he: "פתיחה" },
+  reportsResults: { en: "Results", he: "תוצאות" },
+  reportsDemoCaption: {
+    en: "Source: Intertax CRM demo · sample figures for the selected filters",
+    he: "מקור: דמו CRM אינטרטקס · נתוני דוגמה לפי המסננים שנבחרו",
+  },
+  reportsKpiTotalHours: { en: "Total hours", he: "סה״כ שעות" },
+  reportsKpiBillable: { en: "Billable hours", he: "שעות לחיוב" },
+  reportsKpiUtilization: { en: "Utilization", he: "ניצולת" },
+  reportsKpiInflow: { en: "Cash inflow", he: "תזרים נכנס" },
+  reportsKpiOutflow: { en: "Cash outflow", he: "תזרים יוצא" },
+  reportsKpiNet: { en: "Net change", he: "שינוי נטו" },
+  reportsKpiOnTrack: { en: "On track", he: "במסלול" },
+  reportsKpiAtRisk: { en: "At risk", he: "בסיכון" },
+  reportsKpiBlocked: { en: "Blocked", he: "חסום" },
+  reportsKpiVatFiled: { en: "Filed", he: "דווח" },
+  reportsKpiVatDue: { en: "Due this cycle", he: "לתשלום במחזור" },
+  reportsKpiVatPending: { en: "Pending", he: "ממתין" },
+  reportsKpiWipValue: { en: "WIP value", he: "ערך WIP" },
+  reportsKpiWipHours: { en: "Unbilled hours", he: "שעות לא מחויבות" },
+  reportsKpiWipClients: { en: "Clients with WIP", he: "לקוחות עם WIP" },
+  reportsColDept: { en: "Department", he: "מחלקה" },
+  reportsColStage: { en: "Stage", he: "שלב" },
+  reportsColDue: { en: "Due", he: "יעד" },
+  reportsColCycle: { en: "VAT cycle", he: "מחזור מע״מ" },
+  reportsColAgeDays: { en: "Age (days)", he: "גיל (ימים)" },
+  reportsColUnbilled: { en: "Unbilled hrs", he: "שעות לא מחויבות" },
+  reportsColWipIls: { en: "WIP (ILS)", he: "WIP (₪)" },
+  reportsStatusOnTrack: { en: "On track", he: "במסלול" },
+  reportsStatusAtRisk: { en: "At risk", he: "בסיכון" },
+  reportsStatusBlocked: { en: "Blocked / waiting", he: "חסום / ממתין" },
+  reportsStatusFiled: { en: "Filed", he: "דווח" },
+  reportsStatusDue: { en: "Due", he: "לתשלום" },
+  reportsStatusPending: { en: "Pending prep", he: "בהכנה" },
   usersRights: { en: "Users & rights", he: "משתמשים והרשאות" },
   usersRightsHint: {
     en: "Firm staff with role level and a demo module-access matrix. Saving rights for the signed-in worker updates the role strip.",
@@ -2691,6 +2936,222 @@ const CRM_UI = {
     en: "Cursor AI, Sumit, Konto, Trello, Wave, and custom API keys",
     he: "Cursor AI, Sumit, קונטו, Trello, Wave ומפתחות API מותאמים",
   },
+  helpFeedback: { en: "Help & feedback", he: "עזרה ומשוב" },
+  hintHelpFeedback: {
+    en: "Help questions, bugs, and suggestions from staff",
+    he: "שאלות עזרה, באגים והצעות מהצוות",
+  },
+  aiMaintenance: { en: "AI maintenance", he: "תחזוקת AI" },
+  hintAiMaintenance: {
+    en: "AI triage, bug-fix schedule, and security scan schedule",
+    he: "מיון AI, לוח תיקוני באגים ולוח סריקת אבטחה",
+  },
+  aiMaintenanceTitle: { en: "AI maintenance", he: "תחזוקת AI" },
+  aiMaintenanceHint: {
+    en: "Triage bugs & suggestions from Help & feedback. Schedule AI fixes and system security scans (demo).",
+    he: "מיון באגים והצעות מעזרה ומשוב. תזמון תיקוני AI וסריקות אבטחה (דמו).",
+  },
+  aiMaintenanceAiOffHint: {
+    en: "AI integration is off in Company settings — this module stays visible but actions are disabled.",
+    he: "אינטגרציית AI כבויה בהגדרות חברה — המודול נשאר גלוי אך הפעולות מושבתות.",
+  },
+  aiMaintenanceTabInbox: { en: "Inbox / triage", he: "תיבה / מיון" },
+  aiMaintenanceTabFixSchedule: { en: "Fix schedule", he: "לוח תיקונים" },
+  aiMaintenanceTabScanSchedule: {
+    en: "Security & bug scan",
+    he: "סריקת אבטחה ובאגים",
+  },
+  aiMaintenanceTabHistoryFixes: {
+    en: "History fixes",
+    he: "היסטוריית תיקונים",
+  },
+  aiMaintenanceHistoryFilterAiFixes: {
+    en: "AI fixes",
+    he: "תיקוני AI",
+  },
+  aiMaintenanceHistoryEmpty: {
+    en: "No fix history yet.",
+    he: "אין עדיין היסטוריית תיקונים.",
+  },
+  aiMaintenanceFixWithAi: { en: "Fix with AI", he: "תקן עם AI" },
+  aiMaintenanceToggleIntegration: {
+    en: "Include in AI fixes",
+    he: "כלול בתיקוני AI",
+  },
+  aiMaintenanceFixed: {
+    en: "Fixed by AI (demo)",
+    he: "תוקן ע״י AI (דמו)",
+  },
+  aiMaintenanceScheduleEnable: {
+    en: "Enable schedule",
+    he: "הפעל לוח זמנים",
+  },
+  aiMaintenanceRunTime: { en: "Run at", he: "שעת הרצה" },
+  aiMaintenanceLastRun: { en: "Last run", he: "ריצה אחרונה" },
+  aiMaintenanceNextRun: { en: "Next run", he: "ריצה הבאה" },
+  aiMaintenanceFrequency: { en: "Frequency", he: "תדירות" },
+  aiMaintenanceEveryDay: { en: "Every day", he: "כל יום" },
+  aiMaintenanceEveryWeek: { en: "Every week", he: "כל שבוע" },
+  aiMaintenanceEvery2Weeks: { en: "Every 2 weeks", he: "כל שבועיים" },
+  aiMaintenanceEveryMonth: { en: "Every month", he: "כל חודש" },
+  aiMaintenanceEvery2Months: { en: "Every 2 months", he: "כל חודשיים" },
+  aiMaintenanceEvery3Months: { en: "Every 3 months", he: "כל 3 חודשים" },
+  aiMaintenanceEveryHalfYear: { en: "Every half year", he: "כל חצי שנה" },
+  aiMaintenanceEveryYear: { en: "Every year", he: "כל שנה" },
+  aiMaintenanceDay: { en: "Day", he: "יום" },
+  aiMaintenanceDayOfMonth: { en: "Day of month", he: "יום בחודש" },
+  aiMaintenanceWeekday: { en: "Weekday", he: "יום בשבוע" },
+  aiMaintenanceMonth: { en: "Month", he: "חודש" },
+  aiMaintenanceWeekdaySun: { en: "Sunday", he: "ראשון" },
+  aiMaintenanceWeekdayMon: { en: "Monday", he: "שני" },
+  aiMaintenanceWeekdayTue: { en: "Tuesday", he: "שלישי" },
+  aiMaintenanceWeekdayWed: { en: "Wednesday", he: "רביעי" },
+  aiMaintenanceWeekdayThu: { en: "Thursday", he: "חמישי" },
+  aiMaintenanceWeekdayFri: { en: "Friday", he: "שישי" },
+  aiMaintenanceWeekdaySat: { en: "Saturday", he: "שבת" },
+  aiMaintenanceRunNowDemo: { en: "Run now (demo)", he: "הפעל עכשיו (דמו)" },
+  aiMaintenanceEmpty: {
+    en: "No bugs or suggestions in the inbox.",
+    he: "אין באגים או הצעות בתיבה.",
+  },
+  aiMaintenanceIncludeOn: {
+    en: "Included — scheduled AI may process this item",
+    he: "כלול — AI מתוזמן עשוי לטפל בפריט",
+  },
+  aiMaintenanceIncludeOff: {
+    en: "Excluded from scheduled AI fixes",
+    he: "לא כלול בתיקוני AI מתוזמנים",
+  },
+  aiMaintenanceScanHint: {
+    en: "Demo system test for bugs and security. Does not change live data.",
+    he: "בדיקת מערכת דמו לבאגים ואבטחה. לא משנה נתונים חיים.",
+  },
+  aiMaintenanceFixScheduleHint: {
+    en: "When enabled, AI applies queued bug fixes at the chosen time (demo).",
+    he: "כשמופעל, AI מחיל תיקוני באגים בתור בשעה שנבחרה (דמו).",
+  },
+  aiMaintenanceInstructionsTitle: {
+    en: "AI instructions",
+    he: "הוראות ל-AI",
+  },
+  aiMaintenanceInstructionsPlaceholder: {
+    en: "Tell AI what to look for and which bug checker to use (leave empty for AI default)…",
+    he: "כתבו ל-AI מה לחפש ואיזה בודק באגים להשתמש (ריק = ברירת מחדל של AI)…",
+  },
+  aiMaintenanceInstructionsSave: { en: "Save", he: "שמירה" },
+  aiMaintenanceInstructionsDefault: {
+    en: "Using AI default checker / criteria",
+    he: "משתמש בבודק / קריטריונים ברירת מחדל של AI",
+  },
+  aiMaintenanceInstructionsOverride: {
+    en: "Custom instructions override AI defaults.",
+    he: "הוראות מותאמות מחליפות את ברירות המחדל של AI.",
+  },
+  aiMaintenanceInstructionsAppliesNote: {
+    en: "Applies to this security & bug scan.",
+    he: "חל על סריקת האבטחה והבאגים הזו.",
+  },
+  helpFeedbackTitle: { en: "Help & feedback", he: "עזרה ומשוב" },
+  helpFeedbackHint: {
+    en: "Inbox for Worker help, bug reports, and suggestions. Mark read and reply (demo).",
+    he: "תיבת דואר לעזרה, דיווחי באגים והצעות מעובדים. סמנו כנקרא והשיבו (דמו).",
+  },
+  helpFeedbackFilterAll: { en: "All", he: "הכל" },
+  helpFeedbackFilterHelp: { en: "Help", he: "עזרה" },
+  helpFeedbackFilterBug: { en: "Bug", he: "באג" },
+  helpFeedbackFilterSuggestion: { en: "Suggestion", he: "הצעה" },
+  helpFeedbackMarkRead: { en: "Mark read", he: "סמן כנקרא" },
+  helpFeedbackMarkUnread: { en: "Mark unread", he: "סמן כלא נקרא" },
+  helpFeedbackReply: { en: "Send reply", he: "שלח תשובה" },
+  helpFeedbackReplyPlaceholder: {
+    en: "Human reply to the worker…",
+    he: "תשובת אדם לעובד…",
+  },
+  helpFeedbackEmpty: {
+    en: "No items in this filter.",
+    he: "אין פריטים במסנן זה.",
+  },
+  helpFeedbackAiReply: { en: "AI reply", he: "תשובת AI" },
+  helpFeedbackHumanReply: { en: "Human reply", he: "תשובת אדם" },
+  helpFeedbackQueued: {
+    en: "Queued for System Admin",
+    he: "בתור למנהל מערכת",
+  },
+  helpFeedbackUnread: { en: "Unread", he: "לא נקרא" },
+  helpFabTitle: { en: "Help & feedback", he: "עזרה ומשוב" },
+  helpFabOpen: { en: "Open help", he: "פתח עזרה" },
+  helpFabClose: { en: "Close help", he: "סגור עזרה" },
+  helpFabModeHelp: { en: "Help", he: "עזרה" },
+  helpFabModeBug: { en: "Bug", he: "באג" },
+  helpFabModeSuggestion: { en: "Suggestion", he: "הצעה" },
+  helpFabSubject: { en: "Subject", he: "נושא" },
+  helpFabSubjectPlaceholder: {
+    en: "Short summary…",
+    he: "סיכום קצר…",
+  },
+  helpFabBody: { en: "Details", he: "פרטים" },
+  helpFabBodyPlaceholderHelp: {
+    en: "What do you need help with?",
+    he: "במה צריך עזרה?",
+  },
+  helpFabBodyPlaceholderBug: {
+    en: "What went wrong? Steps to reproduce…",
+    he: "מה לא עבד? שלבים לשחזור…",
+  },
+  helpFabBodyPlaceholderSuggestion: {
+    en: "What should we improve or add?",
+    he: "מה כדאי לשפר או להוסיף?",
+  },
+  helpFabSend: { en: "Send", he: "שליחה" },
+  helpFabSent: {
+    en: "Sent to System Admin inbox.",
+    he: "נשלח לתיבת מנהל המערכת.",
+  },
+  helpFabAiOn: {
+    en: "AI integration is on (Company settings) — you may get an instant demo reply; System Admin still sees it.",
+    he: "אינטגרציית AI פעילה (הגדרות חברה) — ייתכן תשובת דמו מיידית; מנהל המערכת עדיין רואה את הפנייה.",
+  },
+  helpFabAiOff: {
+    en: "AI integration is off (Company settings) — a human System Admin will answer from Help & feedback.",
+    he: "אינטגרציית AI כבויה (הגדרות חברה) — מנהל מערכת יענה מתוך עזרה ומשוב.",
+  },
+  helpFabAiThinking: { en: "AI is drafting a reply…", he: "ה־AI מכין תשובה…" },
+  helpFabAskHuman: {
+    en: "Also queue for human System Admin",
+    he: "גם לשלוח לתור מנהל מערכת",
+  },
+  helpFabViaLabel: { en: "Who should help?", he: "מי יעזור?" },
+  helpFabViaAi: { en: "AI help", he: "עזרת AI" },
+  helpFabViaHuman: { en: "Human help", he: "עזרת אדם" },
+  helpFabViaAiHint: {
+    en: "Demo AI reply. Help type stays local; Bug and Suggestion always go to the System Admin inbox.",
+    he: "תשובת דמו של AI. סוג עזרה נשאר מקומי; באג והצעה תמיד נשלחים לתיבת מנהל המערכת.",
+  },
+  helpFabViaHumanHint: {
+    en: "Help type stays local. Bug and Suggestion are queued to System Admin Help & feedback.",
+    he: "סוג עזרה נשאר מקומי. באג והצעה נשלחים לתור עזרה ומשוב של מנהל המערכת.",
+  },
+  helpFabViaAiDisabled: {
+    en: "AI help unavailable — turn on AI in Company settings.",
+    he: "עזרת AI לא זמינה — הפעילו AI בהגדרות חברה.",
+  },
+  helpFabSentAi: {
+    en: "AI reply below — Help is not sent to System Admin inbox.",
+    he: "תשובת AI למטה — עזרה לא נשלחת לתיבת מנהל המערכת.",
+  },
+  helpFabSentHelpLocal: {
+    en: "Noted locally — Help is not sent to System Admin. Use Bug or Suggestion to report.",
+    he: "נרשם מקומית — עזרה לא נשלחת למנהל המערכת. לדיווח השתמשו בבאג או בהצעה.",
+  },
+  helpFabSentHuman: {
+    en: "Sent to System Admin inbox.",
+    he: "נשלח לתיבת מנהל המערכת.",
+  },
+  helpFabSentBugAi: {
+    en: "AI reply below — also sent to System Admin inbox.",
+    he: "תשובת AI למטה — גם נשלח לתיבת מנהל המערכת.",
+  },
+
   apiConnectionsTitle: {
     en: "API connections",
     he: "חיבורי API",
@@ -2957,8 +3418,8 @@ const CRM_UI = {
     he: "ניהול רשימת סוגים וסינון",
   },
   hintProspectRequiredFields: {
-    en: "Required fields for New prospect",
-    he: "שדות חובה ללקוח פוטנציאלי חדש",
+    en: "New prospect required fields + stages (not Client form fields)",
+    he: "שדות חובה + שלבים לפוטנציאלי חדש (לא שדות טופס לקוח)",
   },
   hintInvoicing: {
     en: "CRM tax invoices + payment requests",
@@ -2966,10 +3427,13 @@ const CRM_UI = {
   },
   hintFees: { en: "Agreed fee schedules", he: "לוחות שכר טרחה מוסכמים" },
   hintAssign: { en: "Who owns each file", he: "מי אחראי על כל תיק" },
-  hintReports: { en: "Firm overview", he: "סקירת משרד" },
+  hintReports: {
+    en: "Hours, cash flow, progress, VAT, WIP",
+    he: "שעות, תזרים, התקדמות, מע״מ, WIP",
+  },
   hintClientFields: {
-    en: "Form fields, list columns, types & filters",
-    he: "שדות טופס, עמודות רשימה, סוגים וסינון",
+    en: "Form fields, list columns, types & filters, Prospects (Potential clients)",
+    he: "שדות טופס, עמודות רשימה, סוגים וסינון, פוטנציאליים (לקוחות פוטנציאליים)",
   },
   hintListColumns: {
     en: "Inside Client module settings — List columns tab",
@@ -3133,7 +3597,11 @@ const CRM_UI = {
   companyNumberHp: { en: "Company number (ח.פ.)", he: "מספר חברה (ח.פ.)" },
   companyAddress: { en: "Address", he: "כתובת" },
   companyPhone: { en: "Phone", he: "טלפון" },
-  companyEmail: { en: "Email", he: "דוא״ל" },
+  companyEmail: { en: "Firm email", he: "אימייל המשרד" },
+  companyEmailHint: {
+    en: "Office contact mailbox for letterhead, invoices, and {firmEmail} merge fields — not each worker’s send-from address.",
+    he: "תיבת הקשר של המשרד לנייר מכתבים, חשבוניות ושדות מיזוג {firmEmail} — לא כתובת השליחה של כל עובד.",
+  },
   companyWebsite: { en: "Website", he: "אתר" },
   companyLogoNote: {
     en: "Logo",
@@ -3183,6 +3651,18 @@ const CRM_UI = {
     en: "System Admin only (Systemadmin Modules). Managers use Admin Modules; Workers do not see this.",
     he: "מנהל מערכת בלבד (מודולי מנהל מערכת). מנהלים רואים מודולי ניהול; עובדים לא רואים מסך זה.",
   },
+  companyAiIntegrationSection: {
+    en: "AI integration",
+    he: "אינטגרציית AI",
+  },
+  companyAiIntegrationEnable: {
+    en: "Enable AI integration",
+    he: "הפעלת אינטגרציית AI",
+  },
+  companyAiIntegrationHint: {
+    en: "Demo toggle — turns on Tools → AI chat, worker AI help, and Systemadmin AI maintenance. In a real app the AI API must be connected.",
+    he: "מתג דמו — מפעיל כלים → צ׳אט AI, עזרת AI לעובד ותחזוקת AI למנהל מערכת. באפליקציה אמיתית יש לחבר API של AI.",
+  },
   earnedThisWeek: {
     en: "Earned this week",
     he: "השתכרות השבוע",
@@ -3217,6 +3697,11 @@ const CRM_UI = {
   },
   allClients: { en: "All clients", he: "כל הלקוחות" },
   potentialClients: { en: "Potential clients", he: "לקוחות פוטנציאליים" },
+  /** Field-config filter / type chips — both product names (locked: potential client = prospect). */
+  prospectsPotentialClients: {
+    en: "Prospects (Potential clients)",
+    he: "פוטנציאליים (לקוחות פוטנציאליים)",
+  },
   companyClients: { en: "Company clients", he: "לקוחות חברה" },
   osekPatur: { en: "Osek Patur", he: "עוסק פטור" },
   individuals: { en: "Individuals", he: "פרטיים" },
@@ -3464,8 +3949,8 @@ const CRM_UI = {
   editDetail: { en: "Edit detail", he: "עריכת פרטים" },
   colVisible: { en: "Visible", he: "גלוי" },
   listColumnsHint: {
-    en: "Pick which columns appear on Clients / Companies / Bookkeeping / Trusts tables (includes Assigned to from Assign staff). Independent of Client module settings (card / form required). Workers and Managers see what you enable here.",
-    he: "בחרו אילו עמודות יופיעו בטבלאות לקוחות / חברות / הנהלת חשבונות / נאמנויות (כולל משויך ל משיוך עובדים). נפרד מהגדרות מודול לקוחות (חובה בכרטיס / טופס). עובדים ומנהלים רואים את מה שתפעילו כאן.",
+    en: "Pick which columns appear on Clients / Prospects (Potential clients) / Companies / Bookkeeping / Trusts tables (includes Assigned to from Assign staff). Independent of Client form fields (card / form required). Workers and Managers see what you enable here.",
+    he: "בחרו אילו עמודות יופיעו בטבלאות לקוחות / פוטנציאליים (לקוחות פוטנציאליים) / חברות / הנהלת חשבונות / נאמנויות (כולל משויך ל משיוך עובדים). נפרד משדות טופס לקוח (חובה בכרטיס / טופס). עובדים ומנהלים רואים את מה שתפעילו כאן.",
   },
   listColumnsAlwaysOn: {
     en: "Name is always on (primary column; follows EN|HE UI).",
@@ -3498,6 +3983,10 @@ const CRM_UI = {
   listModuleClients: {
     en: "Clients (all filters)",
     he: "לקוחות (כל הסינונים)",
+  },
+  listModuleProspects: {
+    en: "Prospects (Potential clients)",
+    he: "פוטנציאליים (לקוחות פוטנציאליים)",
   },
   listModuleCompanies: {
     en: "Companies tile",
@@ -6812,12 +7301,24 @@ const CRM_UI = {
     he: "מוצג תחת מודולי ניהול למנהל ולמנהל מערכת. עובדים לא רואים אריח זה.",
   },
   clientFieldsHint: {
-    en: "Clients module hub: form/card required fields, list columns, and types & filters. Use the tabs below. One-time clients follow their engagement type.",
-    he: "מרכז מודול לקוחות: שדות חובה בטופס/כרטיס, עמודות רשימה, וסוגים וסינון. השתמשו בלשוניות למטה. לקוחות חד־פעמיים לפי סוג ההתקשרות.",
+    en: "Clients module hub: client-card required fields, list columns, types & filters, and Prospects (Potential clients). Use the tabs below. One-time clients follow their engagement type.",
+    he: "מרכז מודול לקוחות: שדות חובה בכרטיס לקוח, עמודות רשימה, סוגים וסינון, ופוטנציאליים (לקוחות פוטנציאליים). השתמשו בלשוניות למטה. לקוחות חד־פעמיים לפי סוג ההתקשרות.",
   },
   clientModuleFormFieldsHint: {
-    en: "Configure required fields for Potential clients and every engagement type. Toggle required, or add a custom field for selected types.",
-    he: "הגדרת שדות חובה ללקוחות פוטנציאליים ולכל סוגי ההתקשרות. סמנו חובה, או הוסיפו שדה מותאם לסוגים נבחרים.",
+    en: "Set required fields on the client card / New client / Convert for each engagement type (Company, Bookkeeping, …). Use Filter by type below. Built-in New prospect required fields and stages live under Prospects (Potential clients). Columns for the Potential clients list are under Client list columns.",
+    he: "הגדרת שדות חובה בכרטיס לקוח / לקוח חדש / המרה לכל סוג התקשרות (חברה, הנה״ח…). השתמשו בסינון לפי סוג למטה. שדות חובה מובנים ושלבים ללקוח פוטנציאלי חדש — רק תחת פוטנציאליים (לקוחות פוטנציאליים). עמודות לרשימת לקוחות פוטנציאליים — תחת עמודות רשימה.",
+  },
+  clientModuleTabProspectSettings: {
+    en: "Prospects (Potential clients)",
+    he: "פוטנציאליים (לקוחות פוטנציאליים)",
+  },
+  clientModuleProspectFieldsLinkHint: {
+    en: "Use New prospect required for the intake checklist. Use Stages for the prospect pipeline. Which columns show on the Potential clients list is configured under Client list columns (List module = Prospects).",
+    he: "״חובה בפוטנציאלי חדש״ = רשימת הקליטה. ״שלבים״ = צינור הפוטנציאלי. אילו עמודות מופיעות ברשימת לקוחות פוטנציאליים מוגדרות תחת עמודות רשימה (מודול רשימה = פוטנציאליים).",
+  },
+  clientFormFieldsProspectFilterCallout: {
+    en: "Filter = Prospects shows which catalog / custom fields apply to prospects. Built-in New prospect required fields are not set here — open Prospects (Potential clients) for that checklist and for stages.",
+    he: "סינון = פוטנציאליים מציג אילו שדות קטלוג / מותאמים חלים על פוטנציאליים. שדות חובה מובנים ללקוח פוטנציאלי חדש לא מוגדרים כאן — פתחו פוטנציאליים (לקוחות פוטנציאליים) לרשימה ולשלבים.",
   },
   filterByType: { en: "Filter by type", he: "סינון לפי סוג" },
   label: { en: "Label", he: "תווית" },
@@ -6846,6 +7347,8 @@ const CRM_UI = {
     en: "WhatsApp = external clients. Open the firm inbox to reply; AI routes new threads to a worker or department.",
     he: "וואטסאפ = לקוחות חיצוניים. פתחו את תיבת החברה כדי להשיב; AI מנתב שיחות חדשות לעובד או למחלקה.",
   },
+  boardsInboxShowAll: { en: "Show all", he: "הצג הכל" },
+  boardsInboxShowLess: { en: "Show less", he: "הצג פחות" },
   dailyTasks: { en: "Daily tasks", he: "משימות יומיות" },
   today: { en: "Today", he: "היום" },
   workerTasks: { en: "Worker Tasks", he: "משימות עובד" },
@@ -7493,8 +7996,8 @@ const CRM_UI = {
   },
   howThisApplies: { en: "How this applies", he: "איך זה חל" },
   howThisAppliesBody: {
-    en: "New prospect / New client / Convert validate required built-in and custom fields for that type. Filter by Potential to set prospect intake required fields. Overview shows custom values under their section.",
-    he: "פוטנציאלי חדש / לקוח חדש / המרה מאמתים שדות חובה מובנים ומותאמים לפי הסוג. סננו לפי פוטנציאלי כדי להגדיר שדות חובה בקליטה. הסקירה מציגה ערכים מותאמים תחת המקטע שלהם.",
+    en: "New client and Convert validate required fields from this catalog by engagement type. New prospect built-in required fields are set only under Prospects (Potential clients). Custom fields marked required for Prospects still validate on New prospect. Overview shows custom values under their section.",
+    he: "לקוח חדש והמרה מאמתים שדות חובה מהקטלוג לפי סוג התקשרות. שדות חובה מובנים ללקוח פוטנציאלי חדש מוגדרים רק תחת פוטנציאליים (לקוחות פוטנציאליים). שדות מותאמים שמסומנים חובה לפוטנציאליים עדיין נאכפים בפוטנציאלי חדש. הסקירה מציגה ערכים מותאמים תחת המקטע שלהם.",
   },
   required: { en: "Required", he: "חובה" },
   optionalLabel: { en: "Optional", he: "אופציונלי" },
@@ -8868,8 +9371,22 @@ const DEFAULT_VISIBLE_LIST_COLUMNS: ClientListColumnId[] = [
   "secondId",
 ];
 
+/** Defaults for Potential clients sidebar — no company/BK/trust/osek/identity/one-time cols. */
+const DEFAULT_PROSPECTS_LIST_COLUMNS: ClientListColumnId[] = [
+  "name",
+  "nameHe",
+  "assignedTo",
+  "email",
+  "phone",
+  "services",
+  "fees",
+  "status",
+  "secondId",
+];
+
 const DEFAULT_LIST_COLUMN_VISIBILITY: ListColumnVisibility = {
   clients: [...DEFAULT_VISIBLE_LIST_COLUMNS],
+  prospects: [...DEFAULT_PROSPECTS_LIST_COLUMNS],
   companies: [...DEFAULT_VISIBLE_LIST_COLUMNS],
   bookkeeping: [...DEFAULT_VISIBLE_LIST_COLUMNS],
   trusts: [...DEFAULT_VISIBLE_LIST_COLUMNS],
@@ -9031,6 +9548,7 @@ function rowCity(row: DemoRow): string {
 }
 
 function listModuleKeyForFilter(filter: ClientFilter): ClientListModuleKey {
+  if (filter === "potential") return "prospects";
   if (filter === "company") return "companies";
   if (filter === "bookkeeping") return "bookkeeping";
   if (filter === "trust") return "trusts";
@@ -9156,14 +9674,17 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     "one-time": "colOneTime",
     services: "services",
     billing: "billing",
-    "client-types": "clientTypes",
-    "prospect-required-fields": "prospectSettings",
+    "client-types": "clientModuleTabTypesFilters",
+    "prospect-required-fields": "clientModuleTabProspectSettings",
     invoicing: "invoicing",
     fees: "fees",
     assign: "assignStaff",
     reports: "reports",
+    /** Systemadmin hub tile — keep long hub label. */
     "client-fields": "clientFields",
-    "list-columns": "listColumns",
+    /** Admin secondary icon — short tab label. */
+    "client-form-fields": "clientModuleTabFormFields",
+    "list-columns": "clientModuleTabListColumns",
     rights: "usersRights",
     "company-settings": "companySettings",
     "company-docs-folders": "companyDocsFoldersTile",
@@ -9174,6 +9695,8 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     departments: "departments",
     "whatsapp-settings": "waDeskSettings",
     "files-root": "filesRoot",
+    "help-feedback": "helpFeedback",
+    "ai-maintenance": "aiMaintenance",
     wave: "waveImport",
     "time-clock": "timeClock",
     "worker-files": "workerFiles",
@@ -9222,6 +9745,8 @@ function tileHint(lang: UiLang, tileId: string, fallback: string): string {
     departments: "hintDepartments",
     "whatsapp-settings": "hintWaDeskSettings",
     "files-root": "hintFilesRoot",
+    "help-feedback": "hintHelpFeedback",
+    "ai-maintenance": "hintAiMaintenance",
     wave: "hintWave",
   };
   const key = map[tileId];
@@ -9336,7 +9861,7 @@ function engagementTypeLabel(lang: UiLang, value: EngagementType): string {
 }
 
 function fieldConfigTypeLabel(lang: UiLang, value: FieldConfigType): string {
-  if (value === "potential") return t(lang, "potentialClients");
+  if (value === "potential") return t(lang, "prospectsPotentialClients");
   return engagementTypeLabel(lang, value);
 }
 
@@ -14300,7 +14825,7 @@ function OverallProgressBar({
 /**
  * In-module section nav. Default `layout="side"` = department side pane
  * (Bookkeeping / Audit / Tax). `layout="top"` = horizontal raised tabs
- * (Boards → Inbox & tasks). ModuleSectionFrame always uses the side pane.
+ * (Clients landing Inbox & tasks). ModuleSectionFrame always uses the side pane.
  */
 type ModuleSectionTabItem = {
   id: string;
@@ -15545,6 +16070,9 @@ type ModuleTile = {
     | "boards"
     | "users-rights"
     | "files-root"
+    | "help-feedback"
+    | "ai-maintenance"
+    | "reports"
     | "placeholder";
   filter?: ClientFilter;
   chatId?: string;
@@ -17981,9 +18509,6 @@ function TemplateSettingsScreen() {
   );
 }
 
-/** Demo notification counts — keep in sync with boards / chats below. */
-const WHATSAPP_NEW_COUNT = 1;
-const CHATS_NEW_COUNT = 1;
 /**
  * Fallback in-work badge before persisted `dailyTasks.v2` hydrates.
  * Matches DEFAULT_DAILY_TASKS: Open + In process (excludes Closed/Done).
@@ -18124,16 +18649,34 @@ const CLIENT_TILES: ModuleTile[] = [
 ];
 
 const ADMIN_TILES: ModuleTile[] = [
+  /**
+   * Admin secondary: four Client module settings sections as icon rows (not one hub).
+   * In-page RaisedTabBar is hidden for Admin — secondary icons are the only nav.
+   * Do NOT remove client-types / prospect icons — Admin has no in-page tabs.
+   * Systemadmin keeps a single hub tile (+ in-page tabs) in SYSTEM_TILES.
+   */
+  {
+    id: "client-form-fields",
+    label: "Client form fields",
+    hint: "Required fields for client forms and cards",
+    opens: "client-fields",
+  },
+  {
+    id: "list-columns",
+    label: "Client list columns",
+    hint: "Columns shown on Clients / Companies / Bookkeeping lists",
+    opens: "list-columns",
+  },
   {
     id: "client-types",
-    label: "Client types",
+    label: "Client types & filters",
     hint: "Manage type list + filters",
     opens: "client-types",
   },
   {
     id: "prospect-required-fields",
-    label: "Prospect settings",
-    hint: "Required fields + prospect stages",
+    label: "Prospects (Potential clients)",
+    hint: "New prospect required fields + stages (not Client form fields)",
     opens: "prospect-required-fields",
   },
   {
@@ -18150,14 +18693,31 @@ const ADMIN_TILES: ModuleTile[] = [
   },
   /** WhatsApp settings live inside the WhatsApp module (header / secondary), not Admin. */
   { id: "fees", label: "Fees", hint: "Agreed fee schedules", opens: "placeholder" },
-  { id: "reports", label: "Reports", hint: "Firm overview", opens: "placeholder" },
+  {
+    id: "reports",
+    label: "Reports",
+    hint: "Hours, cash flow, progress, VAT, WIP",
+    opens: "reports",
+  },
 ];
 
 const SYSTEM_TILES: ModuleTile[] = [
   {
+    id: "help-feedback",
+    label: "Help & feedback",
+    hint: "Help questions, bugs, and suggestions from staff",
+    opens: "help-feedback",
+  },
+  {
+    id: "ai-maintenance",
+    label: "AI maintenance",
+    hint: "AI triage, bug-fix schedule, and security scan schedule",
+    opens: "ai-maintenance",
+  },
+  {
     id: "client-fields",
     label: "Client module settings",
-    hint: "Form fields, list columns, types & filters",
+    hint: "Form fields, list columns, types & filters, Prospects (Potential clients)",
     opens: "client-fields",
   },
   { id: "rights", label: "Users & rights", hint: "Roles and access", opens: "users-rights" },
@@ -26383,7 +26943,19 @@ function demoMessagesForPanel(
  * Module home tile icons — Lucide/Heroicons-style line glyphs (embedded SVG).
  * Canvas cannot load remote images; keep icons inline with theme colors.
  */
-function ModuleTileIcon({
+/**
+ * Tools sidebar + catalog tile images (same ModuleTileIcon path).
+ * sumit-dapi / section46: Windows app static/icon.png.
+ * masav: no native icon.ico/png in the app (exe uses PyInstaller default) —
+ * chrome brand mark from masav_prepration_app/static/icon.png (מס״ב / teal UI).
+ */
+const TOOLS_APP_ICON_SRC: Partial<Record<string, string>> = {
+  "masav": "data:image/png;base64,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",
+  "sumit-dapi": "data:image/png;base64,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",
+  "section46": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAcLElEQVR42uWbeZRmd1nnP7/lLu9ee3X1mqaTTqc7k5iEAcFIRyQxQyIoUjlxOOY4uOsMGkEJzGilXEEU8YhyFHXGDT1pxhFBNGnQ9FFAJMoS0iHpJN3p9FrVtbz7XX7L/HHft6qS7s7CNs7xnnpP96267733eX7P8v0+z/ODf+eH+Lo+a25OcPiwYO/ChZ+7b8rz0F7P/LwH/P/vChDMzspC2Bsc8/PuBX17Dgn7JYenPAcOuK+VQr76CvAI7t6vmD9kNv56+l03VkxHbMtyv1PCtLd+M4IAACec0OKkwC8KqY9RzY+v3PWx5tMVsl/DIcc87t+mAuaQ7JsV3HbADhVRv/um/4jhlT6334L1V+LZRKAkSiCEeNrTvfPgPOQWBAtCysNoeb8U+u9XdeWfmD+QATA7q9i7179gi/oaKkBwz6wcCj42d/NWk/vv8dbejvNXiVAhlEIFChUH6DiwIlReaglSDK0GZyw+c8ImmbJJjs0tzjh8bhH4I0KpDzqv/lf7HX/zKAD3zCpu+8pd4ytTwNycHK5E48037vSxfJPP7fei5YhSkqAW+3C0bFUcCDzSpjm2nwuX5rjE4O1gEaVAxQEy0qhSiIq1R0rn0txnKz2VtRJhjYXcJUKrP1O4d6/88sEvrlnEgYHVfV0VMLdfM3/IcOc3luqlxlu8tW9ByboONaWpmtGNWLrUymypS7bYxrQSXGrwHoRgffWHh/NrfxOhQtdiwokq4UQVVQqc6aQuOdvSJsnxxmVCy9+izy+0fv2+5bV3+TopYM3kq2+78ZukEL/t4SolJeWtIyaol1S23BW9J5fJl7vgPCJQyFgjAgWqMH0BA0344Q94D9bjc1tYSGZACPRIifL2MaKpmje9zPaOL2trLHh/zDve1H7nwQ8zNye5e94jXphLiBce4RHM4xpvvfFOD7+CRJcmaybe1FDZcld0H1skX+khQ42shohQI6TA+4GU3j/3G4kiSHrv8ZnFdVNcYtC1iPKlU8RTNZ+e69je6aYGEN6/o/mOg29bC8YvIFOIFyb8nGB+3tXfdtP7UeL7hfO+dumkF1rJ9uHTZKdbiFij6jFoVUR1/xWmbyEKBVqHa6fYXkYwUaW+bwappWsdWfDOe4X1H64shbef/t2P9DbGpq+OAjYI37jrpj/zWtyuA5XXLpvW6VJHtB88hc8deqyMCBXeOXBfvSRbGIVAKAnGY1d6eO8pXTFNacsI3ccX87SXBcK5+ytL0S2FEp6fJYjnjejuOeAab7vpA16L28NSmFd3TQbtxxfpPbqAqoTIRqlYceeft+CCAguI4ZnY+Eoe7z3Oe6xzWGeLf3E4PHQzSqmkdMk49b0z9J5azpPVfoBz95cybj37qwd7g9s+qwnq5xHtFfMHTP2uV/2eD8TtwUD45kOnSJ5cKVa9FMAwpYmh5a6JdQHBGAjnsNZhvcUMhCxcxgMCJTWxDqlEJRqlCmPlOpOVEbaPTtMyfT70r/fTO7aETXJGrtkWIETeX+7ekGj/Qe7mFvbNCnh2rCCeT6qr/fSrfkKE6td1oPL65ZvWhZ+sFJHd+iJ9CQGIQjBXCDZcPec2vIeQhDqgFETUojKj5RoTlQbT9TG21CfYWp9iZmyM6bExpuujjMQ16mGFiiwBkJOhCfnFe/+IuY/+HuW2R02UGbluO90nzuVZLw1IzXta7/r4nc+VIi+ugAHAqL/9ppfg/CeElIxcuVl1jp4TvUfOoier68IPonxqcnJriIPBqsUVxit1pqqjbKqPs6UxydbGBFsak2yqjzNZHWG0VKMcxiAkAMblLNkmvaWM7mM5j37xJCeOnaPXSUjJWVQrfMYd5jtffT23XX89e3/+Dko+JFtsEW0fpbFvM83Dp401VgvrX9d858H/82xgSTwrdR37dFA/aT6HlHvqu6es6aaq+cBx9GgZEes14TOTE+mQydoIb3zpLdx+zauoRyUapSpKBUOkQy9LWOm3Weyucrq9zMnmIida5zjVOsfZ1gqnsnO0231GPz9G5ZEKoilQuSIMQpSQBVDyHusNlcmYb7hxF+9NPsA5tUKcBKTnWlSv3Exppu5WD58B55ac1Ps64UuXYJ4LBcULK6DA2bb+1hv/B1r+fDxeMdFEVS//4+MILYuAZxxCCnJrmKyO8Idv+O/snb4ErTQHH3uAE81FTg6F66xwrtekmXTppD0Sk5E7i/MeIQQahY0sm5anuOKBXVRaJSqVKtW4TiyjtXTovcfjyU1Gu9tiZWUFNSE5fNUjnNx0mmAVTDdh9OW7cGluOidXtTDuD1q/8rHvG8r03Aoocqgfe/stm/M8eVRFQdzYOyOaXzghsoUOeqpaRHpAScVKt8l/3f96fvO73kw37XJk6QQve9+PkTmDFgopJVpKtFQooVBSIgdARyAQXpAFGZtOTbP7H1+ERtNojFFyJayzZDZFSUVmUiJdIncZkY5RUmG9Yam5QG5yDl/zKMe2H0eezhHVgLGXXOLbR866vJcpqdR1zV+697PMzspnuoI8vypzWADemOynCFS5vHXUZStdkZ5uoUdL58dTIbh8ajvOO3JrmCg3uHR8CxPlBpPVEcZKNepRhXIQE+kALRViYM7OOXqiT32pwWWHdhKIgMnGDLGJaactrDc47xBIAhWuPTI3GZ2kjUAx2ZghKIfs+cJlbFqcxk1q7HKf/qlVUd42hlASn9ufvVgmkOdx+tsO2PLcqzd5b79fB9oH9Vh1jywiYw2hehqyc94R6ZDdk9uQQhbgREfU4wqJychsTi9PaWd9VpMOy/02S70WK/0W7bRHYjOqqsKef95FYDWT1U3YPCd1CaEKEUISB+XCTWSAEIJIl1BSEeqIJOuRm4yJ8ia00ux58FIiHyNqAb3HzyEjrYJK6Dz+NSNvvelqDhywzM6qZ8EB+yUccjoz3+sDXYmnayZb7up8pUcwuW76w/xurGWkXGXn+MyaS4RSUo/K5NYwXm5QDWNG4irjgxw+WRlhqjLCRKnBlokJjty3wIeOf4rRrRPgBc57nHPEQQmPQ4giTrjBs713CFG4kXUWj8cbR6Mxhl007Dy6g4cv/RLiqZTkdJPSpobLe5n2uftR4IeYBQ5cWAGC+UOWuTnpO/9whyqHBPVYNj9/EhlqCCRYv9HyyZ1hpj7OTH0CvCNQmsRk/Ny3vpFe3meqOkY9KlMNS1TCEsYaoiBEyPVF+Nu/+5+EcUysy3SS1mDVC+Gdg6SXIQTE5SKbSLleSYqDmF7WxQlH2VXolcpMnZjg2M4yacXSP75CvKmhVKDJk/53jc3d/FPLtx1o4RFDhCg35H0J+Hr+iWuR4oqgFnuXWZkvd5HVkGcmECGKDPCi8c1UozLGGvCe3Br2Te9g/67ruGL6ErY0JqjFZZSUpDank/YweYbzlmOPnOHhLx5nfGQcaw2BCtFSg/TkmcVZxx1v+yZe/99egs0dUgp6nYzWcp/OSkJuDHFQWsMPpahCpVOisVrH1xWulWI6iYhGK1YEetwm9lsBODArz48Bw1K18zeKUBOOlm22NODzob4AqxN457h8avsA/Xl6/RRjLanJSbMEawzGFijQe4eWCj+IRVIojn5pgaxviMMSxuWkJiEMA/qdjFI15C2//Wr2v+4Ktl46Rp5b0sRw9Tdv540/u59b3vgNBJHCGle4gfeEIiRwAfXVGj4UIATpQpugEXuhlcf7mwF4aL0sv8EFbnBwCG+5QYUSFQeis7iACBRCgrcXoIhSDhRQnI/Vayz1W4WIAqSUePyAzUkCVbywFIULLC+0EF4ghcAhKYUl2it9duyZ4Cff+59oLfex1vHQP52g20x57Q9dy+0/+TLaKwm10Zi9L93Ce378XnQY4LxDS40SirgfIhDIWJOd61J50YRUWgqT+OsL81+HxnKN7s7Pu5m5W8tYf5UMFN57aVsJMtYXpPTWOcphzGWTWwfwXiKEQAoJFIHMOEtmcvp5Rjft080SOmmPlX6LZt6m1e8jhEQIifU5nXaPK1+2jTt/82bu/dMH+Yvf+gxKSR797BnGN1X5rh97CQ9+8im+5z+8jz/6pX/kRVdOMzpRIUvzwrJEgSukU+BBRBrbTXG5EzoO8M5dNnr3rdvW8M6aAu6eEwAdm2/z+Gkda1xqcKkp8L4/3/+Ns0xUGuwYnQY8WZrT66c46/AeWmmPbtYnMRnGGTyeSAcgBF2X4QJHVAtRSuK8QxFQa1T48ffcRHUkZul0m1e87graK32OfO4MV79iO0GkcNbzpl//Ns4+1eSnbv0AST9Ha4VC4X3halZbvPcIrfDWY7upUOXACa0Cl6SXAnD4sFh3geGJsbtMoIWMQ2v7ufKeoob3DBMQFAFw68gkk9VRnLNIKcgzS2YMURQUkT+Kz7Oebp5gvcXhmd4+glAe6wwOj/OWD//e59h97TTfd/cNKC3xznPzHVdTH40BGJuusHPfJN/82sv5hTv+krPH23jtcB6kl1hv6VcS8B6hCipuuxl6tOTQUnrndgN/N4x5cmMAdDCNEshQeZeaC1dvN2SAXRNbCXWEdZYwDKjXK9Qq5TWu7/yQElust4N4UBRE88yy9fJxRqdrGJ8RqBCfS/7idz7NO3/gr3nnD34YgEf+9TRnjq0ysblG0sv5mds+yNzt/5sgVFz3yp20Ox2UkoQ6Js0SMpWzOtJEOokfvL9Nc6RWQ9a66aJI0HtmhBQILXFJXlRvL8YXvWfPIAB6D3JwoRLrt5RCDvB/wQOkEKghiEkdkzM1Lr9uK6vNFXRQBMzKSEhcDtChYvFki3t+49N88q8fpbXSJy4HXH7dDLuvLYDX4qk2gVbgBV54km6P9niX1WoTZVVRbZISl5iBNQiEY/NFkaB3PhzW37y7eCXJe49Sei0DGGtpd3qEWmMoVto4Sy9L1yzBDXyhl6UESqGFJrKa17zhJXz2/sdwOiOUMc7m5KLP8YeX+Pk7PoQQML29wX1/+iB7XryZt/3+awrLeOA0nzp4mLgSEKqITtoiyzOO7zyJkTmhDdfonndu0HAQ4H14UQUIIfzzKSJaZ6nHZXZNbCluohTVcglrHVlu8LK4Jrc5Siq01Egh0FIjEARKUw4jjLHsu+YSbp59MR/6w0+xa8cusr4i1mVSmyCtItQhUkq6qym/+iMfZfc10zjv+fw/PUEoY7RWZC6js9rk3PYVTkyfIMgDvPADZzvPf/3FuYDww8YmF7X9gf9vHplg68gk+AKhSaUIA4jigOVeGy0UtaiMGKRFD0gEWkrswCK8AGNy/vObbuCJh8/y4GceZ9v0DgIR4LxFSkU/7xKoCCMyRA6f+tjDhDomLkdoqdGhYHnpLO1GjwevfAjhBj2FjalLiI2Z7OJ0WCDOeOdxxqJivdauevoXBLnN2TG6idFyHWsN3hVIrPD74gUcflD0cFjvisCIL8CR90hR1AikEMSlgLve83r2XruDI8eO0OqtEEUxgQqIgzJKKgIVIZVkYnycxkiVOIrQFceJ08eJZwK+8LIv0tM9lFMbhPd461BxgLcO7xxeiNPnW8DhKT9Q1ALO43MnZDQAQO48EIB1jssmtyKFIvOGbjfBOouUEiUlxhuiIEAgUHKQn5+WQnPSPCN3Bu89xlp0SfOj77mZv/6dae778wc4s7DA2Ogo1XINrXQBo70jyfo4DK1uEysMt3z3S7nqu7fxV39wL7KvQPqNcRqcR0Yab4pFEMIvnK+AvXs9QC7EEyKz2CRTQb3khUBgPWhxHhjaM71j7f+NegXnBiVua+lnRfmqnfbQRmEG5S83TI/WEqohu5OUlEYKSbUU88Nvv5lv+85r+eiffYYH/uEIpxZOYDIHHqSShLFifLrBK77lSm56/TW86KopznWa1FSFnl9GiQ28ZWDBuhJi01xiHHjx6MZFLxRw97xnHuKR0pPZQuecTcxENKURoS7680GwdtOiCBKwe3LbAAKLNUGElERhSCYMzjoSl611JoYDERJBWcXU4srAbQbxQUj6eUq332PnFdP82M/dSrfd5+QTS5w9tUq722OkVmVypsHmS8ao1AsWuNppEquQ0UqNk81FQjRDc/a5RSiBqkQ+XWxLn1srStFjGxddr3VP5ubk0lvn27W3fOtDNjP7hZRO1yJl2imqEqyZr7WWkVJtrQiSZ4YcCHRR/0OAkhLnXFG3E/5psdgDxruCPot1t/AUcaEgXgbnPJVaxO6rt7L76q1kJITEgMf6nF5SNH5SlzMaF30F6+0g8hfdKZ8aVClEhsqbxAiEONq6unYMYNg73JAF7peAQ8pDzrr9Ns19OFElX+qu9zMEZM5waWOcmfo4fpA00jSjnxSBUElF6jKCUF+45CxA+GLFxaA97oeMTEBmDUqqgkabYefI0Un7VMIYRMEepSjiC94TSM1kdRTrHGvyC3BJTrx1FO+8c7kVUslPctsBu7FZsq6AoU8E6qDJzc/mqz0ZTVTpPrqAz2xBiwccYOf4ZqpRBWNy4iikFEdFlHeuAFApWCwSiRBuuCCDTCvIjKGVdItsMQiQw+BonBswygJV6mDdsupxBTUANEXLrbAcIQSb6qMDNy1czRsH1hNN1cibiXDWCSHlfRcvihajaGJl+/ZPe+eOZs1EypJ2eqSE62bFlQNUdfnUtqIIMnj40ESklOhAU46jAbJ0BFYQeUWMpixCaipGywKmxkFIJYypR2UacYWRUq04jyvUojLlMCIOQiIdoAZ9gWHxxXqLc3bt2ZtqY+uhXwhcN0dWQoJG7LPlrvKZabssvLeIeYfshXCAZ26/4od+N1dK/rkzFtPJXHnHWMELBvVAISV7pooMYI1ltdmm0+2TpBnGWLxzqMGKBUozWqoxWqrRKFWpx2UqUYlKGBOqYFAm1xtWEqx3a+TJeof1AywyvEYK1JBTSEUgNc45NtXHEXJdHNdNKW0dxeXWmiz3QomPdN79kXPcM6s2doyf0Re4oaj8afF+n9k8OdtS0WTN61qMa6c4AeUgWiuCKKWIB6udZTntbo+VZofVZoc8t2uAyDNoc3s3WDUwzhZd4sG7iIFPy0FRpSBNsnBpX8SXfp6S5CmdtE8r6dHsd2ilPax3TFZHCkImBb6bISJNaesIydmW9MYJAvXewtKfrS8wP++4Z1Y1f/HgUaHEB/IkF6aX2fKlk7heTp5mjFeL9jR4pBBEYUC1UqZRrzLaqDHSqFKvlFFKDsZi/ECg9VXTSq0hx0I5RVMlMwVA6qQ9mkmXVtKlk/bp5QlaKiIdEOmQWlymUarSKBXN126e8MefubfIAN5jWwmlneN4523WSgSO+9u/eN8nmZs7rzN0/nzAQ3t9EauCX8Lkb+gdX5b1PZt8NlkVzYUVtu3cw1R1FGdtERP8OgweHkEYoI3EU0R1PyihFb09MM6Q5tlgDsit048BUXLeU4vKBaPMU5r9Ns1+h3PdJgudFc62lznTWuZMe5lznVWOLp/myNmnqJTKZMs9ZC2ivH2M7tFzeO+FlGp+Q9frOQYkBlbQvu3Ao/WfvvG3jLE/np7rmPqVm/XKwQV2RhMEKiRNE5RUONzTUGJRRPI464u5AOvIhHmakoqcr0iybO18nWYr2v0Ob/7L93Jk8QTNfoeVfpt20qefp+Q2L9LdwG2kkIRKU4pK2H6GS3JGv2Entp3arJcpYfyHmu+6935mL9wcvfCEyOwBx9ycVMkn5qxxs71TzZnSWMVFe6bl7sltCCGI49Kz0uaJYIyU/tP6r4PkhRx8BPKC7ckvNY/y+5//CAwUoqQsJk1DgRbR2vQJHqwzIAV5luGWe5R3TxLUY796+BTCua4IxZ2AGCK/56cAgWf2sFw58LFm7adv/H4h+WjrsUVb2jYqrr56r3ji8yf5+H2fY+vUVlY65zAuP497D8+Ns+vd4CGIGTBC5xxygBqFLEiWQHJk8Smu+NIuAqXXiZT3z6AjHiEkI5UJkn6X0zxFa7egtmuK1pGz1iM0Try5+Y6DR4vW+Lz9skdkGm991S+LMLgrkSb/L7d+R/CD9pW86bXv45KZPax0FjnXOoOWGn+hBmxRhVnjA3lmyNIcpSSlSkSvkxBGAWk/RweKMNYEUlOLyxedsCs4mqFeGmXz2A6efOoR/vWbv0j27SXM8W7eX+0G3rgPtN958A1f/ojM2qTIfsX8IVt/641/hZa3UtH5dS++Koh/xTC1soVyvcaxhUfW0NvFx/0K4bfsmOCal1/GU08s8M+HvsSrXnsdhz97jOuu381TRxc5/C/HCCKNsfZZp8uMN2wbfxHCCh5LHubJn2iTtLumd6qlJfxLOQxfcfpwKeWeA+7ZJsXkc04I3n3IMocoGW7Huvtlxwafefjz+al9HTrNJkpoQhGT5wZr3EU/3nm67YQrrtnBNS+7lPGpBpfu3cJ33HE917z8Ml75mmsZGauS5xbvPMKLi36890QyohxW6SyvklwDvaxj+idaWuAfyvvi20/Pf6TH3r3POTr7XApYm7M7+2sHu5Xl6Bbn3P1y2QaL0Zm8HXbIs5xaqVEUG57FoLz3BKFmdanDkYdOcuWLL+E1b3g5zjouu3Iry4ttdl+5FSmf/Y0FAucc1bheKFV0OFs7m/dOtrSAwybPXtV7z72nmZ1Vz2daVD2vicZDBV3uvPv92djeKw6YwF6bVM3l1RORbXTqVGp1sdpfKhxqrX09YEAbPtY6KvUSm7aP8djDJ/nQn34CYy2f/vvDRKWARx58ihPHFouGyDO/P7yvKNLm5Mhmsn7fn1In7ZNXnw1U5h/IbXBz71c/duaFjNCLF7wrpJi0EvH8Db+25fGZO6/95D62Te0yJ1eO6layinRFEVQMpsLXiqu+qAsk/ayYDveeINBkmUFriTEOqQRRKVwPnkNy4/za3gIvIQ7LXDJxmT199in1hWsf5ol9x/6kfiT44bN/crD7QuaEv7xx+Q1zw1t+8DWzM09s+o3xqZmZpNX2bdN2pbGqct6RrfSwSY5Pig6TjAPQEqnkWhVpOCU25O/ee5xxYFyxt8A6RBygYk04UkZqRbLStSViUR0dl0tnT7cWNi/c9eQf/cX7nrmB4+u3YeKPt8/ox7bNBy78ARUF6EgTT9WMDLUy3VSkix2ycx1sNyvGaQeERaiN1kGxwsPpciVRpYBgvEI0VSOoxd7lzqVLbZF3M+mMJXfZB/OZc2/nRx4+MjD5L2v7zFc2zz07q8TA10bvvPkbTeDfgrOvE4ESKtREo2UbNEpeaCldboXtZsIMZv9dkq93n6RARRoZa1QlQpcjLyPlvfUubyUiW+mqwU4RBBxUVr9r5d1/cxDA79+vOfTl7Rb56mya8ghuW5+/a/zMTdeR8wPOudcixSahJUoPNkyVAqdKoRNaFjFi464x6/DGYfu5tP1MmsRgc4u3Fm/citDyowr1/tVf/ttD6/39C09//j/aNlcMHKxtorrrllG0+RaMvckZf7337lKhVTQMjkJscAF8YQ2+mPjyxuVSyqNo8QkpxcczrT/em//omQsp/N/exsm5Ocm+w+JpzEvAyNtfvcPjd3mb7wY57a3dIoQIij1zwnktTgghF5D+cTSPtfY1jj7tHsP5vq+S4F/7wyO4Z1YVOz6/zGP4ff+12+L79do8LZhDcHj24hunN1an9359N1D/uz7+L8LR66pAyMUXAAAAAElFTkSuQmCC",
+};
+
+﻿function ModuleTileIcon({
   tileId,
   color,
   size = 22,
@@ -26393,466 +26965,598 @@ function ModuleTileIcon({
   /** SVG width/height; compose pills use 16. */
   size?: number;
 }) {
-  const common = {
+  const appIconSrc = TOOLS_APP_ICON_SRC[tileId];
+  if (appIconSrc) {
+    return (
+      <img
+        src={appIconSrc}
+        width={size}
+        height={size}
+        alt=""
+        aria-hidden
+        style={{
+          width: size,
+          height: size,
+          objectFit: "contain",
+          display: "block",
+          borderRadius: 4,
+          flexShrink: 0,
+        }}
+      />
+    );
+  }
+  /** Multi-color fills — Tools-PNG spirit; ignore flat grey single-tone. */
+  const { p, s, t } = tileIconSwatches(tileId, color);
+  const box = {
     width: size,
     height: size,
     viewBox: "0 0 24 24",
     fill: "none" as const,
-    stroke: color,
-    strokeWidth: 1.85,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
     "aria-hidden": true,
   };
+  const stroke = (c: string, w = 1.85) => ({
+    fill: "none" as const,
+    stroke: c,
+    strokeWidth: w,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  });
   switch (tileId) {
     case "clients":
       return (
-        <svg {...common}>
-          <circle cx="9" cy="8" r="3.2" />
-          <path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5" />
-          <circle cx="17" cy="9" r="2.4" />
-          <path d="M14.2 19c.4-2.2 1.8-3.5 3.6-3.5 1.2 0 2.2.5 2.9 1.4" />
+        <svg {...box}>
+          <circle cx="9" cy="8" r="3.2" fill={p} stroke="none" />
+          <path
+            d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"
+            fill={s}
+            stroke="none"
+          />
+          <circle cx="17" cy="9" r="2.4" fill={t} stroke="none" />
+          <path
+            d="M14.2 19c.4-2.2 1.8-3.5 3.6-3.5 1.2 0 2.2.5 2.9 1.4"
+            {...stroke(t, 1.7)}
+          />
         </svg>
       );
     case "address-book":
-      /** Address book + person — New client compose. */
       return (
-        <svg {...common}>
-          <path d="M6.5 3.5H19.5v17H6.5A2.5 2.5 0 0 1 4 18V5.5A2.5 2.5 0 0 1 6.5 3.5z" />
-          <path d="M4 8.5h3M4 12.5h3M4 16.5h3" />
-          <circle cx="13.2" cy="10.2" r="2.3" />
-          <path d="M9.6 17.2c.45-2.1 1.85-3.2 3.6-3.2s3.15 1.1 3.6 3.2" />
+        <svg {...box}>
+          <path
+            d="M6.5 3.5H19.5v17H6.5A2.5 2.5 0 0 1 4 18V5.5A2.5 2.5 0 0 1 6.5 3.5z"
+            fill={p}
+            stroke="none"
+            opacity={0.92}
+          />
+          <path d="M4 8.5h3M4 12.5h3M4 16.5h3" {...stroke(s, 1.9)} />
+          <circle cx="13.2" cy="10.2" r="2.3" fill={s} stroke="none" />
+          <path
+            d="M9.6 17.2c.45-2.1 1.85-3.2 3.6-3.2s3.15 1.1 3.6 3.2"
+            fill={t}
+            stroke="none"
+          />
         </svg>
       );
     case "companies":
     case "audit-companies":
       return (
-        <svg {...common}>
-          <path d="M4.5 19V7.5L12 4.5l7.5 3V19" />
-          <path d="M9 19v-5.5h6V19" />
-          <path d="M9 11h6" />
+        <svg {...box}>
+          <path d="M4.5 19V7.5L12 4.5l7.5 3V19" fill={p} stroke="none" />
+          <path d="M9 19v-5.5h6V19" fill={s} stroke="none" />
+          <path d="M9 11h6" {...stroke(t, 1.8)} />
         </svg>
       );
     case "bookkeeping":
       return (
-        <svg {...common}>
-          <path d="M6 4.5h9l3 3V19.5H6z" />
-          <path d="M15 4.5V8h3.5" />
-          <path d="M9 12h6M9 15h4" />
+        <svg {...box}>
+          <path d="M6 4.5h9l3 3V19.5H6z" fill={p} stroke="none" />
+          <path d="M15 4.5V8h3.5" fill={s} stroke="none" />
+          <path d="M9 12h6M9 15h4" {...stroke(s, 1.85)} />
         </svg>
       );
     case "trusts":
       return (
-        <svg {...common}>
-          <path d="M12 3.5l7 2.8v5.2c0 4.2-2.9 7.8-7 9-4.1-1.2-7-4.8-7-9V6.3L12 3.5z" />
-          <path d="M9.2 12.1l1.9 1.9 3.7-3.9" />
+        <svg {...box}>
+          <path
+            d="M12 3.5l7 2.8v5.2c0 4.2-2.9 7.8-7 9-4.1-1.2-7-4.8-7-9V6.3L12 3.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M9.2 12.1l1.9 1.9 3.7-3.9" {...stroke("#FFFFFF", 2.1)} />
         </svg>
       );
     case "tax-return":
-      /** Document + person — matches primary-rail Tax return glyph. */
       return (
-        <svg {...common}>
-          <path d="M7 3.5h7.5L18 7v13.5H7z" />
-          <path d="M14.5 3.5V7H18" />
-          <circle cx="12.5" cy="11.2" r="2.1" />
-          <path d="M9.4 16.8c.55-1.9 1.9-2.9 3.1-2.9s2.55 1 3.1 2.9" />
+        <svg {...box}>
+          <path d="M7 3.5h7.5L18 7v13.5H7z" fill={p} stroke="none" />
+          <path d="M14.5 3.5V7H18" fill={s} stroke="none" />
+          <circle cx="12.5" cy="11.2" r="2.1" fill={s} stroke="none" />
+          <path
+            d="M9.4 16.8c.55-1.9 1.9-2.9 3.1-2.9s2.55 1 3.1 2.9"
+            fill={t}
+            stroke="none"
+          />
         </svg>
       );
     case "services":
-      /** Catalog — not the System Admin sunburst gear. */
       return (
-        <svg {...common}>
-          <rect x="4.5" y="5" width="6.5" height="6.5" rx="1.5" />
-          <rect x="13" y="5" width="6.5" height="6.5" rx="1.5" />
-          <rect x="4.5" y="13.5" width="6.5" height="6.5" rx="1.5" />
-          <path d="M13.5 15.5h6M13.5 18.5h4" />
+        <svg {...box}>
+          <rect x="4.5" y="5" width="6.5" height="6.5" rx="1.5" fill={p} />
+          <rect x="13" y="5" width="6.5" height="6.5" rx="1.5" fill={s} />
+          <rect x="4.5" y="13.5" width="6.5" height="6.5" rx="1.5" fill={t} />
+          <path d="M13.5 15.5h6M13.5 18.5h4" {...stroke(p, 1.85)} />
         </svg>
       );
     case "billing":
       return (
-        <svg {...common}>
-          <rect x="4.5" y="6" width="15" height="12" rx="2" />
-          <path d="M4.5 10h15" />
-          <path d="M8 14h4" />
+        <svg {...box}>
+          <rect x="4.5" y="6" width="15" height="12" rx="2" fill={p} />
+          <path d="M4.5 10h15" {...stroke("#FFFFFF", 1.7)} />
+          <path d="M8 14h4" {...stroke(s, 2)} />
         </svg>
       );
     case "secretariat":
       return (
-        <svg {...common}>
-          <rect x="4" y="5" width="7" height="14" rx="1.5" />
-          <rect x="13" y="5" width="7" height="9" rx="1.5" />
-          <path d="M15 17.5h5M15 20h3.5" />
+        <svg {...box}>
+          <rect x="4" y="5" width="7" height="14" rx="1.5" fill={p} />
+          <rect x="13" y="5" width="7" height="9" rx="1.5" fill={s} />
+          <path d="M15 17.5h5M15 20h3.5" {...stroke(t, 1.85)} />
         </svg>
       );
     case "time-clock":
       return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="8.5" />
-          <path d="M12 7.5v5l3.2 2" />
+        <svg {...box}>
+          <circle cx="12" cy="12" r="8.5" fill={p} stroke="none" />
+          <path d="M12 7.5v5l3.2 2" {...stroke("#FFFFFF", 2)} />
         </svg>
       );
     case "tasks":
       return (
-        <svg {...common}>
-          <path d="M9 6h11M9 12h11M9 18h11" />
-          <path d="M4.5 6.2l1.4 1.4L8.2 5" />
-          <path d="M4.5 12.2l1.4 1.4L8.2 11" />
-          <path d="M4.5 18.2l1.4 1.4L8.2 17" />
+        <svg {...box}>
+          <path d="M9 6h11M9 12h11M9 18h11" {...stroke(p, 1.9)} />
+          <path d="M4.5 6.2l1.4 1.4L8.2 5" {...stroke(s, 2.1)} />
+          <path d="M4.5 12.2l1.4 1.4L8.2 11" {...stroke(t, 2.1)} />
+          <path d="M4.5 18.2l1.4 1.4L8.2 17" {...stroke(s, 2.1)} />
         </svg>
       );
     case "boards":
       return (
-        <svg {...common}>
-          <rect x="3.5" y="5" width="5" height="14" rx="1.2" />
-          <rect x="9.5" y="5" width="5" height="9" rx="1.2" />
-          <rect x="15.5" y="5" width="5" height="11" rx="1.2" />
+        <svg {...box}>
+          <rect x="3.5" y="5" width="5" height="14" rx="1.2" fill={p} />
+          <rect x="9.5" y="5" width="5" height="9" rx="1.2" fill={s} />
+          <rect x="15.5" y="5" width="5" height="11" rx="1.2" fill={t} />
         </svg>
       );
     case "worker-files":
       return (
-        <svg {...common}>
-          <path d="M5 7.5h5l1.5 2H19a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18V9A1.5 1.5 0 0 1 5 7.5z" />
+        <svg {...box}>
+          <path
+            d="M5 7.5h5l1.5 2H19a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18V9A1.5 1.5 0 0 1 5 7.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M8 13h8M8 16h5" {...stroke(s, 1.7)} />
         </svg>
       );
     case "workers-directory":
     case "workers":
       return (
-        <svg {...common}>
-          <circle cx="8.5" cy="8" r="2.8" />
-          <path d="M3.2 18c.5-2.8 2.4-4.4 5.3-4.4s4.8 1.6 5.3 4.4" />
-          <circle cx="16.2" cy="8.5" r="2.3" />
-          <path d="M13.4 18c.35-1.9 1.6-3.1 3.3-3.1 1.1 0 2 .45 2.6 1.2" />
+        <svg {...box}>
+          <circle cx="8.5" cy="8" r="2.8" fill={p} stroke="none" />
+          <path
+            d="M3.2 18c.5-2.8 2.4-4.4 5.3-4.4s4.8 1.6 5.3 4.4"
+            fill={s}
+            stroke="none"
+          />
+          <circle cx="16.2" cy="8.5" r="2.3" fill={t} stroke="none" />
+          <path
+            d="M13.4 18c.35-1.9 1.6-3.1 3.3-3.1 1.1 0 2 .45 2.6 1.2"
+            {...stroke(t, 1.7)}
+          />
         </svg>
       );
     case "my-assignments":
     case "assign":
       return (
-        <svg {...common}>
-          <circle cx="9" cy="9" r="3" />
-          <path d="M4 19c.7-3 2.8-4.8 5-4.8" />
-          <path d="M14 8h6M17 5v6" />
-          <path d="M14 16h6" />
+        <svg {...box}>
+          <circle cx="9" cy="9" r="3" fill={p} stroke="none" />
+          <path d="M4 19c.7-3 2.8-4.8 5-4.8" {...stroke(s, 1.9)} />
+          <path d="M14 8h6M17 5v6" {...stroke(t, 2)} />
+          <path d="M14 16h6" {...stroke(p, 1.9)} />
         </svg>
       );
     case "client-types":
       return (
-        <svg {...common}>
-          <path d="M5 7h14M5 12h14M5 17h9" />
-          <circle cx="18.5" cy="17" r="2" />
+        <svg {...box}>
+          <path d="M5 7h14M5 12h14M5 17h9" {...stroke(p, 1.9)} />
+          <circle cx="18.5" cy="17" r="2" fill={s} stroke="none" />
         </svg>
       );
     case "prospect-required-fields":
       return (
-        <svg {...common}>
-          <rect x="4.5" y="5" width="15" height="14" rx="2" />
-          <path d="M8 9.5h5M8 13h8M8 16.5h6" />
-          <path d="M15.5 8.5l1.2 1.2 2.3-2.4" />
+        <svg {...box}>
+          <rect x="4.5" y="5" width="15" height="14" rx="2" fill={p} />
+          <path d="M8 9.5h5M8 13h8M8 16.5h6" {...stroke("#FFFFFF", 1.6)} />
+          <path d="M15.5 8.5l1.2 1.2 2.3-2.4" {...stroke(s, 2)} />
         </svg>
       );
     case "departments":
       return (
-        <svg {...common}>
-          <rect x="4" y="4" width="7" height="7" rx="1.5" />
-          <rect x="13" y="4" width="7" height="7" rx="1.5" />
-          <rect x="4" y="13" width="7" height="7" rx="1.5" />
-          <rect x="13" y="13" width="7" height="7" rx="1.5" />
+        <svg {...box}>
+          <rect x="4" y="4" width="7" height="7" rx="1.5" fill={p} />
+          <rect x="13" y="4" width="7" height="7" rx="1.5" fill={s} />
+          <rect x="4" y="13" width="7" height="7" rx="1.5" fill={t} />
+          <rect x="13" y="13" width="7" height="7" rx="1.5" fill={p} opacity={0.75} />
         </svg>
       );
     case "fees":
       return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="8" />
-          <path d="M12 7.5v9M9.5 9.5c.6-.8 1.5-1.2 2.5-1.2 1.6 0 2.8 1 2.8 2.4S13.6 13 12 13s-2.8 1-2.8 2.4c0 1.4 1.2 2.4 2.8 2.4 1 0 1.9-.4 2.5-1.2" />
+        <svg {...box}>
+          <circle cx="12" cy="12" r="8" fill={p} stroke="none" />
+          <path
+            d="M12 7.5v9M9.5 9.5c.6-.8 1.5-1.2 2.5-1.2 1.6 0 2.8 1 2.8 2.4S13.6 13 12 13s-2.8 1-2.8 2.4c0 1.4 1.2 2.4 2.8 2.4 1 0 1.9-.4 2.5-1.2"
+            {...stroke("#FFFFFF", 1.7)}
+          />
         </svg>
       );
     case "reports":
       return (
-        <svg {...common}>
-          <path d="M5 19V10l4 3 3.5-6 3.5 4 3-2v10z" />
+        <svg {...box}>
+          <path d="M5 19V10l4 3 3.5-6 3.5 4 3-2v10z" fill={p} stroke="none" />
+          <path d="M5 19h14" {...stroke(s, 1.8)} />
         </svg>
       );
+    case "client-form-fields":
     case "client-fields":
       return (
-        <svg {...common}>
-          <rect x="4.5" y="5" width="15" height="14" rx="2" />
-          <path d="M8 9.5h8M8 13h8M8 16.5h5" />
+        <svg {...box}>
+          <rect x="4.5" y="5" width="15" height="14" rx="2" fill={p} />
+          <path d="M8 9.5h8M8 13h8M8 16.5h5" {...stroke(s, 1.7)} />
         </svg>
       );
     case "list-columns":
       return (
-        <svg {...common}>
-          <path d="M5 6h14M5 12h14M5 18h14" />
-          <path d="M9 4v16" />
+        <svg {...box}>
+          <path d="M5 6h14M5 12h14M5 18h14" {...stroke(p, 1.9)} />
+          <path d="M9 4v16" {...stroke(s, 2)} />
         </svg>
       );
     case "rights":
       return (
-        <svg {...common}>
-          <path d="M12 3.5l7 2.8v5.2c0 4.2-2.9 7.8-7 9-4.1-1.2-7-4.8-7-9V6.3L12 3.5z" />
-          <path d="M9.5 12.2l1.7 1.7 3.5-3.8" />
+        <svg {...box}>
+          <path
+            d="M12 3.5l7 2.8v5.2c0 4.2-2.9 7.8-7 9-4.1-1.2-7-4.8-7-9V6.3L12 3.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M9.5 12.2l1.7 1.7 3.5-3.8" {...stroke("#FFFFFF", 2.1)} />
         </svg>
       );
     case "company-settings":
-      /** Firm profile — building + badge; System Admin keeps the sunburst gear. */
       return (
-        <svg {...common}>
-          <path d="M5 19V8.5L12 5l7 3.5V19" />
-          <path d="M9.5 19v-5h5V19" />
-          <path d="M9.5 11h5" />
-          <circle cx="17.5" cy="16.5" r="3.2" />
-          <path d="M17.5 15v3M16 16.5h3" />
+        <svg {...box}>
+          <path d="M5 19V8.5L12 5l7 3.5V19" fill={p} stroke="none" />
+          <path d="M9.5 19v-5h5V19" fill={s} stroke="none" />
+          <circle cx="17.5" cy="16.5" r="3.2" fill={t} stroke="none" />
+          <path d="M17.5 15v3M16 16.5h3" {...stroke("#FFFFFF", 1.6)} />
         </svg>
       );
     case "company-docs-folders":
       return (
-        <svg {...common}>
-          <path d="M4 8.5h6l1.5 2H20a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V10A1.5 1.5 0 0 1 4 8.5z" />
-          <path d="M8 13.5h8M8 16h5" />
+        <svg {...box}>
+          <path
+            d="M4 8.5h6l1.5 2H20a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V10A1.5 1.5 0 0 1 4 8.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M8 13.5h8M8 16h5" {...stroke(s, 1.7)} />
         </svg>
       );
     case "template-settings":
       return (
-        <svg {...common}>
-          <path d="M6 5.5h12v3H6zM6 10.5h12v3H6zM6 15.5h8v3H6z" />
-          <path d="M16.5 15.5l2 2 3-3.5" />
+        <svg {...box}>
+          <path d="M6 5.5h12v3H6z" fill={p} stroke="none" />
+          <path d="M6 10.5h12v3H6z" fill={s} stroke="none" />
+          <path d="M6 15.5h8v3H6z" fill={t} stroke="none" />
+          <path d="M16.5 15.5l2 2 3-3.5" {...stroke(p, 1.9)} />
         </svg>
       );
     case "template-merge-fields":
       return (
-        <svg {...common}>
-          <path d="M5.5 7.5h5v3h-5zM13.5 7.5h5v3h-5zM5.5 13.5h13v3H5.5z" />
-          <path d="M8 17.5v2M16 17.5v2" />
+        <svg {...box}>
+          <path d="M5.5 7.5h5v3h-5z" fill={p} stroke="none" />
+          <path d="M13.5 7.5h5v3h-5z" fill={s} stroke="none" />
+          <path d="M5.5 13.5h13v3H5.5z" fill={t} stroke="none" />
         </svg>
       );
     case "api-connections":
       return (
-        <svg {...common}>
-          <path d="M8 12h8" />
-          <path d="M10.5 9.5 8 12l2.5 2.5" />
-          <path d="M13.5 9.5 16 12l-2.5 2.5" />
-          <circle cx="6" cy="12" r="2.2" />
-          <circle cx="18" cy="12" r="2.2" />
+        <svg {...box}>
+          <circle cx="6" cy="12" r="2.2" fill={p} stroke="none" />
+          <circle cx="18" cy="12" r="2.2" fill={s} stroke="none" />
+          <path d="M8.2 12h7.6" {...stroke(t, 2)} />
         </svg>
       );
     case "whatsapp-settings":
       return (
-        <svg {...common}>
-          <path d="M7.5 18.5 5 21V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17H9z" />
-          <circle cx="12" cy="11" r="2.2" />
-          <path d="M12 13.2v1.6M10.4 10.2l-1.2-.8M13.6 10.2l1.2-.8" />
+        <svg {...box}>
+          <path
+            d="M7.5 18.5 5 21V7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17H9z"
+            fill={p}
+            stroke="none"
+          />
+          <circle cx="12" cy="11" r="2.2" fill="#FFFFFF" stroke="none" />
+          <path d="M12 13.2v1.6" {...stroke(s, 1.7)} />
         </svg>
       );
     case "chats-settings":
-      /** Staff Chats bubble + gear — secondary nav twin of WhatsApp settings. */
       return (
-        <svg {...common}>
-          <path d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z" />
-          <circle cx="12" cy="10.2" r="2" />
-          <path d="M12 12.2v1.4M10.6 9.5l-1.1-.7M13.4 9.5l1.1-.7" />
+        <svg {...box}>
+          <path
+            d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z"
+            fill={p}
+            stroke="none"
+          />
+          <circle cx="12" cy="10.2" r="2" fill="#FFFFFF" stroke="none" />
+          <path d="M12 12.2v1.4" {...stroke(s, 1.6)} />
         </svg>
       );
     case "files-root":
       return (
-        <svg {...common}>
-          <path d="M7 18a5 5 0 1 1 1.2-9.9A6 6 0 0 1 20 12.5 3.5 3.5 0 0 1 17.5 18H7z" />
+        <svg {...box}>
+          <path
+            d="M7 18a5 5 0 1 1 1.2-9.9A6 6 0 0 1 20 12.5 3.5 3.5 0 0 1 17.5 18H7z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M9 14h6" {...stroke(s, 1.7)} />
+        </svg>
+      );
+    case "help-feedback":
+      return (
+        <svg {...box}>
+          <circle cx="12" cy="12" r="8.5" fill={p} stroke="none" />
+          <path
+            d="M9.6 9.4a2.4 2.4 0 0 1 4.6 1c0 1.5-1.4 2-2.2 2.5-.5.3-.8.7-.8 1.3"
+            {...stroke("#FFFFFF", 1.85)}
+          />
+          <circle cx="12" cy="16.6" r="0.9" fill={s} stroke="none" />
+        </svg>
+      );
+    case "ai-maintenance":
+      return (
+        <svg {...box}>
+          <path
+            d="M14.7 6.3a3.2 3.2 0 0 0-4.5 4.5L5.5 15.5l3 3 4.7-4.7a3.2 3.2 0 0 0 4.5-4.5l-2.2 2.2-1.8-.8-.8-1.8 2.2-2.2z"
+            fill={p}
+            stroke="none"
+          />
+          <path
+            d="M16.5 4.5l.8 1.6 1.7.4-1.2 1.2.4 1.7-1.5-.8-1.5.8.4-1.7-1.2-1.2 1.7-.4.8-1.6z"
+            fill={s}
+            stroke="none"
+          />
         </svg>
       );
     case "wave":
       return (
-        <svg {...common}>
-          <path d="M3.5 14c2-3 3.5-4.5 5.5-4.5S12 13 14 13s3.5-1.5 5.5-4.5" />
-          <path d="M3.5 18c2-3 3.5-4.5 5.5-4.5S12 17 14 17s3.5-1.5 5.5-4.5" />
+        <svg {...box}>
+          <path
+            d="M3.5 14c2-3 3.5-4.5 5.5-4.5S12 13 14 13s3.5-1.5 5.5-4.5"
+            {...stroke(p, 2.1)}
+          />
+          <path
+            d="M3.5 18c2-3 3.5-4.5 5.5-4.5S12 17 14 17s3.5-1.5 5.5-4.5"
+            {...stroke(s, 2.1)}
+          />
+        </svg>
+      );
+    case "ai-chat":
+      return (
+        <svg {...box}>
+          <path
+            d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M9.5 10.5h5M9.5 13h3.5" {...stroke("#FFFFFF", 1.7)} />
         </svg>
       );
     case "signature":
-      /** Pen + document — Tools signature packets. */
       return (
-        <svg {...common}>
-          <path d="M7 3.5h7.5L18 7v13.5H7z" />
-          <path d="M14.5 3.5V7H18" />
-          <path d="M9 14.5c1.2-2.2 3.2-3.4 5.2-3.2l1.3 3.6-3.6 1.3C10.2 16.8 9.2 15.4 9 14.5z" />
-          <path d="M14.2 11.3l1.8 1.8" />
+        <svg {...box}>
+          <path d="M7 3.5h7.5L18 7v13.5H7z" fill={p} stroke="none" />
+          <path d="M14.5 3.5V7H18" fill={s} stroke="none" />
+          <path
+            d="M9 14.5c1.2-2.2 3.2-3.4 5.2-3.2l1.3 3.6-3.6 1.3C10.2 16.8 9.2 15.4 9 14.5z"
+            fill={t}
+            stroke="none"
+          />
         </svg>
       );
     case "converter":
-      /** Swap arrows — Tools file / voice converter. */
       return (
-        <svg {...common}>
-          <path d="M7 8.5h10.5" />
-          <path d="M14.5 5.5L17.5 8.5 14.5 11.5" />
-          <path d="M17 15.5H6.5" />
-          <path d="M9.5 12.5L6.5 15.5 9.5 18.5" />
+        <svg {...box}>
+          <path d="M7 8.5h10.5" {...stroke(p, 2)} />
+          <path d="M14.5 5.5L17.5 8.5 14.5 11.5" {...stroke(s, 2)} />
+          <path d="M17 15.5H6.5" {...stroke(t, 2)} />
+          <path d="M9.5 12.5L6.5 15.5 9.5 18.5" {...stroke(p, 2)} />
         </svg>
       );
     case "section46":
-      /** Receipt / document — Section 46 donation Excel tool. */
-      return (
-        <svg {...common}>
-          <path d="M7 3.5h7.5L18 7v13.5H7z" />
-          <path d="M14.5 3.5V7H18" />
-          <path d="M9.5 11h5M9.5 14h5M9.5 17h3.5" />
-          <path d="M15.5 16.5l1.2 1.2 2.3-2.5" />
-        </svg>
-      );
     case "masav":
-      /** Bank / payment transfer — Masav credit MSV tool. */
-      return (
-        <svg {...common}>
-          <path d="M4 9.5L12 4.5l8 5V19H4z" />
-          <path d="M9 19v-5.5h6V19" />
-          <path d="M8 12.5h8" />
-          <path d="M14.5 14.5h3.5M16.25 12.75v3.5" />
-        </svg>
-      );
     case "sumit-dapi":
-      /** Statement lines → spreadsheet — Sumit דפי בנק prep. */
       return (
-        <svg {...common}>
-          <path d="M6 4.5h8.5L18 8v12H6z" />
-          <path d="M14.5 4.5V8H18" />
-          <path d="M8.5 11.5h7M8.5 14.5h7M8.5 17.5h4.5" />
-          <path d="M9 11.5v6" />
+        <svg {...box}>
+          <path d="M7 3.5h7.5L18 7v13.5H7z" fill={p} stroke="none" />
+          <path d="M14.5 3.5V7H18" fill={s} stroke="none" />
+          <path d="M9.5 11h5M9.5 14h5M9.5 17h3.5" {...stroke("#FFFFFF", 1.6)} />
         </svg>
       );
     case "chats":
       return (
-        <svg {...common}>
-          <path d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z" />
+        <svg {...box}>
+          <path
+            d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M9.5 10.5h5M9.5 13h3" {...stroke("#FFFFFF", 1.6)} />
         </svg>
       );
     case "whatsapp":
       return (
-        <svg {...common}>
-          <path d="M20 11.4a7.6 7.6 0 0 1-11.4 6.5L4.5 19.5l1.7-3.8A7.6 7.6 0 1 1 20 11.4z" />
+        <svg {...box}>
+          <path
+            d="M20 11.4a7.6 7.6 0 0 1-11.4 6.5L4.5 19.5l1.7-3.8A7.6 7.6 0 1 1 20 11.4z"
+            fill={p}
+            stroke="none"
+          />
+          <path
+            d="M9.2 11.2c.9 2.1 2.5 3.5 4.6 4.2"
+            {...stroke("#FFFFFF", 1.7)}
+          />
         </svg>
       );
     case "potential":
       return (
-        <svg {...common}>
-          <circle cx="12" cy="8" r="3.2" />
-          <path d="M5.5 19c.7-3.4 3.2-5.2 6.5-5.2s5.8 1.8 6.5 5.2" />
-          <path d="M17.5 6.5v4M15.5 8.5h4" />
+        <svg {...box}>
+          <circle cx="12" cy="8" r="3.2" fill={p} stroke="none" />
+          <path
+            d="M5.5 19c.7-3.4 3.2-5.2 6.5-5.2s5.8 1.8 6.5 5.2"
+            fill={s}
+            stroke="none"
+          />
+          <path d="M17.5 6.5v4M15.5 8.5h4" {...stroke(t, 2)} />
         </svg>
       );
     case "individuals":
       return (
-        <svg {...common}>
-          <circle cx="12" cy="8" r="3.2" />
-          <path d="M5.5 19c.7-3.4 3.2-5.2 6.5-5.2s5.8 1.8 6.5 5.2" />
+        <svg {...box}>
+          <circle cx="12" cy="8" r="3.2" fill={p} stroke="none" />
+          <path
+            d="M5.5 19c.7-3.4 3.2-5.2 6.5-5.2s5.8 1.8 6.5 5.2"
+            fill={s}
+            stroke="none"
+          />
         </svg>
       );
     case "osek":
       return (
-        <svg {...common}>
-          <rect x="5" y="4.5" width="14" height="15" rx="2" />
-          <path d="M8 9h8M8 12.5h8M8 16h5" />
+        <svg {...box}>
+          <rect x="5" y="4.5" width="14" height="15" rx="2" fill={p} />
+          <path d="M8 9h8M8 12.5h8M8 16h5" {...stroke(s, 1.7)} />
         </svg>
       );
     case "one-time":
       return (
-        <svg {...common}>
-          <rect x="4.5" y="5.5" width="15" height="13" rx="2" />
-          <path d="M8 3.5v4M16 3.5v4M4.5 10h15" />
-          <path d="M12 13.5v3" />
+        <svg {...box}>
+          <rect x="4.5" y="5.5" width="15" height="13" rx="2" fill={p} />
+          <path d="M8 3.5v4M16 3.5v4M4.5 10h15" {...stroke(s, 1.7)} />
+          <path d="M12 13.5v3" {...stroke("#FFFFFF", 1.9)} />
         </svg>
       );
     case "office-board":
       return (
-        <svg {...common}>
-          <rect x="4" y="5" width="7" height="14" rx="1.5" />
-          <rect x="13" y="5" width="7" height="9" rx="1.5" />
-          <path d="M15 17.5h5M15 20h3.5" />
+        <svg {...box}>
+          <rect x="4" y="5" width="7" height="14" rx="1.5" fill={p} />
+          <rect x="13" y="5" width="7" height="9" rx="1.5" fill={s} />
+          <path d="M15 17.5h5M15 20h3.5" {...stroke(t, 1.85)} />
         </svg>
       );
     case "billing-overview":
+    case "tc-overview":
       return (
-        <svg {...common}>
-          <path d="M5 19V10l4 3 3.5-6 3.5 4 3-2v10z" />
+        <svg {...box}>
+          <path d="M5 19V10l4 3 3.5-6 3.5 4 3-2v10z" fill={p} stroke="none" />
+          <path d="M9 16h2M12.5 13h2M16 15h2" {...stroke(s, 1.7)} />
         </svg>
       );
     case "billing-all":
       return (
-        <svg {...common}>
-          <rect x="4.5" y="6" width="15" height="12" rx="2" />
-          <path d="M4.5 10h15" />
-          <path d="M8 14h8" />
+        <svg {...box}>
+          <rect x="4.5" y="6" width="15" height="12" rx="2" fill={p} />
+          <path d="M4.5 10h15" {...stroke("#FFFFFF", 1.6)} />
+          <path d="M8 14h8" {...stroke(s, 1.9)} />
         </svg>
       );
     case "billing-drafts":
       return (
-        <svg {...common}>
-          <path d="M7 3.5h7.5L18 7v13.5H7z" />
-          <path d="M14.5 3.5V7H18" />
-          <path d="M9.5 12h5M9.5 15.5h3.5" />
+        <svg {...box}>
+          <path d="M7 3.5h7.5L18 7v13.5H7z" fill={p} stroke="none" />
+          <path d="M14.5 3.5V7H18" fill={s} stroke="none" />
+          <path d="M9.5 12h5M9.5 15.5h3.5" {...stroke("#FFFFFF", 1.6)} />
         </svg>
       );
     case "billing-paid":
       return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="8" />
-          <path d="M8.5 12.2l2.2 2.2 4.8-5" />
+        <svg {...box}>
+          <circle cx="12" cy="12" r="8" fill={p} stroke="none" />
+          <path d="M8.5 12.2l2.2 2.2 4.8-5" {...stroke("#FFFFFF", 2.1)} />
         </svg>
       );
     case "billing-on-hold":
       return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="8" />
-          <path d="M10 9.5v5M14 9.5v5" />
+        <svg {...box}>
+          <circle cx="12" cy="12" r="8" fill={p} stroke="none" />
+          <path d="M10 9.5v5M14 9.5v5" {...stroke("#FFFFFF", 2.1)} />
         </svg>
       );
     case "billing-bank-checking":
       return (
-        <svg {...common}>
-          <rect x="3.5" y="6" width="17" height="12" rx="2" />
-          <path d="M3.5 10h17" />
-          <path d="M7 14h3.5M14.5 13.2l1.6 1.6 3-3.2" />
+        <svg {...box}>
+          <rect x="3.5" y="6" width="17" height="12" rx="2" fill={p} />
+          <path d="M3.5 10h17" {...stroke("#FFFFFF", 1.6)} />
+          <path d="M14.5 13.2l1.6 1.6 3-3.2" {...stroke(s, 1.9)} />
         </svg>
       );
     case "billing-reminders":
       return (
-        <svg {...common}>
-          <path d="M6.5 16.5h11l-1.2-1.8V10.5a4.3 4.3 0 1 0-8.6 0v4.2L6.5 16.5z" />
-          <path d="M10.2 18.2a1.8 1.8 0 0 0 3.6 0" />
+        <svg {...box}>
+          <path
+            d="M6.5 16.5h11l-1.2-1.8V10.5a4.3 4.3 0 1 0-8.6 0v4.2L6.5 16.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M10.2 18.2a1.8 1.8 0 0 0 3.6 0" {...stroke(s, 1.8)} />
         </svg>
       );
     case "billing-create":
       return (
-        <svg {...common}>
-          <rect x="4.5" y="6" width="15" height="12" rx="2" />
-          <path d="M4.5 10h15" />
-          <path d="M12 12.5v4M10 14.5h4" />
-        </svg>
-      );
-    case "tc-overview":
-      return (
-        <svg {...common}>
-          <path d="M5 19V10l4 3 3.5-6 3.5 4 3-2v10z" />
+        <svg {...box}>
+          <rect x="4.5" y="6" width="15" height="12" rx="2" fill={p} />
+          <path d="M4.5 10h15" {...stroke("#FFFFFF", 1.6)} />
+          <path d="M12 12.5v4M10 14.5h4" {...stroke(s, 2)} />
         </svg>
       );
     case "tc-leave":
       return (
-        <svg {...common}>
-          <rect x="4.5" y="5.5" width="15" height="13" rx="2" />
-          <path d="M8 3.5v4M16 3.5v4M4.5 10h15" />
-          <path d="M9 14h2.5M13.5 14H16M9 17h2.5" />
+        <svg {...box}>
+          <rect x="4.5" y="5.5" width="15" height="13" rx="2" fill={p} />
+          <path d="M8 3.5v4M16 3.5v4M4.5 10h15" {...stroke(s, 1.7)} />
+          <path d="M9 14h2.5M13.5 14H16M9 17h2.5" {...stroke("#FFFFFF", 1.6)} />
         </svg>
       );
     case "tc-settings":
       return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="3.2" />
-          <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6" />
+        <svg {...box}>
+          <circle cx="12" cy="12" r="3.2" fill={p} stroke="none" />
+          <path
+            d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6"
+            {...stroke(s, 1.85)}
+          />
         </svg>
       );
     default:
       return (
-        <svg {...common}>
-          <rect x="5" y="5" width="14" height="14" rx="3" />
-          <path d="M9 12h6M12 9v6" />
+        <svg {...box}>
+          <rect x="5" y="5" width="14" height="14" rx="3" fill={p} />
+          <path d="M9 12h6M12 9v6" {...stroke(s, 2)} />
         </svg>
       );
   }
 }
+
+
 
 function ModuleCard({
   tile,
@@ -27005,6 +27709,7 @@ const RAIL_ICON_COLORS: Record<string, string> = {
   workers: "#2E79B5",
   admin: "#7B64B8",
   systemadmin: "#9AAADC",
+  help: "#70B0D8",
 };
 
 type ChromeCategoryPalette = ReturnType<typeof useHostTheme>["category"];
@@ -27060,61 +27765,198 @@ function chromeRailPillBorder(
 }
 
 /**
- * ModuleTileIcon / secondary-row / compose-button accents — keyed by tile id
- * so primary rail, secondary list, home tiles, and CTAs stay consistent.
+ * Vibrant per-tile identity colors for ModuleTileIcon / secondary rows / module
+ * cards / compose glyphs - same spirit as Tools catalog PNGs + primary-rail
+ * RAIL_ICON_COLORS. Not used by AppPrimaryRail (RailIcon + railIconColor).
+ */
+const TILE_ICON_COLORS: Record<string, string> = {
+  clients: "#3B82C4",
+  client: "#3B82C4",
+  "address-book": "#3B82C4",
+  potential: "#5B8DEF",
+  companies: "#2A9A8A",
+  "audit-companies": "#6BA86B",
+  bookkeeping: "#0D9488",
+  trusts: "#16A34A",
+  "tax-return": "#D4784A",
+  individuals: "#E08A3C",
+  services: "#0891B2",
+  billing: "#52B896",
+  "billing-overview": "#0EA5A0",
+  "billing-all": "#52B896",
+  "billing-drafts": "#68A8D8",
+  "billing-paid": "#22A06B",
+  "billing-on-hold": "#D4A84B",
+  "billing-bank-checking": "#2E79B5",
+  "billing-reminders": "#E07A3A",
+  "billing-create": "#3B9B6E",
+  secretariat: "#5B8DEF",
+  "office-board": "#5B8DEF",
+  "time-clock": "#D4A84B",
+  "tc-overview": "#E0B04A",
+  "tc-leave": "#5B9BD5",
+  "tc-settings": "#6B8FBF",
+  tasks: "#5A6CC0",
+  work: "#5A6CC0",
+  boards: "#3B82C4",
+  "worker-files": "#C4783A",
+  "workers-directory": "#2E79B5",
+  workers: "#2E79B5",
+  worker: "#D4A84B",
+  "my-assignments": "#4F8FD9",
+  assign: "#4F8FD9",
+  "client-types": "#5B8DEF",
+  "prospect-required-fields": "#6BA3D9",
+  departments: "#7B64B8",
+  fees: "#D4A84B",
+  reports: "#E07A3A",
+  "client-form-fields": "#3B82C4",
+  "client-fields": "#3B82C4",
+  "list-columns": "#5B8DEF",
+  rights: "#7B64B8",
+  "company-settings": "#6B8FBF",
+  "company-docs-folders": "#C4783A",
+  "template-settings": "#0891B2",
+  "template-merge-fields": "#0EA5A0",
+  "api-connections": "#2E79B5",
+  "whatsapp-settings": "#25D366",
+  "chats-settings": "#C85898",
+  "files-root": "#5B9BD5",
+  "help-feedback": "#70B0D8",
+  "ai-maintenance": "#E8923C",
+  wave: "#3B9BDB",
+  "ai-chat": "#5A6CC0",
+  signature: "#C4783A",
+  converter: "#0891B2",
+  section46: "#16A34A",
+  masav: "#1B8A5A",
+  "sumit-dapi": "#2E79B5",
+  chats: "#C85898",
+  whatsapp: "#25D366",
+  osek: "#2A9A8A",
+  "one-time": "#D4784A",
+  admin: "#7B64B8",
+  systemadmin: "#5A6CC0",
+  tools: "#E8923C",
+  help: "#70B0D8",
+};
+
+/** Companion accents for multi-color ModuleTileIcon fills (firm chrome, no purple glow). */
+const TILE_ICON_SECONDARY: Record<string, string> = {
+  clients: "#F0B429",
+  client: "#F0B429",
+  "address-book": "#F0B429",
+  potential: "#22A06B",
+  companies: "#D4A84B",
+  "audit-companies": "#3B82C4",
+  bookkeeping: "#F59E0B",
+  trusts: "#3B82C4",
+  "tax-return": "#3B82C4",
+  individuals: "#52B896",
+  services: "#E8923C",
+  billing: "#2E79B5",
+  "billing-overview": "#D4784A",
+  "billing-all": "#2E79B5",
+  "billing-drafts": "#D4A84B",
+  "billing-paid": "#3B82C4",
+  "billing-on-hold": "#E07A3A",
+  "billing-bank-checking": "#22A06B",
+  "billing-reminders": "#D4A84B",
+  "billing-create": "#2E79B5",
+  secretariat: "#52B896",
+  "office-board": "#52B896",
+  "time-clock": "#3B82C4",
+  "tc-overview": "#2A9A8A",
+  "tc-leave": "#D4A84B",
+  "tc-settings": "#D4A84B",
+  tasks: "#22A06B",
+  work: "#22A06B",
+  boards: "#E8923C",
+  "worker-files": "#2E79B5",
+  "workers-directory": "#D4A84B",
+  workers: "#D4A84B",
+  worker: "#2E79B5",
+  "my-assignments": "#22A06B",
+  assign: "#22A06B",
+  "client-types": "#D4A84B",
+  "prospect-required-fields": "#22A06B",
+  departments: "#52B896",
+  fees: "#22A06B",
+  reports: "#3B82C4",
+  "client-form-fields": "#D4A84B",
+  "client-fields": "#D4A84B",
+  "list-columns": "#D4784A",
+  rights: "#22A06B",
+  "company-settings": "#D4A84B",
+  "company-docs-folders": "#D4A84B",
+  "template-settings": "#0891B2",
+  "template-merge-fields": "#E8923C",
+  "api-connections": "#52B896",
+  "whatsapp-settings": "#128C7E",
+  "chats-settings": "#5A6CC0",
+  "files-root": "#94A3B8",
+  "help-feedback": "#F0B429",
+  "ai-maintenance": "#5A6CC0",
+  wave: "#22A06B",
+  "ai-chat": "#E8923C",
+  signature: "#3B82C4",
+  converter: "#E8923C",
+  section46: "#F0B429",
+  masav: "#F0B429",
+  "sumit-dapi": "#52B896",
+  chats: "#5A6CC0",
+  whatsapp: "#128C7E",
+  osek: "#D4A84B",
+  "one-time": "#3B82C4",
+  admin: "#52B896",
+  systemadmin: "#E8923C",
+  tools: "#2E79B5",
+  help: "#F0B429",
+};
+
+const TILE_ICON_TERTIARY: Record<string, string> = {
+  clients: "#22A06B",
+  "address-book": "#22A06B",
+  potential: "#F0B429",
+  companies: "#E07A3A",
+  services: "#22A06B",
+  billing: "#F0B429",
+  boards: "#22A06B",
+  workers: "#22A06B",
+  tasks: "#F0B429",
+  whatsapp: "#075E54",
+  chats: "#F0B429",
+  admin: "#E8923C",
+  systemadmin: "#52B896",
+  tools: "#F0B429",
+};
+
+function tileIconSwatches(
+  tileId: string,
+  fallback: string,
+): { p: string; s: string; t: string } {
+  const p =
+    TILE_ICON_COLORS[tileId] ??
+    RAIL_ICON_COLORS[tileId] ??
+    fallback;
+  const s = TILE_ICON_SECONDARY[tileId] ?? "#D4A84B";
+  const t = TILE_ICON_TERTIARY[tileId] ?? "#22A06B";
+  return { p, s, t };
+}
+
+/**
+ * ModuleTileIcon / secondary-row / compose-button accents - vibrant per tile
+ * (Tools-PNG spirit). AppPrimaryRail keeps RailIcon + railIconColor only.
  */
 function chromeIconAccent(
   iconId: string,
   category: ChromeCategoryPalette,
 ): string {
-  switch (iconId) {
-    case "clients":
-    case "address-book":
-    case "potential":
-    case "client":
-    case "billing":
-    case "billing-overview":
-    case "billing-all":
-    case "billing-drafts":
-    case "tc-settings":
-    case "admin":
-    case "systemadmin":
-    case "tasks":
-    case "work":
-      return category.blue;
-    case "companies":
-    case "audit-companies":
-    case "services":
-    case "time-clock":
-    case "tc-overview":
-    case "worker":
-    case "workers":
-    case "chats":
-    case "chats-settings":
-    case "bookkeeping":
-    case "tools":
-    case "signature":
-    case "converter":
-    case "tc-leave":
-    case "one-time":
-    case "boards":
-    case "tax-return":
-    case "individuals":
-      return category.cyan;
-    case "section46":
-      return category.orange;
-    case "masav":
-      return category.green;
-    case "sumit-dapi":
-      return category.blue;
-    case "trusts":
-    case "osek":
-    case "whatsapp":
-    case "whatsapp-settings":
-      return category.green;
-    default:
-      return chromeNavAccent(iconId, category);
-  }
+  return (
+    TILE_ICON_COLORS[iconId] ??
+    RAIL_ICON_COLORS[iconId] ??
+    chromeNavAccent(iconId, category)
+  );
 }
 
 /** Deep plum primary icon rail (CRM chrome — not a pastel wash). */
@@ -27246,6 +28088,8 @@ function FirmDataTable({
   columnMinWidths,
   stickyHeader = true,
   overflow = "auto",
+  /** Stretch chrome to fill a flex:1 / minHeight:0 parent (Users & rights). */
+  fillHeight = false,
 }: {
   headers: TableProps["headers"];
   rows: TableProps["rows"];
@@ -27257,6 +28101,7 @@ function FirmDataTable({
   stickyHeader?: boolean;
   /** Use "visible" when an ancestor (ScrollTable) owns overflow for sticky headers. */
   overflow?: CSSProperties["overflow"];
+  fillHeight?: boolean;
 }) {
   const toneDot = (
     tone: NonNullable<TableProps["rowTone"]>[number],
@@ -27271,6 +28116,8 @@ function FirmDataTable({
     <div
       style={{
         width: "100%",
+        height: fillHeight ? "100%" : undefined,
+        minHeight: fillHeight ? "100%" : undefined,
         overflow,
         borderRadius: 10,
         border: `1px solid ${CHROME_BORDER_BLUE}`,
@@ -27282,6 +28129,7 @@ function FirmDataTable({
       <table
         style={{
           width: "100%",
+          height: fillHeight ? "100%" : undefined,
           borderCollapse: "separate",
           borderSpacing: 0,
           background: CHROME_WHITE,
@@ -27415,13 +28263,21 @@ function chromeWhereKind(
   if (screen === "boards") return "boards";
   if (screen === "secretariat") return selectedCategory;
   if (screen === "workers" || screen === "departments") return "workers";
+  /** Dual-homed: Admin + Systemadmin secondary both open this screen. */
   if (
+    screen === "client-fields" ||
+    screen === "list-columns" ||
+    screen === "client-types"
+  ) {
+    return selectedCategory === "admin" ? "admin" : "systemadmin";
+  }
+  if (
+    screen === "help-feedback" ||
+    screen === "ai-maintenance" ||
     screen === "api-connections" ||
     screen === "company-settings" ||
     screen === "company-docs-folders" ||
     screen === "template-merge-fields" ||
-    screen === "client-fields" ||
-    screen === "list-columns" ||
     screen === "trello-import" ||
     screen === "wave-import" ||
     screen === "users-rights" ||
@@ -27624,6 +28480,15 @@ function RailIcon({
           <path {...hollow} d="M5 7h14M5 12h14M5 17h14" />
         </svg>
       );
+    case "help":
+      /** Question mark — same 24px outline weight as Clients/Worker/Admin. */
+      return (
+        <svg {...common}>
+          <circle {...hollow} cx="12" cy="12" r="8.5" />
+          <path {...hollow} d="M9.6 9.4a2.5 2.5 0 0 1 4.7 1.1c0 1.5-1.4 2-2.1 2.5-.5.35-.7.7-.7 1.3" />
+          <path {...hollow} d="M12 17.2v.2" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>
@@ -27641,6 +28506,8 @@ function primaryCategoriesForUser(
     whatsapp: number;
     work: number;
     tools?: number;
+    /** Unread bugs + suggestions for Systemadmin Help & feedback. */
+    systemadmin?: number;
   },
   deptIds: string | string[],
 ): { id: string; title: string; badge?: number }[] {
@@ -27690,6 +28557,7 @@ function primaryCategoriesForUser(
     categories.push({
       id: "systemadmin",
       title: primaryRailLabel(uiLang, "systemadmin"),
+      badge: badges.systemadmin,
     });
   }
   return categories;
@@ -27721,45 +28589,70 @@ function AppPrimaryRail({
   deptIds,
   selectedCategory,
   hoverKey,
+  screen,
   secondaryOpen,
   onToggleSecondary,
   onSelectCategory,
   onHoverCategory,
   onHoverRailLeave,
+  onClearHoverFlyout,
   chatsBadge,
   whatsappBadge,
   workBadge,
   toolsBadge,
+  systemadminBadge,
   showProfile,
+  helpVisible,
 }: {
   role: Role;
   /** All signed-in worker department memberships (union drives rail extras). */
   deptIds: string[];
   selectedCategory: string;
   hoverKey: string | null;
+  /** Active main screen — used so Help gating cannot go stale vs parent boolean. */
+  screen: string;
   secondaryOpen: boolean;
   onToggleSecondary: () => void;
   onSelectCategory: (id: string) => void;
   onHoverCategory: (id: string) => void;
   onHoverRailLeave: () => void;
+  /** Immediate dismiss — Help must not keep the prior module flyout open. */
+  onClearHoverFlyout: () => void;
   chatsBadge: number;
   whatsappBadge: number;
   workBadge: number;
   toolsBadge: number;
+  systemadminBadge: number;
   showProfile: boolean;
+  /** Parent hint — rail recomputes so a stale false cannot wipe Help. */
+  helpVisible: boolean;
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [helpOpen, setHelpOpen] = useCanvasState("crmHelpFabOpen.v1", false);
   const categories = primaryCategoriesForUser(role, uiLang, {
     chats: chatsBadge,
     whatsapp: whatsappBadge,
     work: workBadge,
     tools: toolsBadge,
+    systemadmin: systemadminBadge,
   }, deptIds);
   const normalizedSelected = normalizePrimaryCategory(selectedCategory);
   const activeId = categories.some((c) => c.id === normalizedSelected)
     ? normalizedSelected
     : DEFAULT_PRIMARY_CATEGORY;
+  /**
+   * Authoritative Help visibility — recompute from role/primary/screen so a
+   * concurrent parent boolean or stale systemadmin category cannot hide Help
+   * on Worker/Manager Clients landing.
+   */
+  const showHelp = showWorkerHelpFeedbackFab(
+    role,
+    activeId,
+    hoverKey,
+    screen,
+    deptIds,
+  );
   /**
    * Keep badges fully inside the PRIMARY_RAIL_WIDTH rail. Negative end offsets +
    * SHELL_RAIL overflowX:hidden (and the closed-secondary profile scrollbar)
@@ -27769,6 +28662,12 @@ function AppPrimaryRail({
     uiLang === "he"
       ? ({ top: -2, right: 2, left: "auto" } as const)
       : ({ top: -2, insetInlineEnd: 2 } as const);
+  /** Help is not a hover-flyout module — pill only while compose popup is open. */
+  const helpAccent = chromeNavAccent("help", theme.category);
+  const helpIconColor = helpOpen ? CHROME_PRIMARY_RAIL_FG : helpAccent;
+  const helpLabelColor = helpOpen
+    ? helpAccent
+    : CHROME_PRIMARY_RAIL_FG_MUTED;
 
   return (
     <div
@@ -27797,7 +28696,7 @@ function AppPrimaryRail({
         gap: 4,
         height: "100%",
         maxHeight: "100%",
-        /** Above main (0); TempTabPopup stays at 40. Pinned secondary shares the layout plane. */
+        /** Above main (0); TempTabPopup is position:fixed at 10000. */
         position: "relative",
         zIndex: 3,
       }}
@@ -27864,6 +28763,7 @@ function AppPrimaryRail({
             <button
               key={cat.id}
               type="button"
+              data-primary-rail-cat={cat.id}
               onClick={() => onSelectCategory(cat.id)}
               onMouseEnter={() => onHoverCategory(cat.id)}
               title={cat.title}
@@ -27950,6 +28850,88 @@ function AppPrimaryRail({
           );
         })}
       </div>
+
+      {showHelp ? (
+        <div
+          data-chrome="worker-help-rail-footer"
+          style={{
+            width: "100%",
+            flexShrink: 0,
+            marginTop: "auto",
+            paddingTop: 4,
+          }}
+        >
+        <button
+          type="button"
+          data-chrome="worker-help-rail-btn"
+          onClick={() => {
+            onClearHoverFlyout();
+            setHelpOpen((v) => !v);
+          }}
+          onMouseEnter={() => {
+            /** Do not keep prior module hover flyout while over Help. */
+            onClearHoverFlyout();
+          }}
+          title={
+            helpOpen ? t(uiLang, "helpFabClose") : t(uiLang, "helpFabOpen")
+          }
+          aria-label={
+            helpOpen ? t(uiLang, "helpFabClose") : t(uiLang, "helpFabOpen")
+          }
+          aria-expanded={helpOpen}
+          style={{
+            all: "unset",
+            cursor: "pointer",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 4,
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "6px 2px",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ position: "relative" }}>
+            <div
+              style={{
+                width: 52,
+                height: 32,
+                borderRadius: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: chromeRailPillBackground(
+                  theme,
+                  helpOpen,
+                  false,
+                  "help",
+                ),
+                border: chromeRailPillBorder(theme, helpOpen, "help"),
+                boxSizing: "border-box",
+              }}
+            >
+              <RailIcon kind="help" active={helpOpen} color={helpIconColor} />
+            </div>
+          </div>
+          <ChromeText
+            size="small"
+            weight={helpOpen ? "semibold" : "medium"}
+            style={{
+              textAlign: "center",
+              fontSize: 11,
+              lineHeight: 1.15,
+              color: helpLabelColor,
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {t(uiLang, "helpFabModeHelp")}
+          </ChromeText>
+        </button>
+        </div>
+      ) : null}
 
       {showProfile ? (
         <div style={{ width: "100%", flexShrink: 0, paddingTop: 6 }}>
@@ -28160,8 +29142,9 @@ function GmailButton({
   const tonalAccent = iconId
     ? chromeIconAccent(iconId, theme.category)
     : theme.accent.primary;
+  /** Keep ModuleTileIcon multi-color (Tools-PNG spirit) even on primary pills. */
   const iconColor = isPrimary
-    ? theme.text.onAccent
+    ? tonalAccent
     : isText
       ? theme.accent.primary
       : tonalAccent;
@@ -28361,7 +29344,8 @@ function AppSecondarySidebar({
         flexGrow: 0,
         alignSelf: "stretch",
         boxSizing: "border-box",
-        padding: "14px 12px 12px",
+        /** Bottom 0 — HeaderUserChip footer sits flush with shell edge. */
+        padding: "14px 12px 0",
         /** Crisp white — contrasts dark primary rail (not another blue wash). */
         background: chromeSecondarySidebarBg(theme),
         borderInlineEnd: `1px solid ${chromeBorder(theme)}`,
@@ -28482,12 +29466,12 @@ function AppSecondarySidebar({
                     style={{
                       display: "inline-flex",
                       flexShrink: 0,
-                      color: row.active ? selectAccent : iconAccent,
+                      color: iconAccent,
                     }}
                   >
                     <ModuleTileIcon
                       tileId={row.iconId}
-                      color={row.active ? selectAccent : iconAccent}
+                      color={iconAccent}
                     />
                   </span>
                 ) : null}
@@ -28527,9 +29511,26 @@ function AppSecondarySidebar({
         })}
       </div>
 
-      <Divider style={{ width: "100%", flexShrink: 0 }} />
-      <div style={{ width: "100%", flexShrink: 0 }}>
-        <HeaderUserChip stacked />
+      {/**
+       * Pin identity chip to the bottom edge of the secondary column.
+       * Nav list above keeps flex:1 + overflowY so it scrolls; this footer
+       * uses marginTop:auto so it stays flush even if flex grow is contested.
+       */}
+      <div
+        style={{
+          width: "100%",
+          flexShrink: 0,
+          marginTop: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          paddingBottom: 0,
+        }}
+      >
+        <Divider style={{ width: "100%", flexShrink: 0 }} />
+        <div style={{ width: "100%", flexShrink: 0 }}>
+          <HeaderUserChip stacked />
+        </div>
       </div>
     </div>
   );
@@ -28540,25 +29541,123 @@ function AppSecondarySidebar({
  * Does NOT replace the pinned AppSecondarySidebar — overlays main/secondary area.
  * Flat canvas tokens only (no box-shadow); distinct via elevated fill + strong stroke + overlay.
  */
+type TempTabFlyoutBox = {
+  /** When openUp, use CSS `bottom` so the panel hugs the rail item from above. */
+  openUp: boolean;
+  top: number;
+  bottom: number;
+  left: number;
+  maxHeight: number;
+};
+
+/**
+ * Ephemeral secondary-module flyout beside AppPrimaryRail.
+ * position:fixed (like Select) so SHELL overflow:hidden cannot clip it;
+ * flips upward near the viewport bottom (System Admin / last rail icons).
+ * Do NOT reparent onto document.body — canvas host removeChild crashes.
+ */
 function TempTabPopup({
   title,
   rows,
-  topOffset,
+  anchorCategoryId,
   onMouseEnter,
   onMouseLeave,
 }: {
   title: string;
   rows: SecondaryNavRow[];
-  topOffset: number;
+  /** Primary-rail category id — anchors to [data-primary-rail-cat]. */
+  anchorCategoryId: string;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
   const theme = useHostTheme();
   const accent = theme.accent.primary;
   const [hoverRowId, setHoverRowId] = useState<string | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState<TempTabFlyoutBox | null>(null);
+
+  const computeFlyoutBox = (): TempTabFlyoutBox | null => {
+    if (typeof window === "undefined") return null;
+    const anchor =
+      document.querySelector(
+        `[data-primary-rail-cat="${anchorCategoryId}"]`,
+      ) ?? document.querySelector('[data-chrome="gmail-primary-rail-v3"]');
+    if (!anchor) return null;
+    const rect = anchor.getBoundingClientRect();
+    const frame = fixedPositionFrame(anchor);
+    const gap = 6;
+    const pad = 8;
+    const measured = popupRef.current?.offsetHeight ?? 0;
+    const estH =
+      measured > 0
+        ? measured
+        : Math.min(TEMP_TAB_FLYOUT_MAX_HEIGHT, 48 + rows.length * 40);
+    const spaceBelow =
+      frame.originTop + frame.height - rect.top - pad;
+    const spaceAbove = rect.bottom - frame.originTop - pad;
+    const openUp =
+      spaceBelow < Math.min(estH, 200) && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(
+      120,
+      Math.min(
+        TEMP_TAB_FLYOUT_MAX_HEIGHT,
+        openUp ? spaceAbove : spaceBelow,
+      ),
+    );
+    const rail = document.querySelector(
+      '[data-chrome="gmail-primary-rail-v3"]',
+    );
+    const railRect = rail?.getBoundingClientRect() ?? rect;
+    const isRtl =
+      (rail
+        ? getComputedStyle(rail as Element).direction
+        : document.documentElement.dir) === "rtl";
+    const rawLeft = isRtl
+      ? railRect.left - frame.originLeft - TEMP_TAB_FLYOUT_WIDTH - gap
+      : railRect.right - frame.originLeft + gap;
+    const left = Math.min(
+      Math.max(pad, rawLeft),
+      Math.max(pad, frame.width - TEMP_TAB_FLYOUT_WIDTH - pad),
+    );
+    if (openUp) {
+      return {
+        openUp: true,
+        top: 0,
+        /** Hug anchor from above (same pattern as Select near viewport edge). */
+        bottom: frame.originTop + frame.height - rect.bottom,
+        left,
+        maxHeight,
+      };
+    }
+    return {
+      openUp: false,
+      top: Math.max(pad, rect.top - frame.originTop),
+      bottom: 0,
+      left,
+      maxHeight,
+    };
+  };
+
+  useEffect(() => {
+    const place = () => {
+      const next = computeFlyoutBox();
+      if (next) setBox(next);
+    };
+    place();
+    const raf = requestAnimationFrame(place);
+    window.addEventListener("resize", place);
+    // Capture: nested SHELL_SCROLL panes scroll without bubbling to window.
+    window.addEventListener("scroll", place, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [anchorCategoryId, rows.length, title]);
 
   return (
     <div
+      ref={popupRef}
       data-chrome="gmail-temp-tab-popup-v3"
       role="dialog"
       aria-label={title}
@@ -28568,12 +29667,18 @@ function TempTabPopup({
         onMouseLeave?.();
       }}
       style={{
-        position: "absolute",
-        top: Math.max(8, topOffset),
-        insetInlineStart: PRIMARY_RAIL_WIDTH + 6,
-        zIndex: 40,
+        /**
+         * Fixed + high z-index: escape rail/shell overflow:hidden and sit
+         * above main content (Select menus use the same approach).
+         */
+        position: "fixed",
+        zIndex: 10000,
+        top: box && !box.openUp ? box.top : undefined,
+        bottom: box && box.openUp ? box.bottom : undefined,
+        left: box ? box.left : PRIMARY_RAIL_WIDTH + 6,
+        visibility: box ? "visible" : "hidden",
         width: TEMP_TAB_FLYOUT_WIDTH,
-        maxHeight: "min(420px, calc(100% - 24px))",
+        maxHeight: box ? box.maxHeight : TEMP_TAB_FLYOUT_MAX_HEIGHT,
         boxSizing: "border-box",
         padding: "12px 10px",
         /** Clean white elevated surface — not tinted chrome wash. */
@@ -28709,6 +29814,11 @@ function TempTabPopup({
 
 type BoardsChatTabId = "tasks" | "staff" | "whatsapp";
 
+/**
+ * Inbox & tasks (Daily tasks / Staff chats / WhatsApp) — Clients and
+ * Systemadmin primary Modules home. Not shown on Work → Boards
+ * (MyBoardsScreen) or other module homes (Worker / Admin / …).
+ */
 function BoardsUnderModules({
   onOpenChat,
   onOpenWhatsApp,
@@ -28722,6 +29832,18 @@ function BoardsUnderModules({
     "signedInWorkerId.v1",
     DEMO_WORKER.id,
   );
+  const [firmWorkersRaw] = useCanvasState<FirmWorker[]>(
+    "firmWorkers.v3",
+    DEMO_STAFF,
+  );
+  const firmWorkers =
+    Array.isArray(firmWorkersRaw) && firmWorkersRaw.length > 0
+      ? firmWorkersRaw
+      : DEMO_STAFF;
+  const [threads] = useCanvasState<ChatThread[]>(
+    "threads.v3",
+    DEFAULT_THREADS,
+  );
   const [boardsChatTab, setBoardsChatTab] = useCanvasState<BoardsChatTabId>(
     "boardsChatTab.v2",
     "tasks",
@@ -28732,19 +29854,80 @@ function BoardsUnderModules({
       : boardsChatTab === "whatsapp"
         ? "whatsapp"
         : "tasks";
+  /** Landing Inbox — collapsed one-row preview so Module cards stay in view. */
+  const [listExpanded, setListExpanded] = useState(false);
+  const LANDING_INBOX_PREVIEW_ROWS = 1;
   const [dailyTasksRaw] = useCanvasState<DailyTask[]>(
     "dailyTasks.v2",
     DEFAULT_DAILY_TASKS,
   );
-  const tasksOpenCount = dailyTasksInWorkCount(
-    dailyTasksForViewer(
-      normalizeDailyTasks(dailyTasksRaw),
-      role,
-      signedInWorkerId,
-    ),
+  const viewerTasks = dailyTasksForViewer(
+    normalizeDailyTasks(dailyTasksRaw),
+    role,
+    signedInWorkerId,
   );
+  const tasksOpenCount = dailyTasksInWorkCount(viewerTasks);
+  /** Same live unread sources as primary rail Chats / WhatsApp badges. */
+  const staffThreads = visibleStaffThreads(threads, role);
+  const waThreads = visibleWhatsAppThreads(
+    threads,
+    role,
+    signedInWorkerId,
+    firmWorkers,
+  );
+  const staffUnreadCount = staffThreads.filter((th) => th.unread).length;
+  const whatsappUnreadCount = waThreads.filter((th) => th.unread).length;
   const staffChannelLabel = uiLang === "he" ? "צ׳אט צוות" : "Staff chat";
   const waChannelLabel = uiLang === "he" ? "וואטסאפ" : "WhatsApp";
+
+  const selectBoardsChatTab = (id: string) => {
+    setBoardsChatTab(
+      id === "staff" ? "staff" : id === "whatsapp" ? "whatsapp" : "tasks",
+    );
+    setListExpanded(false);
+  };
+
+  const staffRowsFull = staffThreads.map((th) => [
+    th.title,
+    staffChannelLabel,
+    th.preview,
+    th.time,
+    <GmailButton
+      key={`staff-open-${th.id}`}
+      variant="secondary"
+      size="compact"
+      onClick={() => onOpenChat(th.id)}
+    >
+      {t(uiLang, "openChats")}
+    </GmailButton>,
+  ]);
+  const waRowsFull = waThreads.map((th) => [
+    th.title,
+    waChannelLabel,
+    th.preview,
+    th.time,
+    <GmailButton
+      key={`wa-open-${th.id}`}
+      variant="secondary"
+      size="compact"
+      onClick={() => onOpenWhatsApp(th.id)}
+    >
+      {t(uiLang, "openWhatsApp")}
+    </GmailButton>,
+  ]);
+  const staffRows = listExpanded
+    ? staffRowsFull
+    : staffRowsFull.slice(0, LANDING_INBOX_PREVIEW_ROWS);
+  const waRows = listExpanded
+    ? waRowsFull
+    : waRowsFull.slice(0, LANDING_INBOX_PREVIEW_ROWS);
+
+  const moreAvailable =
+    activeTab === "tasks"
+      ? viewerTasks.length > LANDING_INBOX_PREVIEW_ROWS
+      : activeTab === "staff"
+        ? staffRowsFull.length > LANDING_INBOX_PREVIEW_ROWS
+        : waRowsFull.length > LANDING_INBOX_PREVIEW_ROWS;
 
   return (
     <Stack gap={10}>
@@ -28763,31 +29946,46 @@ function BoardsUnderModules({
             id: "staff",
             label: t(uiLang, "boardsTabStaff"),
             badge:
-              CHATS_NEW_COUNT > 0 ? String(CHATS_NEW_COUNT) : undefined,
+              staffUnreadCount > 0 ? String(staffUnreadCount) : undefined,
           },
           {
             id: "whatsapp",
             label: t(uiLang, "boardsTabWhatsApp"),
             badge:
-              WHATSAPP_NEW_COUNT > 0
-                ? String(WHATSAPP_NEW_COUNT)
+              whatsappUnreadCount > 0
+                ? String(whatsappUnreadCount)
                 : undefined,
           },
         ]}
         activeId={activeTab}
-        onSelect={(id) =>
-          setBoardsChatTab(
-            id === "staff"
-              ? "staff"
-              : id === "whatsapp"
-                ? "whatsapp"
-                : "tasks",
-          )
-        }
+        onSelect={selectBoardsChatTab}
       />
 
+      {moreAvailable || listExpanded ? (
+        <Row align="center" gap={8} wrap>
+          <GmailButton
+            variant="secondary"
+            size="compact"
+            onClick={() => setListExpanded((open) => !open)}
+          >
+            {listExpanded
+              ? t(uiLang, "boardsInboxShowLess")
+              : t(uiLang, "boardsInboxShowAll")}
+          </GmailButton>
+          {!listExpanded ? (
+            <ChromeText size="small" tone="tertiary">
+              {activeTab === "tasks"
+                ? `1 / ${viewerTasks.length}`
+                : activeTab === "staff"
+                  ? `1 / ${staffRowsFull.length}`
+                  : `1 / ${waRowsFull.length}`}
+            </ChromeText>
+          ) : null}
+        </Row>
+      ) : null}
+
       {activeTab === "tasks" ? (
-        <TasksBoard />
+        <TasksBoard compactPreview={!listExpanded} />
       ) : activeTab === "staff" ? (
         <>
           <FirmDataTable
@@ -28798,25 +29996,13 @@ function BoardsUnderModules({
               t(uiLang, "colTime"),
               "",
             ]}
-            rows={[
-              [
-                "Dana Levi",
-                staffChannelLabel,
-                "Please finish Yael Mizrahi file notes",
-                "10:14",
-                <GmailButton
-                  variant="secondary"
-                  size="compact"
-                  onClick={() => onOpenChat("staff-dana")}
-                >
-                  {t(uiLang, "openChats")}
-                </GmailButton>,
-              ],
-            ]}
+            rows={staffRows}
           />
-          <ChromeText size="small" tone="secondary">
-            {t(uiLang, "boardsChatsHint")}
-          </ChromeText>
+          {listExpanded ? (
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "boardsChatsHint")}
+            </ChromeText>
+          ) : null}
         </>
       ) : (
         <>
@@ -28828,32 +30014,29 @@ function BoardsUnderModules({
               t(uiLang, "colTime"),
               "",
             ]}
-            rows={[
-              [
-                "Olive Grove Holdings",
-                waChannelLabel,
-                "Please confirm payroll cutoff for this month",
-                "11:20",
-                <GmailButton
-                  variant="secondary"
-                  size="compact"
-                  onClick={() => onOpenWhatsApp("wa-olive")}
-                >
-                  {t(uiLang, "openWhatsApp")}
-                </GmailButton>,
-              ],
-            ]}
+            rows={waRows}
           />
-          <ChromeText size="small" tone="secondary">
-            {t(uiLang, "boardsWaHint")}
-          </ChromeText>
+          {listExpanded ? (
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "boardsWaHint")}
+            </ChromeText>
+          ) : null}
         </>
       )}
     </Stack>
   );
 }
 
-function TasksBoard() {
+
+function TasksBoard({
+  compactPreview = false,
+}: {
+  /**
+   * Clients landing Inbox preview — one task row only.
+   * Full Worker Tasks / dedicated boards keep the default (false).
+   */
+  compactPreview?: boolean;
+} = {}) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [role] = useCanvasState<Role>("role", "worker");
@@ -29071,6 +30254,41 @@ function TasksBoard() {
     patchTask(selected.id, { whatsappAssignDemoSent: true });
     setFlash(t(uiLang, "taskWhatsAppFlash"));
   };
+
+  if (compactPreview) {
+    const previewTasks = visibleTasks.slice(0, 1);
+    return (
+      <FirmDataTable
+        headers={[
+          t(uiLang, "colTask"),
+          t(uiLang, "colClient"),
+          t(uiLang, "colDue"),
+          t(uiLang, "colStatus"),
+          t(uiLang, "tasksColAssignee"),
+        ]}
+        rows={previewTasks.map((task) => [
+          <ChromeText key={`${task.id}-title`} weight="semibold">
+            {task.title}
+          </ChromeText>,
+          task.client || "—",
+          dailyTaskDueLabel(uiLang, task.due),
+          dailyTaskStatusLabel(uiLang, task.status),
+          task.assigneeWorkerId
+            ? staffDisplayName(uiLang, task.assigneeWorkerId, workers)
+            : t(uiLang, "taskUnassigned"),
+        ])}
+        rowTone={previewTasks.map((task) =>
+          task.status === "open"
+            ? "warning"
+            : task.status === "in-process"
+              ? "info"
+              : task.status === "closed" || task.status === "done"
+                ? "success"
+                : undefined,
+        )}
+      />
+    );
+  }
 
   return (
     <Stack gap={12}>
@@ -30000,6 +31218,17 @@ function WhatsAppWebFirmScreen({
     firmWorkers,
     firmDepartments,
   );
+
+  /** Opening a firm WA thread marks it read (clears inbox “New” + rail badge). */
+  useEffect(() => {
+    if (!active?.unread) return;
+    const id = active.id;
+    setThreads((prev) =>
+      prev.map((th) =>
+        th.id === id && th.unread ? { ...th, unread: false } : th,
+      ),
+    );
+  }, [active?.id, active?.unread, setThreads]);
 
   useEffect(() => {
     setReassignOpen(false);
@@ -31402,6 +32631,7 @@ function MessagingScreen({
   mode,
   role,
   threads,
+  setThreads,
   recipients,
   selectedChatId,
   setSelectedChatId,
@@ -31418,6 +32648,9 @@ function MessagingScreen({
   mode: MessagingMode;
   role?: Role;
   threads: ChatThread[];
+  setThreads: (
+    next: ChatThread[] | ((prev: ChatThread[]) => ChatThread[]),
+  ) => void;
   recipients: ChatRecipient[];
   selectedChatId: string;
   setSelectedChatId: (id: string) => void;
@@ -31468,6 +32701,17 @@ function MessagingScreen({
       : isInternal
         ? active.messages
         : messagesVisibleInFirmWhatsApp(active.messages, deskSettings);
+
+  /** Opening a staff thread marks it read (clears inbox “New” + rail badge). */
+  useEffect(() => {
+    if (!isInternal || !active?.unread) return;
+    const id = active.id;
+    setThreads((prev) =>
+      prev.map((th) =>
+        th.id === id && th.unread ? { ...th, unread: false } : th,
+      ),
+    );
+  }, [isInternal, active?.id, active?.unread, setThreads]);
 
   return (
     <Stack gap={embedded ? 12 : 16} style={{ width: "100%" }}>
@@ -31577,7 +32821,16 @@ function MessagingScreen({
               <div key={thread.id}>
                 <button
                   type="button"
-                  onClick={() => setSelectedChatId(thread.id)}
+                  onClick={() => {
+                    setSelectedChatId(thread.id);
+                    if (thread.unread) {
+                      setThreads((prev) =>
+                        prev.map((th) =>
+                          th.id === thread.id ? { ...th, unread: false } : th,
+                        ),
+                      );
+                    }
+                  }}
                   style={{
                     all: "unset",
                     cursor: "pointer",
@@ -31802,11 +33055,22 @@ function HomeScreen({
       signedInWorkerId,
     ),
   );
-  const tiles = tilesForCategory(activeId, deptIds).map((tile) =>
-    tile.id === "tasks"
-      ? { ...tile, badgeCount: tasksInWorkHome || undefined }
-      : tile,
+  const [helpFeedbackHomeRaw] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFeedback.v1",
+    DEFAULT_HELP_FEEDBACK_ITEMS,
   );
+  const helpFeedbackHomeBadge = helpFeedbackBadgeCount(
+    normalizeHelpFeedbackItems(helpFeedbackHomeRaw),
+  );
+  const tiles = tilesForCategory(activeId, deptIds).map((tile) => {
+    if (tile.id === "tasks") {
+      return { ...tile, badgeCount: tasksInWorkHome || undefined };
+    }
+    if (tile.id === "help-feedback") {
+      return { ...tile, badgeCount: helpFeedbackHomeBadge || undefined };
+    }
+    return tile;
+  });
   const title = categoryTitle(uiLang, activeId);
 
   const staffThreads = visibleStaffThreads(threads, role);
@@ -31851,6 +33115,7 @@ function HomeScreen({
             mode="internal"
             role={role}
             threads={staffThreads}
+            setThreads={setThreads}
             recipients={staffChatRecipientsForRole(role)}
             selectedChatId={selectedChatId}
             setSelectedChatId={setSelectedChatId}
@@ -31886,12 +33151,16 @@ function HomeScreen({
           />
         ) : (
           <>
-            <BoardsUnderModules
-              onOpenChat={onOpenChat}
-              onOpenWhatsApp={onOpenWhatsApp}
-            />
-
-            <Divider />
+            {activeId === DEFAULT_PRIMARY_CATEGORY ||
+            activeId === "systemadmin" ? (
+              <>
+                <BoardsUnderModules
+                  onOpenChat={onOpenChat}
+                  onOpenWhatsApp={onOpenWhatsApp}
+                />
+                <Divider />
+              </>
+            ) : null}
             <Stack gap={12}>
               <H2>{title}</H2>
               <Grid
@@ -31963,7 +33232,7 @@ function ClientsScreen({
     string | null
   >(null);
   const [listColumnVisibility] = useCanvasState<ListColumnVisibility>(
-    "crmListColumnVisibility.v3",
+    "crmListColumnVisibility.v4",
     DEFAULT_LIST_COLUMN_VISIBILITY,
   );
   const [customListColumns] = useCanvasState<CustomListColumn[]>(
@@ -39386,13 +40655,16 @@ function ClientCardScreen({
           overflow: "hidden",
         }}
       >
-        <div style={{ padding: "6px 14px 0", position: "relative" }}>
-          {/* Physical right corner — plain div + right (Stack/insetInline* landed LEFT). */}
+        <div
+          dir={uiDir(uiLang)}
+          style={{ padding: "6px 14px 0", position: "relative" }}
+        >
+          {/* Trailing corner via insetInlineEnd — mirrors LTR (right) ↔ RTL (left). */}
           <div
             style={{
               position: "absolute",
               top: 6,
-              right: 14,
+              insetInlineEnd: 14,
               zIndex: 2,
               display: "flex",
               flexDirection: "column",
@@ -39435,9 +40707,10 @@ function ClientCardScreen({
                 color: CHROME_INK,
                 border: `1px solid ${theme.accent.control}`,
                 borderRadius: 8,
-                // Label start / ▼ trailing edge within the control width.
+                // Label at inline-start / ▼ at inline-end (flips with dir).
                 justifyContent: "space-between",
                 gap: 10,
+                direction: uiDir(uiLang),
               }}
             />
             {headerDeleteConfirm ? (
@@ -39476,7 +40749,7 @@ function ClientCardScreen({
           <Row align="start" gap={8}>
             <Stack
               gap={2}
-              style={{ flex: 1, minWidth: 180, paddingRight: 148 }}
+              style={{ flex: 1, minWidth: 180, paddingInlineEnd: 148 }}
             >
               {/* Title · alt name; address on the line below. */}
               <H1 style={{ margin: 0, lineHeight: 1.15 }}>
@@ -39933,7 +41206,12 @@ function ClientTypesScreen({
 type ProspectSettingsTab = "required" | "stages";
 
 /** Admin: prospect required fields + System Admin prospect stages. */
-function ProspectSettingsScreen() {
+function ProspectSettingsScreen({
+  embedded = false,
+}: {
+  /** When true, omit page chrome — used inside Client module settings tabs. */
+  embedded?: boolean;
+} = {}) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [role] = useCanvasState<Role>("role", "worker");
@@ -40025,18 +41303,36 @@ function ProspectSettingsScreen() {
 
   return (
     <Stack gap={16}>
-      <Row align="center" gap={12} wrap>
-        <Spacer />
-        <Pill tone="info">{t(uiLang, "adminOnly")}</Pill>
-        {canEditStages ? (
-          <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
-        ) : null}
-      </Row>
+      {!embedded ? (
+        <>
+          <Row align="center" gap={12} wrap>
+            <Spacer />
+            <Pill tone="info">{t(uiLang, "adminOnly")}</Pill>
+            {canEditStages ? (
+              <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
+            ) : null}
+          </Row>
 
-      <Stack gap={4}>
-        <H1>{t(uiLang, "prospectSettings")}</H1>
-        <ChromeText tone="secondary">{t(uiLang, "prospectSettingsHint")}</ChromeText>
-      </Stack>
+          <Stack gap={8}>
+            <H1>{t(uiLang, "prospectSettings")}</H1>
+            <ChromeText tone="secondary">
+              {t(uiLang, "prospectSettingsHint")}
+            </ChromeText>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "clientModuleProspectFieldsLinkHint")}
+            </ChromeText>
+          </Stack>
+        </>
+      ) : (
+        <Stack gap={8}>
+          <ChromeText tone="secondary">
+            {t(uiLang, "prospectSettingsHint")}
+          </ChromeText>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "clientModuleProspectFieldsLinkHint")}
+          </ChromeText>
+        </Stack>
+      )}
 
       <Row gap={8} wrap>
         <Button
@@ -40060,14 +41356,39 @@ function ProspectSettingsScreen() {
             <CardHeader>{t(uiLang, "prospectRequiredFields")}</CardHeader>
             <CardBody>
               <Stack gap={10}>
-                {PROSPECT_FORM_FIELD_DEFS.map((f) => (
-                  <Checkbox
-                    key={f.id}
-                    checked={isProspectFieldRequired(requiredFields, f.id)}
-                    onChange={() => toggleRequired(f.id)}
-                    label={t(uiLang, f.labelKey)}
-                  />
-                ))}
+                {PROSPECT_FORM_FIELD_DEFS.map((f) => {
+                  const required = isProspectFieldRequired(requiredFields, f.id);
+                  return (
+                    <Row
+                      key={f.id}
+                      align="center"
+                      gap={10}
+                      style={{ width: "100%" }}
+                    >
+                      <ChromeToggle
+                        checked={required}
+                        onChange={() => toggleRequired(f.id)}
+                      />
+                      <ChromeText size="small" style={{ flex: 1, minWidth: 0 }}>
+                        {t(uiLang, f.labelKey)}
+                      </ChromeText>
+                      <ChromeText
+                        size="small"
+                        style={{
+                          flexShrink: 0,
+                          color: required
+                            ? theme.accent.primary
+                            : CHROME_INK_MUTED,
+                          fontWeight: required ? 600 : 500,
+                        }}
+                      >
+                        {required
+                          ? t(uiLang, "required")
+                          : t(uiLang, "optionalLabel")}
+                      </ChromeText>
+                    </Row>
+                  );
+                })}
               </Stack>
             </CardBody>
           </Card>
@@ -40214,7 +41535,41 @@ function ProspectSettingsScreen() {
 type ClientModuleSettingsTab =
   | "form-fields"
   | "list-columns"
-  | "types-filters";
+  | "types-filters"
+  | "prospect-settings";
+
+/** Which Client module settings tab a secondary tile opens (null = not a settings tab). */
+function clientModuleSettingsTabForOpens(
+  opens: ModuleTile["opens"],
+): ClientModuleSettingsTab | null {
+  if (opens === "client-fields") return "form-fields";
+  if (opens === "list-columns") return "list-columns";
+  if (opens === "client-types") return "types-filters";
+  if (opens === "prospect-required-fields") return "prospect-settings";
+  return null;
+}
+
+/** Systemadmin hub tile — active on any Client module settings tab. */
+function isClientModuleSettingsHubTile(tile: ModuleTile): boolean {
+  return tile.id === "client-fields" && tile.opens === "client-fields";
+}
+
+function isModuleTileActive(
+  tile: ModuleTile,
+  screen: Screen,
+  settingsTab: ClientModuleSettingsTab,
+): boolean {
+  const onSettingsScreen =
+    screen === "client-fields" || screen === "list-columns";
+  if (isClientModuleSettingsHubTile(tile)) {
+    return onSettingsScreen;
+  }
+  const tab = clientModuleSettingsTabForOpens(tile.opens);
+  if (tab != null) {
+    return onSettingsScreen && settingsTab === tab;
+  }
+  return tile.opens === screen;
+}
 
 function ClientFieldsConfigScreen({
   fields,
@@ -40271,11 +41626,15 @@ function ClientFieldsConfigScreen({
     false,
   );
 
+  /** Prospects removed from this filter; coerce stale persisted "potential". */
+  const effectiveFilterType: FieldConfigType | "all" =
+    filterType === "potential" ? "all" : filterType;
+
   const visible = fields.filter(
     (f) =>
-      filterType === "all" ||
+      effectiveFilterType === "all" ||
       !f.clientTypes.length ||
-      f.clientTypes.includes(filterType),
+      f.clientTypes.includes(effectiveFilterType),
   );
 
   const toggleRequired = (id: string) => {
@@ -40313,6 +41672,12 @@ function ClientFieldsConfigScreen({
 
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const theme = useHostTheme();
+  /** Admin navigates via secondary sidebar icons — hide in-page tabs. */
+  const [selectedCategory] = useCanvasState(
+    "selectedCategory.v2",
+    DEFAULT_PRIMARY_CATEGORY,
+  );
+  const hideInPageTabs = selectedCategory === "admin";
 
   const settingsTabs: RaisedTabItem[] = [
     {
@@ -40327,7 +41692,14 @@ function ClientFieldsConfigScreen({
       id: "types-filters",
       label: t(uiLang, "clientModuleTabTypesFilters"),
     },
+    {
+      id: "prospect-settings",
+      label: t(uiLang, "clientModuleTabProspectSettings"),
+    },
   ];
+  const activeSettingsTabLabel =
+    settingsTabs.find((tab) => tab.id === settingsTab)?.label ??
+    t(uiLang, "clientFields");
 
   const formFieldsPane = (
     <Stack gap={16}>
@@ -40338,11 +41710,11 @@ function ClientFieldsConfigScreen({
           {t(uiLang, "filterByType")}
         </ChromeText>
         <Select
-          value={filterType}
+          value={effectiveFilterType}
           onChange={(v) => setFilterType(v as FieldConfigType | "all")}
           options={[
             { value: "all", label: t(uiLang, "allTypes") },
-            ...fieldConfigTypeOptions(uiLang),
+            ...engagementTypeOptions(uiLang),
           ]}
         />
       </Stack>
@@ -40461,22 +41833,34 @@ function ClientFieldsConfigScreen({
 
   return (
     <Stack gap={16}>
-      <Row align="center" gap={12} wrap>
-        <Spacer />
-        <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
-      </Row>
+      {!hideInPageTabs ? (
+        <Row align="center" gap={12} wrap>
+          <Spacer />
+          <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
+        </Row>
+      ) : null}
 
       <Stack gap={4}>
-        <H1>{t(uiLang, "clientFields")}</H1>
-        <ChromeText tone="secondary">{t(uiLang, "clientFieldsHint")}</ChromeText>
+        <H1>
+          {hideInPageTabs
+            ? activeSettingsTabLabel
+            : t(uiLang, "clientFields")}
+        </H1>
+        {!hideInPageTabs ? (
+          <ChromeText tone="secondary">
+            {t(uiLang, "clientFieldsHint")}
+          </ChromeText>
+        ) : null}
       </Stack>
 
-      <RaisedTabBar
-        tabs={settingsTabs}
-        activeId={settingsTab}
-        onSelect={(id) => setSettingsTab(id as ClientModuleSettingsTab)}
-        ariaLabel={t(uiLang, "clientFields")}
-      />
+      {!hideInPageTabs ? (
+        <RaisedTabBar
+          tabs={settingsTabs}
+          activeId={settingsTab}
+          onSelect={(id) => setSettingsTab(id as ClientModuleSettingsTab)}
+          ariaLabel={t(uiLang, "clientFields")}
+        />
+      ) : null}
 
       {settingsTab === "form-fields" ? formFieldsPane : null}
       {settingsTab === "list-columns" ? (
@@ -40493,6 +41877,9 @@ function ClientFieldsConfigScreen({
           newName={newTypeName}
           setNewName={setNewTypeName}
         />
+      ) : null}
+      {settingsTab === "prospect-settings" ? (
+        <ProspectSettingsScreen embedded />
       ) : null}
     </Stack>
   );
@@ -40576,6 +41963,7 @@ function ListColumnsConfigScreen({
 
   const moduleOptions: { value: ClientListModuleKey; label: string }[] = [
     { value: "clients", label: t(uiLang, "listModuleClients") },
+    { value: "prospects", label: t(uiLang, "listModuleProspects") },
     { value: "companies", label: t(uiLang, "listModuleCompanies") },
     { value: "bookkeeping", label: t(uiLang, "listModuleBookkeeping") },
     { value: "trusts", label: t(uiLang, "listModuleTrusts") },
@@ -40690,6 +42078,8 @@ type CompanySettings = {
   vatFileNumber: string;
   incomeTaxFileNumber: string;
   withholdingFileNumber: string;
+  /** Firm-wide AI integration gate (Tools AI chat, worker AI help). Demo default ON. */
+  aiIntegrationEnabled: boolean;
 };
 
 const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
@@ -40705,7 +42095,25 @@ const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   vatFileNumber: "514123456",
   incomeTaxFileNumber: "912345678",
   withholdingFileNumber: "912345678-01",
+  aiIntegrationEnabled: true,
 };
+
+/** Demo default ON — undefined (older canvas state) counts as enabled. */
+function firmAiIntegrationEnabled(
+  settings: Partial<CompanySettings> | null | undefined,
+): boolean {
+  return settings?.aiIntegrationEnabled !== false;
+}
+
+function normalizeCompanySettings(
+  raw: CompanySettings | Partial<CompanySettings> | null | undefined,
+): CompanySettings {
+  return {
+    ...DEFAULT_COMPANY_SETTINGS,
+    ...(raw ?? {}),
+    aiIntegrationEnabled: firmAiIntegrationEnabled(raw),
+  };
+}
 
 /** System Admin — edit default Company documents folder template. */
 function CompanyDocsFolderTemplateScreen() {
@@ -41112,17 +42520,21 @@ function CompanyDocsPanel({
 
 function CompanySettingsScreen() {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
-  const [settings, setSettings] = useCanvasState<CompanySettings>(
+  const [settingsRaw, setSettings] = useCanvasState<CompanySettings>(
     "crmCompanySettings.v1",
     DEFAULT_COMPANY_SETTINGS,
   );
+  const settings = normalizeCompanySettings(settingsRaw);
   const [saveFlash, setSaveFlash] = useCanvasState(
     "crmCompanySettingsFlash.v1",
     "",
   );
 
   const patch = (partial: Partial<CompanySettings>) => {
-    setSettings((prev) => ({ ...prev, ...partial }));
+    setSettings((prev) => ({
+      ...normalizeCompanySettings(prev),
+      ...partial,
+    }));
   };
 
   const onSave = () => {
@@ -41186,6 +42598,9 @@ function CompanySettingsScreen() {
           </Stack>
           <Stack gap={4}>
             <FieldLabel>{t(uiLang, "companyEmail")}</FieldLabel>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "companyEmailHint")}
+            </ChromeText>
             <ChromeTextInput
               value={settings.email}
               onChange={(v) => patch({ email: v })}
@@ -41243,6 +42658,27 @@ function CompanySettingsScreen() {
             {t(uiLang, "companyFiscalWeekBody")}
           </ChromeText>
         </Stack>
+      </FormSection>
+
+      <FormSection
+        title={t(uiLang, "companyAiIntegrationSection")}
+        hint={t(uiLang, "companyAiIntegrationHint")}
+      >
+        <Row align="center" gap={10} style={{ width: "100%" }}>
+          <ChromeToggle
+            checked={firmAiIntegrationEnabled(settings)}
+            onChange={(v) => patch({ aiIntegrationEnabled: v })}
+            size="md"
+          />
+          <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+            <ChromeText size="small" weight="semibold">
+              {t(uiLang, "companyAiIntegrationEnable")}
+            </ChromeText>
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "companyAiIntegrationHint")}
+            </ChromeText>
+          </Stack>
+        </Row>
       </FormSection>
 
       <FormSection title={t(uiLang, "companyTaxSection")}>
@@ -43231,18 +44667,21 @@ function UsersRightsScreen() {
     : undefined;
 
   return (
-    <Stack gap={16} style={{ ...SHELL_SCROLL, paddingInlineEnd: 4 }}>
-      <Row align="center" gap={12} wrap>
+    <Stack
+      gap={16}
+      style={{ ...SHELL_FILL, width: "100%", paddingInlineEnd: 4 }}
+    >
+      <Row align="center" gap={12} wrap style={{ flexShrink: 0 }}>
         <Spacer />
         <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
       </Row>
 
-      <Stack gap={4}>
+      <Stack gap={4} style={{ flexShrink: 0 }}>
         <H1 style={{ margin: 0 }}>{t(uiLang, "usersRights")}</H1>
         <ChromeText tone="secondary">{t(uiLang, "usersRightsHint")}</ChromeText>
       </Stack>
 
-      <Row gap={8} wrap align="center">
+      <Row gap={8} wrap align="center" style={{ flexShrink: 0 }}>
         <Button variant="primary" onClick={addDemoUser}>
           {t(uiLang, "usersRightsAddDemo")}
         </Button>
@@ -43251,7 +44690,7 @@ function UsersRightsScreen() {
         </Button>
       </Row>
 
-      <Grid columns={2} gap={12}>
+      <Grid columns={2} gap={12} style={{ flexShrink: 0 }}>
         <Stack gap={4}>
           <ChromeText size="small" weight="semibold" tone="secondary">
             {t(uiLang, "usersRightsFilterDept")}
@@ -43286,56 +44725,77 @@ function UsersRightsScreen() {
       </Grid>
 
       {flash ? (
-        <Callout
-          tone={
-            flash === t(uiLang, "usersRightsInviteFlash") ? "info" : "success"
-          }
-          title={t(uiLang, "usersRights")}
-        >
-          {flash}
-        </Callout>
+        <div style={{ flexShrink: 0, width: "100%" }}>
+          <Callout
+            tone={
+              flash === t(uiLang, "usersRightsInviteFlash") ? "info" : "success"
+            }
+            title={t(uiLang, "usersRights")}
+          >
+            {flash}
+          </Callout>
+        </div>
       ) : null}
 
-      <FirmDataTable
-        headers={[
-          t(uiLang, "usersRightsColName"),
-          t(uiLang, "usersRightsColDept"),
-          t(uiLang, "usersRightsColRole"),
-          t(uiLang, "usersRightsColStatus"),
-          t(uiLang, "usersRightsColActions"),
-        ]}
-        emptyMessage={t(uiLang, "usersRightsEmpty")}
-        rowTone={filtered.map((row) =>
-          rightsFor(row.id).active ? ("success" as const) : ("neutral" as const),
-        )}
-        rows={filtered.map((row) => {
-          const rights = rightsFor(row.id);
-          const selected = selectedId === row.id;
-          return [
-            uiLang === "he" ? row.nameHe : row.name,
-            departmentLabels(uiLang, row.deptIds, departments),
-            staffRightsRoleLabel(uiLang, rights.role),
-            rights.active
-              ? t(uiLang, "usersRightsActive")
-              : t(uiLang, "usersRightsInactive"),
-            <Button
-              variant={selected ? "primary" : "secondary"}
-              onClick={() =>
-                selected ? closeEdit() : beginEdit(row.id)
-              }
-            >
-              {selected
-                ? t(uiLang, "usersRightsClose")
-                : t(uiLang, "usersRightsEdit")}
-            </Button>,
-          ];
-        })}
-      />
+      {/* Viewport-bound scrollport — same flex:1 + minHeight:0 pattern as ScrollTable / clients list. */}
+      <div
+        style={{
+          width: "100%",
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          overflow: "auto",
+          WebkitOverflowScrolling: "touch",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <FirmDataTable
+          headers={[
+            t(uiLang, "usersRightsColName"),
+            t(uiLang, "usersRightsColDept"),
+            t(uiLang, "usersRightsColRole"),
+            t(uiLang, "usersRightsColStatus"),
+            t(uiLang, "usersRightsColActions"),
+          ]}
+          emptyMessage={t(uiLang, "usersRightsEmpty")}
+          overflow="visible"
+          fillHeight
+          rowTone={filtered.map((row) =>
+            rightsFor(row.id).active
+              ? ("success" as const)
+              : ("neutral" as const),
+          )}
+          rows={filtered.map((row) => {
+            const rights = rightsFor(row.id);
+            const selected = selectedId === row.id;
+            return [
+              uiLang === "he" ? row.nameHe : row.name,
+              departmentLabels(uiLang, row.deptIds, departments),
+              staffRightsRoleLabel(uiLang, rights.role),
+              rights.active
+                ? t(uiLang, "usersRightsActive")
+                : t(uiLang, "usersRightsInactive"),
+              <Button
+                variant={selected ? "primary" : "secondary"}
+                onClick={() =>
+                  selected ? closeEdit() : beginEdit(row.id)
+                }
+              >
+                {selected
+                  ? t(uiLang, "usersRightsClose")
+                  : t(uiLang, "usersRightsEdit")}
+              </Button>,
+            ];
+          })}
+        />
+      </div>
 
       {selectedWorker ? (
         <Stack
           gap={12}
           style={{
+            flexShrink: 0,
             padding: 14,
             borderRadius: 10,
             border: `1px solid ${chromeBorder(theme)}`,
@@ -43436,9 +44896,11 @@ function UsersRightsScreen() {
         </Stack>
       ) : null}
 
-      <Callout tone="info" title={t(uiLang, "whoCanOpen")}>
-        {t(uiLang, "usersRightsWho")}
-      </Callout>
+      <div style={{ flexShrink: 0, width: "100%" }}>
+        <Callout tone="info" title={t(uiLang, "whoCanOpen")}>
+          {t(uiLang, "usersRightsWho")}
+        </Callout>
+      </div>
     </Stack>
   );
 }
@@ -43748,6 +45210,2007 @@ function filesBreadcrumb(
 }
 
 /** System Admin → Files root / cloud — Sumit-like share browser + stage A/B settings. */
+type HelpFeedbackKind = "help" | "bug" | "suggestion";
+type HelpFeedbackStatus =
+  | "queued"
+  | "ai_replied"
+  | "human_replied"
+  | "ai_fixed";
+
+type HelpFeedbackItem = {
+  id: string;
+  kind: HelpFeedbackKind;
+  subject: string;
+  body: string;
+  authorName: string;
+  authorWorkerId: string;
+  createdAt: string;
+  read: boolean;
+  status: HelpFeedbackStatus;
+  aiReply?: string;
+  humanReply?: string;
+  /** When true, scheduled AI fix runs may process this bug/suggestion (demo). */
+  aiIncludeInFixes?: boolean;
+  aiFixedAt?: string;
+};
+
+const DEFAULT_HELP_FEEDBACK_ITEMS: HelpFeedbackItem[] = [
+  {
+    id: "hf-bug-1",
+    kind: "bug",
+    subject: "Time clock week PDF missing Hebrew header",
+    body: "Download PDF for this week drops the Hebrew firm name on page 1.",
+    authorName: "Maya Billing",
+    authorWorkerId: "staff-maya",
+    createdAt: "2026-10-11T09:14:00",
+    read: false,
+    status: "queued",
+  },
+  {
+    id: "hf-sug-1",
+    kind: "suggestion",
+    subject: "Pin favorite clients on Worker home",
+    body: "Would help to star 3–5 clients so they stay at the top of My assignments.",
+    authorName: "Eli Audit",
+    authorWorkerId: "staff-eli",
+    createdAt: "2026-10-11T11:40:00",
+    read: false,
+    status: "queued",
+  },
+  {
+    id: "hf-bug-2",
+    kind: "bug",
+    subject: "WhatsApp badge stays after opening thread",
+    body: "Opened Cohen Books WA thread; primary badge still shows 1 until refresh.",
+    authorName: "Avi Accounting",
+    authorWorkerId: "staff-avi",
+    createdAt: "2026-10-10T16:05:00",
+    read: false,
+    status: "queued",
+  },
+  {
+    id: "hf-help-1",
+    kind: "help",
+    subject: "How do I convert a prospect?",
+    body: "I filled required fields but Convert stays disabled.",
+    authorName: "Maya Billing",
+    authorWorkerId: "staff-maya",
+    createdAt: "2026-10-09T14:22:00",
+    read: true,
+    status: "human_replied",
+    humanReply:
+      "Open Prospects → select the row → Convert. All required prospect fields must be filled first (Admin → Prospects settings).",
+  },
+];
+
+function normalizeHelpFeedbackItems(
+  raw: HelpFeedbackItem[] | null | undefined,
+): HelpFeedbackItem[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return DEFAULT_HELP_FEEDBACK_ITEMS.map((item) => ({ ...item }));
+  }
+  return raw.map((item) => ({
+    ...item,
+    kind:
+      item.kind === "bug" || item.kind === "suggestion" || item.kind === "help"
+        ? item.kind
+        : "help",
+    read: Boolean(item.read),
+    status:
+      item.status === "ai_replied" ||
+      item.status === "human_replied" ||
+      item.status === "ai_fixed" ||
+      item.status === "queued"
+        ? item.status
+        : "queued",
+    aiIncludeInFixes:
+      item.kind === "bug" || item.kind === "suggestion"
+        ? item.aiIncludeInFixes !== false
+        : item.aiIncludeInFixes,
+  }));
+}
+
+/** Unread bugs + suggestions drive Systemadmin rail / module badges. */
+function helpFeedbackBadgeCount(items: HelpFeedbackItem[]): number {
+  return items.filter(
+    (item) =>
+      !item.read && (item.kind === "bug" || item.kind === "suggestion"),
+  ).length;
+}
+
+function helpFeedbackDemoAiReply(
+  kind: HelpFeedbackKind,
+  subject: string,
+  uiLang: UiLang,
+): string {
+  if (uiLang === "he") {
+    if (kind === "help") {
+      return `תשובת דמו מ־Cursor AI בנושא «${subject}»: בדקו את ההגדרות הרלוונטיות במודול, ואם הבעיה נמשכת מנהל המערכת יראה את הפנייה.`;
+    }
+    if (kind === "bug") {
+      return `קיבלנו את דיווח הבאג «${subject}». זה בתור למנהל מערכת — תשובת AI לדמו בלבד, בלי תיקון אוטומטי.`;
+    }
+    return `תודה על ההצעה «${subject}». נשמרה בתיבת עזרה ומשוב למנהל המערכת.`;
+  }
+  if (kind === "help") {
+    return `Demo Cursor AI reply for “${subject}”: check the related module settings first; System Admin still has your question in Help & feedback.`;
+  }
+  if (kind === "bug") {
+    return `Got the bug report “${subject}”. Queued for System Admin — demo AI ack only, no auto-fix.`;
+  }
+  return `Thanks for the suggestion “${subject}”. Saved to the System Admin Help & feedback inbox.`;
+}
+
+function HelpFeedbackScreen() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [itemsRaw, setItems] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFeedback.v1",
+    DEFAULT_HELP_FEEDBACK_ITEMS,
+  );
+  const items = normalizeHelpFeedbackItems(itemsRaw);
+  const [filter, setFilter] = useCanvasState<HelpFeedbackKind | "all">(
+    "crmHelpFeedbackFilter.v1",
+    "all",
+  );
+  const [selectedId, setSelectedId] = useCanvasState(
+    "crmHelpFeedbackSelectedId.v1",
+    items.find((i) => !i.read)?.id ?? items[0]?.id ?? "",
+  );
+  const [replyDraft, setReplyDraft] = useCanvasState(
+    "crmHelpFeedbackReplyDraft.v1",
+    "",
+  );
+
+  const visible = items.filter(
+    (item) => filter === "all" || item.kind === filter,
+  );
+  const selected =
+    visible.find((item) => item.id === selectedId) ??
+    visible[0] ??
+    null;
+
+  const kindLabel = (kind: HelpFeedbackKind) => {
+    if (kind === "bug") return t(uiLang, "helpFeedbackFilterBug");
+    if (kind === "suggestion") return t(uiLang, "helpFeedbackFilterSuggestion");
+    return t(uiLang, "helpFeedbackFilterHelp");
+  };
+
+  const patchItem = (
+    id: string,
+    partial: Partial<HelpFeedbackItem>,
+  ) => {
+    setItems((prev) =>
+      normalizeHelpFeedbackItems(prev).map((item) =>
+        item.id === id ? { ...item, ...partial } : item,
+      ),
+    );
+  };
+
+  const filterTabs: { id: HelpFeedbackKind | "all"; label: string }[] = [
+    { id: "all", label: t(uiLang, "helpFeedbackFilterAll") },
+    { id: "help", label: t(uiLang, "helpFeedbackFilterHelp") },
+    { id: "bug", label: t(uiLang, "helpFeedbackFilterBug") },
+    {
+      id: "suggestion",
+      label: t(uiLang, "helpFeedbackFilterSuggestion"),
+    },
+  ];
+
+  return (
+    <Stack gap={12} style={{ width: "100%", minHeight: 0, flex: 1 }}>
+      <ModuleChromeBar pill={t(uiLang, "helpFeedbackTitle")} />
+      <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+        {t(uiLang, "helpFeedbackHint")}
+      </ChromeText>
+      <Row gap={8} style={{ flexWrap: "wrap" }}>
+        {filterTabs.map((tab) => {
+          const active = filter === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setFilter(tab.id)}
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                padding: "6px 12px",
+                borderRadius: 8,
+                boxSizing: "border-box",
+                background: active ? CHROME_SELECTED_BLUE : CHROME_WHITE,
+                border: CHROME_FIELD_BORDER,
+                color: CHROME_INK,
+                fontSize: 12,
+                fontWeight: active ? 700 : 500,
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </Row>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          gap: 12,
+          minHeight: 0,
+          flex: 1,
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            width: 280,
+            flexShrink: 0,
+            minHeight: 0,
+            overflowY: "auto",
+            border: CHROME_FIELD_BORDER,
+            borderRadius: 10,
+            background: CHROME_WHITE,
+            boxSizing: "border-box",
+          }}
+        >
+          {visible.length === 0 ? (
+            <div style={{ padding: 14 }}>
+              <ChromeText size="small">{t(uiLang, "helpFeedbackEmpty")}</ChromeText>
+            </div>
+          ) : (
+            visible.map((item) => {
+              const active = selected?.id === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedId(item.id);
+                    if (!item.read) patchItem(item.id, { read: true });
+                  }}
+                  style={{
+                    all: "unset",
+                    cursor: "pointer",
+                    display: "block",
+                    width: "100%",
+                    boxSizing: "border-box",
+                    padding: "10px 12px",
+                    borderBottom: `1px solid ${CHROME_SOFT_BLUE}`,
+                    background: active
+                      ? CHROME_SELECTED_BLUE
+                      : item.read
+                        ? CHROME_WHITE
+                        : CHROME_PANE_BG,
+                  }}
+                >
+                  <Row gap={8} align="center" style={{ width: "100%" }}>
+                    <ChromeText
+                      size="small"
+                      weight={item.read ? "normal" : "semibold"}
+                      style={{ flex: 1, minWidth: 0 }}
+                    >
+                      {item.subject}
+                    </ChromeText>
+                    {!item.read ? (
+                      <span
+                        style={{
+                          minWidth: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          background: theme.category.red,
+                          flexShrink: 0,
+                        }}
+                      />
+                    ) : null}
+                  </Row>
+                  <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                    {kindLabel(item.kind)} · {item.authorName}
+                  </ChromeText>
+                </button>
+              );
+            })
+          )}
+        </div>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            overflowY: "auto",
+            border: CHROME_FIELD_BORDER,
+            borderRadius: 10,
+            background: CHROME_WHITE,
+            padding: 16,
+            boxSizing: "border-box",
+          }}
+        >
+          {selected ? (
+            <Stack gap={10}>
+              <H2>{selected.subject}</H2>
+              <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                {kindLabel(selected.kind)} · {selected.authorName} ·{" "}
+                {selected.createdAt.replace("T", " ").slice(0, 16)}
+                {!selected.read
+                  ? ` · ${t(uiLang, "helpFeedbackUnread")}`
+                  : ""}
+              </ChromeText>
+              <ChromeText>{selected.body}</ChromeText>
+              {selected.aiReply ? (
+                <Callout tone="info" title={t(uiLang, "helpFeedbackAiReply")}>
+                  {selected.aiReply}
+                </Callout>
+              ) : null}
+              {selected.status === "ai_fixed" ? (
+                <Callout tone="success" title={t(uiLang, "aiMaintenanceFixed")}>
+                  {selected.aiFixedAt
+                    ? selected.aiFixedAt.replace("T", " ").slice(0, 16)
+                    : t(uiLang, "aiMaintenanceFixed")}
+                </Callout>
+              ) : null}
+              {selected.humanReply ? (
+                <Callout
+                  tone="success"
+                  title={t(uiLang, "helpFeedbackHumanReply")}
+                >
+                  {selected.humanReply}
+                </Callout>
+              ) : selected.status === "ai_fixed" ? null : (
+                <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                  {t(uiLang, "helpFeedbackQueued")}
+                </ChromeText>
+              )}
+              <Row gap={8} style={{ flexWrap: "wrap" }}>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    patchItem(selected.id, { read: !selected.read })
+                  }
+                >
+                  {selected.read
+                    ? t(uiLang, "helpFeedbackMarkUnread")
+                    : t(uiLang, "helpFeedbackMarkRead")}
+                </Button>
+              </Row>
+              <FieldLabel>{t(uiLang, "helpFeedbackHumanReply")}</FieldLabel>
+              <TextArea
+                value={replyDraft}
+                onChange={setReplyDraft}
+                placeholder={t(uiLang, "helpFeedbackReplyPlaceholder")}
+                rows={4}
+                style={chromeFieldStyle({ width: "100%", minHeight: 96 })}
+              />
+              <Button
+                variant="primary"
+                disabled={!replyDraft.trim()}
+                onClick={() => {
+                  const text = replyDraft.trim();
+                  if (!text) return;
+                  patchItem(selected.id, {
+                    humanReply: text,
+                    status: "human_replied",
+                    read: true,
+                  });
+                  setReplyDraft("");
+                }}
+              >
+                {t(uiLang, "helpFeedbackReply")}
+              </Button>
+            </Stack>
+          ) : (
+            <ChromeText size="small">{t(uiLang, "helpFeedbackEmpty")}</ChromeText>
+          )}
+        </div>
+      </div>
+    </Stack>
+  );
+}
+
+type AiMaintenanceTab =
+  | "inbox"
+  | "fix-schedule"
+  | "scan-schedule"
+  | "history-fixes";
+
+/** History of AI fixes — inbox triage bugs/suggestions vs scan-found AI fixes. */
+type AiMaintenanceHistoryKind = "bug" | "suggestion" | "ai-scan";
+
+type AiMaintenanceHistoryEntry = {
+  id: string;
+  /** ISO date-time (local demo stamp). */
+  date: string;
+  kind: AiMaintenanceHistoryKind;
+  title: string;
+  /** Short description of what AI did. */
+  description: string;
+};
+
+const DEFAULT_AI_MAINTENANCE_HISTORY: AiMaintenanceHistoryEntry[] = [
+  {
+    id: "aih-seed-1",
+    date: "2026-10-11T03:00:00",
+    kind: "bug",
+    title: "Portal upload timeout",
+    description: "Applied demo bug fix for “Portal upload timeout”.",
+  },
+  {
+    id: "aih-seed-2",
+    date: "2026-10-10T14:22:00",
+    kind: "suggestion",
+    title: "Bulk invoice export",
+    description: "Applied demo improvement for “Bulk invoice export”.",
+  },
+  {
+    id: "aih-seed-3",
+    date: "2026-09-28T03:00:00",
+    kind: "ai-scan",
+    title: "Security & bug scan",
+    description:
+      "Completed security & bug scan — no critical findings (demo).",
+  },
+  {
+    id: "aih-seed-4",
+    date: "2026-09-20T11:05:00",
+    kind: "bug",
+    title: "VAT report rounding",
+    description: "Applied demo bug fix for “VAT report rounding”.",
+  },
+];
+
+function isAiMaintenanceHistoryKind(
+  v: unknown,
+): v is AiMaintenanceHistoryKind {
+  return v === "bug" || v === "suggestion" || v === "ai-scan";
+}
+
+function normalizeAiMaintenanceHistory(
+  raw: unknown,
+): AiMaintenanceHistoryEntry[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return DEFAULT_AI_MAINTENANCE_HISTORY.map((e) => ({ ...e }));
+  }
+  const out: AiMaintenanceHistoryEntry[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Partial<AiMaintenanceHistoryEntry>;
+    const id = typeof r.id === "string" ? r.id.trim() : "";
+    const date = typeof r.date === "string" ? r.date.trim() : "";
+    const title = typeof r.title === "string" ? r.title.trim() : "";
+    const description =
+      typeof r.description === "string" ? r.description.trim() : "";
+    if (!id || !date || !title || !isAiMaintenanceHistoryKind(r.kind)) {
+      continue;
+    }
+    out.push({
+      id,
+      date,
+      kind: r.kind,
+      title,
+      description: description || title,
+    });
+  }
+  return out.length > 0
+    ? out
+    : DEFAULT_AI_MAINTENANCE_HISTORY.map((e) => ({ ...e }));
+}
+
+function aiHistoryDemoDescription(
+  kind: AiMaintenanceHistoryKind,
+  title: string,
+  uiLang: UiLang,
+): string {
+  if (kind === "ai-scan") {
+    return uiLang === "he"
+      ? "סריקת אבטחה ובאגים הושלמה — לא נמצאו ממצאים קריטיים (דמו)."
+      : "Completed security & bug scan — no critical findings (demo).";
+  }
+  if (kind === "suggestion") {
+    return uiLang === "he"
+      ? `יושם שיפור דמו עבור «${title}».`
+      : `Applied demo improvement for “${title}”.`;
+  }
+  return uiLang === "he"
+    ? `תוקן באג דמו עבור «${title}».`
+    : `Applied demo bug fix for “${title}”.`;
+}
+
+/** Cadence for AI fix / security-scan schedules. */
+type AiScheduleFrequency =
+  | "day"
+  | "week"
+  | "2weeks"
+  | "month"
+  | "2months"
+  | "3months"
+  | "6months"
+  | "year";
+
+const AI_SCHEDULE_FREQUENCIES: AiScheduleFrequency[] = [
+  "day",
+  "week",
+  "2weeks",
+  "month",
+  "2months",
+  "3months",
+  "6months",
+  "year",
+];
+
+const AI_RUN_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
+  const value = `${String(h).padStart(2, "0")}:00`;
+  return { value, label: value };
+});
+
+const AI_DAY_OF_MONTH_OPTIONS = Array.from({ length: 31 }, (_, i) => {
+  const n = i + 1;
+  return { value: String(n), label: String(n) };
+});
+
+type AiFixScheduleState = {
+  enabled: boolean;
+  frequency: AiScheduleFrequency;
+  time: string;
+  /** Day of month 1–31 (used for monthly+ cadences). */
+  dayOfMonth: number;
+  /** Calendar month 1–12 (anchor for multi-month / yearly). */
+  month: number;
+  /** 0=Sun … 6=Sat (used for week / 2-weeks). */
+  weekday: number;
+  lastRun: string;
+  nextRun: string;
+};
+
+type AiScanScheduleState = {
+  enabled: boolean;
+  frequency: AiScheduleFrequency;
+  /** Legacy weeks field — read only for migration. */
+  frequencyWeeks?: number;
+  time: string;
+  dayOfMonth: number;
+  month: number;
+  weekday: number;
+  lastRun: string;
+  nextRun: string;
+};
+
+const DEFAULT_AI_FIX_SCHEDULE: AiFixScheduleState = {
+  enabled: true,
+  frequency: "day",
+  time: "03:00",
+  dayOfMonth: 1,
+  month: 1,
+  weekday: 0,
+  lastRun: "2026-10-11 03:00",
+  nextRun: "2026-10-12 03:00",
+};
+
+const DEFAULT_AI_SCAN_SCHEDULE: AiScanScheduleState = {
+  enabled: true,
+  frequency: "2weeks",
+  time: "03:00",
+  dayOfMonth: 1,
+  month: 1,
+  weekday: 0,
+  lastRun: "2026-09-28 03:00",
+  nextRun: "2026-10-12 03:00",
+};
+
+function isAiScheduleFrequency(v: unknown): v is AiScheduleFrequency {
+  return (
+    typeof v === "string" &&
+    (AI_SCHEDULE_FREQUENCIES as string[]).includes(v)
+  );
+}
+
+function migrateAiFrequencyWeeks(weeks: number): AiScheduleFrequency | null {
+  if (weeks === 1) return "week";
+  if (weeks === 2) return "2weeks";
+  if (weeks === 4) return "month";
+  return null;
+}
+
+function clampAiDayOfMonth(n: unknown, fallback: number): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(1, Math.min(31, Math.round(v)));
+}
+
+function clampAiMonth(n: unknown, fallback: number): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(1, Math.min(12, Math.round(v)));
+}
+
+function clampAiWeekday(n: unknown, fallback: number): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(0, Math.min(6, Math.round(v)));
+}
+
+function normalizeAiFrequency(
+  raw: { frequency?: unknown; frequencyWeeks?: unknown } | null | undefined,
+  fallback: AiScheduleFrequency,
+): AiScheduleFrequency {
+  if (isAiScheduleFrequency(raw?.frequency)) return raw.frequency;
+  const weeks = Number(raw?.frequencyWeeks);
+  return migrateAiFrequencyWeeks(weeks) ?? fallback;
+}
+
+function normalizeAiFixSchedule(
+  raw: Partial<AiFixScheduleState> | null | undefined,
+): AiFixScheduleState {
+  return {
+    ...DEFAULT_AI_FIX_SCHEDULE,
+    ...(raw ?? {}),
+    time: raw?.time?.trim() || DEFAULT_AI_FIX_SCHEDULE.time,
+    frequency: normalizeAiFrequency(raw, DEFAULT_AI_FIX_SCHEDULE.frequency),
+    dayOfMonth: clampAiDayOfMonth(
+      raw?.dayOfMonth,
+      DEFAULT_AI_FIX_SCHEDULE.dayOfMonth,
+    ),
+    month: clampAiMonth(raw?.month, DEFAULT_AI_FIX_SCHEDULE.month),
+    weekday: clampAiWeekday(raw?.weekday, DEFAULT_AI_FIX_SCHEDULE.weekday),
+    enabled: raw?.enabled !== false,
+  };
+}
+
+function normalizeAiScanSchedule(
+  raw: Partial<AiScanScheduleState> | null | undefined,
+): AiScanScheduleState {
+  return {
+    ...DEFAULT_AI_SCAN_SCHEDULE,
+    ...(raw ?? {}),
+    time: raw?.time?.trim() || DEFAULT_AI_SCAN_SCHEDULE.time,
+    frequency: normalizeAiFrequency(raw, DEFAULT_AI_SCAN_SCHEDULE.frequency),
+    dayOfMonth: clampAiDayOfMonth(
+      raw?.dayOfMonth,
+      DEFAULT_AI_SCAN_SCHEDULE.dayOfMonth,
+    ),
+    month: clampAiMonth(raw?.month, DEFAULT_AI_SCAN_SCHEDULE.month),
+    weekday: clampAiWeekday(raw?.weekday, DEFAULT_AI_SCAN_SCHEDULE.weekday),
+    enabled: raw?.enabled !== false,
+  };
+}
+
+function aiFrequencyLabel(lang: UiLang, freq: AiScheduleFrequency): string {
+  if (freq === "day") return t(lang, "aiMaintenanceEveryDay");
+  if (freq === "week") return t(lang, "aiMaintenanceEveryWeek");
+  if (freq === "2weeks") return t(lang, "aiMaintenanceEvery2Weeks");
+  if (freq === "month") return t(lang, "aiMaintenanceEveryMonth");
+  if (freq === "2months") return t(lang, "aiMaintenanceEvery2Months");
+  if (freq === "3months") return t(lang, "aiMaintenanceEvery3Months");
+  if (freq === "6months") return t(lang, "aiMaintenanceEveryHalfYear");
+  return t(lang, "aiMaintenanceEveryYear");
+}
+
+function aiWeekdayLabel(lang: UiLang, weekday: number): string {
+  const keys: CrmUiKey[] = [
+    "aiMaintenanceWeekdaySun",
+    "aiMaintenanceWeekdayMon",
+    "aiMaintenanceWeekdayTue",
+    "aiMaintenanceWeekdayWed",
+    "aiMaintenanceWeekdayThu",
+    "aiMaintenanceWeekdayFri",
+    "aiMaintenanceWeekdaySat",
+  ];
+  return t(lang, keys[clampAiWeekday(weekday, 0)] ?? keys[0]);
+}
+
+/** Weekday picker — every week only (not daily / every-N-weeks). */
+function aiUsesWeekday(freq: AiScheduleFrequency): boolean {
+  return freq === "week";
+}
+
+/** Day-of-month — monthly+ and yearly cadences. */
+function aiUsesDayOfMonth(freq: AiScheduleFrequency): boolean {
+  return (
+    freq === "month" ||
+    freq === "2months" ||
+    freq === "3months" ||
+    freq === "6months" ||
+    freq === "year"
+  );
+}
+
+/** Calendar month — yearly only. */
+function aiUsesMonth(freq: AiScheduleFrequency): boolean {
+  return freq === "year";
+}
+
+function parseAiScheduleStamp(raw: string | undefined | null): Date | null {
+  const s = (raw ?? "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(s);
+  if (!m) return null;
+  const d = new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4] ?? "0"),
+    Number(m[5] ?? "0"),
+    0,
+    0,
+  );
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Next run from Last run + only fields that apply to the frequency. */
+function computeAiNextRunStamp(schedule: {
+  frequency: AiScheduleFrequency;
+  time: string;
+  dayOfMonth: number;
+  month: number;
+  weekday: number;
+  lastRun: string;
+}): string {
+  const from = parseAiScheduleStamp(schedule.lastRun) ?? new Date();
+  const advanced = aiAdvanceScheduleDate(
+    from,
+    schedule.frequency,
+    schedule.dayOfMonth,
+    schedule.month,
+    schedule.weekday,
+  );
+  return formatAiScheduleStamp(advanced, schedule.time);
+}
+
+function withAiScheduleNextRun<
+  T extends {
+    frequency: AiScheduleFrequency;
+    time: string;
+    dayOfMonth: number;
+    month: number;
+    weekday: number;
+    lastRun: string;
+    nextRun: string;
+  },
+>(schedule: T): T {
+  return { ...schedule, nextRun: computeAiNextRunStamp(schedule) };
+}
+
+function aiAdvanceScheduleDate(
+  from: Date,
+  frequency: AiScheduleFrequency,
+  dayOfMonth: number,
+  month: number,
+  weekday: number,
+): Date {
+  const next = new Date(from.getTime());
+  const padDay = (d: Date, dom: number) => {
+    const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(Math.max(1, dom), dim));
+  };
+  if (frequency === "day") {
+    next.setDate(next.getDate() + 1);
+    return next;
+  }
+  if (frequency === "week") {
+    const target = clampAiWeekday(weekday, 0);
+    next.setDate(next.getDate() + 1);
+    const delta = (target - next.getDay() + 7) % 7;
+    next.setDate(next.getDate() + delta);
+    return next;
+  }
+  if (frequency === "2weeks") {
+    next.setDate(next.getDate() + 14);
+    return next;
+  }
+  if (frequency === "month") {
+    next.setMonth(next.getMonth() + 1);
+    padDay(next, dayOfMonth);
+    return next;
+  }
+  if (frequency === "2months") {
+    next.setMonth(next.getMonth() + 2);
+    padDay(next, dayOfMonth);
+    return next;
+  }
+  if (frequency === "3months") {
+    next.setMonth(next.getMonth() + 3);
+    padDay(next, dayOfMonth);
+    return next;
+  }
+  if (frequency === "6months") {
+    next.setMonth(next.getMonth() + 6);
+    padDay(next, dayOfMonth);
+    return next;
+  }
+  next.setFullYear(next.getFullYear() + 1);
+  next.setMonth(clampAiMonth(month, 1) - 1);
+  padDay(next, dayOfMonth);
+  return next;
+}
+
+function formatAiScheduleStamp(d: Date, time: string): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hhmm = time.trim() || "03:00";
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm}`;
+}
+
+function demoAiFixStamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+}
+
+function helpFeedbackDemoAiFix(
+  subject: string,
+  uiLang: UiLang,
+): string {
+  if (uiLang === "he") {
+    return `תיקון דמו של AI עבור «${subject}»: הוחל תיקון מקומי לדוגמה. אין שינוי בקוד אמיתי.`;
+  }
+  return `Demo AI fix for “${subject}”: applied a local sample patch. No real code changed.`;
+}
+
+/**
+ * Systemadmin — AI maintenance near Help & feedback.
+ * Always visible; interactive controls require Company settings AI integration ON.
+ */
+function AiMaintenanceScreen() {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [companySettingsRaw] = useCanvasState<CompanySettings>(
+    "crmCompanySettings.v1",
+    DEFAULT_COMPANY_SETTINGS,
+  );
+  const aiOn = firmAiIntegrationEnabled(companySettingsRaw);
+  const [tab, setTab] = useCanvasState<AiMaintenanceTab>(
+    "crmAiMaintenanceTab.v1",
+    "inbox",
+  );
+  const [inboxFilter, setInboxFilter] = useCanvasState<"all" | "bug" | "suggestion">(
+    "crmAiMaintenanceInboxFilter.v1",
+    "all",
+  );
+  const [historyFilter, setHistoryFilter] = useCanvasState<
+    "all" | AiMaintenanceHistoryKind
+  >("crmAiMaintenanceHistoryFilter.v1", "all");
+  const [historyRaw, setHistory] = useCanvasState<AiMaintenanceHistoryEntry[]>(
+    "crmAiMaintenanceHistory.v1",
+    DEFAULT_AI_MAINTENANCE_HISTORY,
+  );
+  const history = normalizeAiMaintenanceHistory(historyRaw);
+  const visibleHistory = history.filter(
+    (entry) => historyFilter === "all" || entry.kind === historyFilter,
+  );
+  const [itemsRaw, setItems] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFeedback.v1",
+    DEFAULT_HELP_FEEDBACK_ITEMS,
+  );
+  const items = normalizeHelpFeedbackItems(itemsRaw);
+  const triageItems = items.filter(
+    (item) => item.kind === "bug" || item.kind === "suggestion",
+  );
+  const visibleInbox = triageItems.filter(
+    (item) => inboxFilter === "all" || item.kind === inboxFilter,
+  );
+  const [fixScheduleRaw, setFixSchedule] = useCanvasState<AiFixScheduleState>(
+    "crmAiFixSchedule.v1",
+    DEFAULT_AI_FIX_SCHEDULE,
+  );
+  const fixSchedule = normalizeAiFixSchedule(fixScheduleRaw);
+  const [scanScheduleRaw, setScanSchedule] =
+    useCanvasState<AiScanScheduleState>(
+      "crmAiScanSchedule.v1",
+      DEFAULT_AI_SCAN_SCHEDULE,
+    );
+  const scanSchedule = normalizeAiScanSchedule(scanScheduleRaw);
+  const [runFlash, setRunFlash] = useCanvasState(
+    "crmAiMaintenanceFlash.v1",
+    "",
+  );
+  const [aiInstructions, setAiInstructions] = useCanvasState(
+    "crmAiMaintenanceInstructions.v1",
+    "",
+  );
+  const [aiInstructionsDraft, setAiInstructionsDraft] = useCanvasState(
+    "crmAiMaintenanceInstructionsDraft.v1",
+    "",
+  );
+  const savedAiInstructions = aiInstructions.trim();
+  const saveAiInstructions = () => {
+    const next = aiInstructionsDraft.trim();
+    setAiInstructions(next);
+    setAiInstructionsDraft(next);
+  };
+
+  const tabs: RaisedTabItem[] = [
+    { id: "inbox", label: t(uiLang, "aiMaintenanceTabInbox") },
+    { id: "fix-schedule", label: t(uiLang, "aiMaintenanceTabFixSchedule") },
+    {
+      id: "scan-schedule",
+      label: t(uiLang, "aiMaintenanceTabScanSchedule"),
+    },
+    {
+      id: "history-fixes",
+      label: t(uiLang, "aiMaintenanceTabHistoryFixes"),
+    },
+  ];
+
+  const frequencyOptions = AI_SCHEDULE_FREQUENCIES.map((freq) => ({
+    value: freq,
+    label: aiFrequencyLabel(uiLang, freq),
+  }));
+  const weekdayOptions = [0, 1, 2, 3, 4, 5, 6].map((w) => ({
+    value: String(w),
+    label: aiWeekdayLabel(uiLang, w),
+  }));
+  const monthOptions = CALENDAR_MONTHS.map((m) => ({
+    value: String(Number(m.id)),
+    label: uiLang === "he" ? m.he : m.en,
+  }));
+  const inboxFilterTabs: { id: "all" | "bug" | "suggestion"; label: string }[] =
+    [
+      { id: "all", label: t(uiLang, "helpFeedbackFilterAll") },
+      { id: "bug", label: t(uiLang, "helpFeedbackFilterBug") },
+      { id: "suggestion", label: t(uiLang, "helpFeedbackFilterSuggestion") },
+    ];
+  const historyFilterTabs: {
+    id: "all" | AiMaintenanceHistoryKind;
+    label: string;
+  }[] = [
+    { id: "all", label: t(uiLang, "helpFeedbackFilterAll") },
+    { id: "bug", label: t(uiLang, "helpFeedbackFilterBug") },
+    { id: "suggestion", label: t(uiLang, "helpFeedbackFilterSuggestion") },
+    {
+      id: "ai-scan",
+      label: t(uiLang, "aiMaintenanceHistoryFilterAiFixes"),
+    },
+  ];
+
+  const appendHistoryEntries = (entries: AiMaintenanceHistoryEntry[]) => {
+    if (entries.length === 0) return;
+    setHistory((prev) => [
+      ...entries,
+      ...normalizeAiMaintenanceHistory(prev),
+    ]);
+  };
+
+  const historyEntriesForTargets = (
+    targets: HelpFeedbackItem[],
+    stamp: string,
+  ): AiMaintenanceHistoryEntry[] =>
+    targets.map((item, index) => {
+      const kind: AiMaintenanceHistoryKind =
+        item.kind === "suggestion" ? "suggestion" : "bug";
+      return {
+        id: `aih-${stamp}-${item.id}-${index}`,
+        date: stamp,
+        kind,
+        title: item.subject,
+        description: aiHistoryDemoDescription(kind, item.subject, uiLang),
+      };
+    });
+
+  const patchItem = (
+    id: string,
+    partial: Partial<HelpFeedbackItem>,
+  ) => {
+    setItems((prev) =>
+      normalizeHelpFeedbackItems(prev).map((item) =>
+        item.id === id ? { ...item, ...partial } : item,
+      ),
+    );
+  };
+
+  const fixIncludedWithAi = () => {
+    if (!aiOn) return;
+    const stamp = demoAiFixStamp();
+    const targets = normalizeHelpFeedbackItems(itemsRaw).filter(
+      (item) =>
+        item.kind === "bug" &&
+        item.aiIncludeInFixes !== false &&
+        item.status !== "ai_fixed",
+    );
+    const count = targets.length;
+    if (count === 0) {
+      setRunFlash(
+        uiLang === "he"
+          ? "אין באגים כלולים לתיקון."
+          : "No included bugs to fix.",
+      );
+      return;
+    }
+    const targetIds = new Set(targets.map((item) => item.id));
+    setItems((prev) =>
+      normalizeHelpFeedbackItems(prev).map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        return {
+          ...item,
+          status: "ai_fixed" as const,
+          read: true,
+          aiFixedAt: stamp,
+          aiReply: helpFeedbackDemoAiFix(item.subject, uiLang),
+        };
+      }),
+    );
+    appendHistoryEntries(historyEntriesForTargets(targets, stamp));
+    setRunFlash(
+      uiLang === "he"
+        ? `תוקנו בדמו ${count} פריטים כלולים.`
+        : `Demo-fixed ${count} included item(s).`,
+    );
+  };
+
+  const runFixScheduleNow = () => {
+    if (!aiOn || !fixSchedule.enabled) return;
+    const stamp = demoAiFixStamp();
+    const stampLabel = stamp.replace("T", " ").slice(0, 16);
+    const targets = normalizeHelpFeedbackItems(itemsRaw).filter(
+      (item) =>
+        item.kind === "bug" &&
+        item.aiIncludeInFixes !== false &&
+        item.status !== "ai_fixed",
+    );
+    const targetIds = new Set(targets.map((item) => item.id));
+    setItems((prev) =>
+      normalizeHelpFeedbackItems(prev).map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        return {
+          ...item,
+          status: "ai_fixed" as const,
+          read: true,
+          aiFixedAt: stamp,
+          aiReply: helpFeedbackDemoAiFix(item.subject, uiLang),
+        };
+      }),
+    );
+    appendHistoryEntries(historyEntriesForTargets(targets, stamp));
+    setFixSchedule((prev) =>
+      withAiScheduleNextRun({
+        ...normalizeAiFixSchedule(prev),
+        lastRun: stampLabel,
+      }),
+    );
+    setRunFlash(
+      uiLang === "he"
+        ? "ריצת תיקונים לדמו הושלמה."
+        : "Demo fix schedule run completed.",
+    );
+  };
+
+  const runScanNow = () => {
+    if (!aiOn || !scanSchedule.enabled) return;
+    const stampIso = demoAiFixStamp();
+    const stamp = stampIso.replace("T", " ").slice(0, 16);
+    const scanTitle =
+      uiLang === "he" ? "סריקת אבטחה ובאגים" : "Security & bug scan";
+    setScanSchedule((prev) =>
+      withAiScheduleNextRun({
+        ...normalizeAiScanSchedule(prev),
+        lastRun: stamp,
+      }),
+    );
+    appendHistoryEntries([
+      {
+        id: `aih-scan-${stampIso}`,
+        date: stampIso,
+        kind: "ai-scan",
+        title: scanTitle,
+        description: aiHistoryDemoDescription("ai-scan", scanTitle, uiLang),
+      },
+    ]);
+    setRunFlash(
+      uiLang === "he"
+        ? "סריקת אבטחה ובאגים לדמו הושלמה — לא נמצאו ממצאים קריטיים."
+        : "Demo security & bug scan completed — no critical findings.",
+    );
+  };
+
+  const kindLabel = (kind: HelpFeedbackKind) => {
+    if (kind === "bug") return t(uiLang, "helpFeedbackFilterBug");
+    if (kind === "suggestion") return t(uiLang, "helpFeedbackFilterSuggestion");
+    return t(uiLang, "helpFeedbackFilterHelp");
+  };
+
+  const historyKindLabel = (kind: AiMaintenanceHistoryKind) => {
+    if (kind === "bug") return t(uiLang, "helpFeedbackFilterBug");
+    if (kind === "suggestion") return t(uiLang, "helpFeedbackFilterSuggestion");
+    return t(uiLang, "aiMaintenanceHistoryFilterAiFixes");
+  };
+
+  const renderScheduleFields = (
+    schedule: AiFixScheduleState | AiScanScheduleState,
+    setSchedule: (
+      action:
+        | AiFixScheduleState
+        | AiScanScheduleState
+        | ((
+            prev: AiFixScheduleState | AiScanScheduleState,
+          ) => AiFixScheduleState | AiScanScheduleState),
+    ) => void,
+    normalize: (
+      raw: Partial<AiFixScheduleState & AiScanScheduleState> | null | undefined,
+    ) => AiFixScheduleState | AiScanScheduleState,
+  ) => {
+    const showWeekday = aiUsesWeekday(schedule.frequency);
+    const showDayOfMonth = aiUsesDayOfMonth(schedule.frequency);
+    const showMonth = aiUsesMonth(schedule.frequency);
+    const patchSchedule = (
+      partial: Partial<AiFixScheduleState & AiScanScheduleState>,
+    ) => {
+      setSchedule((prev) => {
+        const next = { ...normalize(prev), ...partial };
+        return {
+          ...next,
+          nextRun: computeAiNextRunStamp(next),
+        };
+      });
+    };
+    return (
+      <>
+        <Grid columns={2} gap={12}>
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "aiMaintenanceFrequency")}</FieldLabel>
+            <Select
+              value={schedule.frequency}
+              disabled={!aiOn}
+              onChange={(v) =>
+                patchSchedule({
+                  frequency: (isAiScheduleFrequency(v)
+                    ? v
+                    : schedule.frequency) as AiScheduleFrequency,
+                })
+              }
+              options={frequencyOptions}
+            />
+          </Stack>
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "aiMaintenanceRunTime")}</FieldLabel>
+            <Select
+              value={schedule.time}
+              disabled={!aiOn}
+              onChange={(v) => patchSchedule({ time: v })}
+              options={AI_RUN_TIME_OPTIONS}
+            />
+          </Stack>
+        </Grid>
+        {showWeekday || showDayOfMonth || showMonth ? (
+          <Grid columns={2} gap={12}>
+            {showWeekday ? (
+              <Stack gap={4}>
+                <FieldLabel>{t(uiLang, "aiMaintenanceWeekday")}</FieldLabel>
+                <Select
+                  value={String(schedule.weekday)}
+                  disabled={!aiOn}
+                  onChange={(v) =>
+                    patchSchedule({
+                      weekday: clampAiWeekday(v, schedule.weekday),
+                    })
+                  }
+                  options={weekdayOptions}
+                />
+              </Stack>
+            ) : null}
+            {showMonth ? (
+              <Stack gap={4}>
+                <FieldLabel>{t(uiLang, "aiMaintenanceMonth")}</FieldLabel>
+                <Select
+                  value={String(schedule.month)}
+                  disabled={!aiOn}
+                  onChange={(v) =>
+                    patchSchedule({
+                      month: clampAiMonth(v, schedule.month),
+                    })
+                  }
+                  options={monthOptions}
+                />
+              </Stack>
+            ) : null}
+            {showDayOfMonth ? (
+              <Stack gap={4}>
+                <FieldLabel>{t(uiLang, "aiMaintenanceDayOfMonth")}</FieldLabel>
+                <Select
+                  value={String(schedule.dayOfMonth)}
+                  disabled={!aiOn}
+                  onChange={(v) =>
+                    patchSchedule({
+                      dayOfMonth: clampAiDayOfMonth(v, schedule.dayOfMonth),
+                    })
+                  }
+                  options={AI_DAY_OF_MONTH_OPTIONS}
+                />
+              </Stack>
+            ) : null}
+          </Grid>
+        ) : null}
+      </>
+    );
+  };
+
+  const eligibleFixCount = triageItems.filter(
+    (item) =>
+      item.kind === "bug" &&
+      item.aiIncludeInFixes !== false &&
+      item.status !== "ai_fixed",
+  ).length;
+
+  return (
+    <Stack
+      gap={12}
+      style={{
+        ...SHELL_FILL,
+        width: "100%",
+        direction: uiLang === "he" ? "rtl" : "ltr",
+      }}
+    >
+      <div style={{ flexShrink: 0 }}>
+        <ModuleChromeBar pill={t(uiLang, "aiMaintenanceTitle")} />
+      </div>
+      <ChromeText
+        size="small"
+        style={{ color: CHROME_INK_MUTED, flexShrink: 0 }}
+      >
+        {t(uiLang, "aiMaintenanceHint")}
+      </ChromeText>
+      {!aiOn ? (
+        <div style={{ flexShrink: 0 }}>
+          <Callout
+            tone="warning"
+            title={t(uiLang, "companyAiIntegrationSection")}
+          >
+            {t(uiLang, "aiMaintenanceAiOffHint")}
+          </Callout>
+        </div>
+      ) : null}
+      {runFlash ? (
+        <div style={{ flexShrink: 0 }}>
+          <Callout tone="info" title={t(uiLang, "aiMaintenanceTitle")}>
+            {runFlash}
+          </Callout>
+        </div>
+      ) : null}
+      <div style={{ flexShrink: 0 }}>
+        <RaisedTabBar
+          tabs={tabs}
+          activeId={tab}
+          onSelect={(id) => setTab(id as AiMaintenanceTab)}
+          ariaLabel={t(uiLang, "aiMaintenanceTitle")}
+          variant="raised"
+        />
+      </div>
+      <div
+        style={{
+          ...SHELL_SCROLL,
+          opacity: aiOn ? 1 : 0.48,
+          filter: aiOn ? undefined : "grayscale(0.35)",
+          pointerEvents: aiOn ? "auto" : "none",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          paddingInlineEnd: 4,
+          paddingBottom: 8,
+        }}
+      >
+        {tab === "inbox" ? (
+          <Stack gap={12} style={{ width: "100%" }}>
+            <Row gap={8} style={{ flexWrap: "wrap", flexShrink: 0 }}>
+              {inboxFilterTabs.map((f) => {
+                const active = inboxFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setInboxFilter(f.id)}
+                    style={{
+                      all: "unset",
+                      cursor: "pointer",
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      boxSizing: "border-box",
+                      background: active ? CHROME_SELECTED_BLUE : CHROME_WHITE,
+                      border: CHROME_FIELD_BORDER,
+                      color: CHROME_INK,
+                      fontSize: 12,
+                      fontWeight: active ? 700 : 500,
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </Row>
+            <div
+              style={{
+                border: CHROME_FIELD_BORDER,
+                borderRadius: 10,
+                background: CHROME_WHITE,
+                boxSizing: "border-box",
+                overflow: "hidden",
+              }}
+            >
+              {visibleInbox.length === 0 ? (
+                <div style={{ padding: 14 }}>
+                  <ChromeText size="small">
+                    {t(uiLang, "aiMaintenanceEmpty")}
+                  </ChromeText>
+                </div>
+              ) : (
+                visibleInbox.map((item, index) => {
+                  const included = item.aiIncludeInFixes !== false;
+                  const fixed = item.status === "ai_fixed";
+                  const snippet =
+                    item.body.trim().length > 72
+                      ? `${item.body.trim().slice(0, 72)}…`
+                      : item.body.trim();
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        padding: "10px 12px",
+                        boxSizing: "border-box",
+                        borderBottom:
+                          index < visibleInbox.length - 1
+                            ? `1px solid ${CHROME_SOFT_BLUE}`
+                            : "none",
+                        background: fixed ? CHROME_PANE_BG : CHROME_WHITE,
+                      }}
+                    >
+                      <Row
+                        gap={10}
+                        align="center"
+                        style={{ width: "100%", flexWrap: "wrap" }}
+                      >
+                        <Stack gap={2} style={{ flex: 1, minWidth: 160 }}>
+                          <Row gap={8} align="center" style={{ width: "100%" }}>
+                            <ChromeText
+                              weight="semibold"
+                              style={{ flex: 1, minWidth: 0 }}
+                            >
+                              {item.subject}
+                            </ChromeText>
+                            <span
+                              style={{
+                                padding: "2px 8px",
+                                borderRadius: 8,
+                                background: CHROME_SOFT_BLUE,
+                                border: CHROME_FIELD_BORDER,
+                                color: CHROME_INK,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {kindLabel(item.kind)}
+                            </span>
+                          </Row>
+                          <ChromeText
+                            size="small"
+                            style={{ color: CHROME_INK_MUTED }}
+                          >
+                            {item.authorName} ·{" "}
+                            {item.createdAt.replace("T", " ").slice(0, 16)}
+                            {snippet ? ` · ${snippet}` : ""}
+                            {fixed
+                              ? ` · ${t(uiLang, "aiMaintenanceFixed")}`
+                              : ""}
+                          </ChromeText>
+                        </Stack>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            flexShrink: 0,
+                          }}
+                          title={
+                            included
+                              ? t(uiLang, "aiMaintenanceIncludeOn")
+                              : t(uiLang, "aiMaintenanceIncludeOff")
+                          }
+                        >
+                          <ChromeText size="small">
+                            {t(uiLang, "aiMaintenanceToggleIntegration")}
+                          </ChromeText>
+                          <ChromeToggle
+                            checked={included}
+                            disabled={!aiOn || fixed}
+                            onChange={(v) =>
+                              patchItem(item.id, { aiIncludeInFixes: v })
+                            }
+                            size="sm"
+                          />
+                        </div>
+                      </Row>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div style={{ flexShrink: 0, paddingTop: 4 }}>
+              <Button
+                variant="primary"
+                disabled={!aiOn || eligibleFixCount === 0}
+                onClick={fixIncludedWithAi}
+              >
+                {t(uiLang, "aiMaintenanceFixWithAi")}
+              </Button>
+            </div>
+          </Stack>
+        ) : null}
+        {tab === "fix-schedule" ? (
+          <Stack
+            gap={14}
+            style={{
+              border: CHROME_FIELD_BORDER,
+              borderRadius: 10,
+              background: CHROME_WHITE,
+              padding: 16,
+              boxSizing: "border-box",
+            }}
+          >
+            <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+              {t(uiLang, "aiMaintenanceFixScheduleHint")}
+            </ChromeText>
+            <Row gap={10} align="center">
+              <ChromeToggle
+                checked={fixSchedule.enabled}
+                disabled={!aiOn}
+                onChange={(v) =>
+                  setFixSchedule((prev) => ({
+                    ...normalizeAiFixSchedule(prev),
+                    enabled: v,
+                  }))
+                }
+                size="md"
+              />
+              <ChromeText weight="semibold">
+                {t(uiLang, "aiMaintenanceScheduleEnable")}
+              </ChromeText>
+            </Row>
+            {renderScheduleFields(
+              fixSchedule,
+              setFixSchedule as (
+                action:
+                  | AiFixScheduleState
+                  | AiScanScheduleState
+                  | ((
+                      prev: AiFixScheduleState | AiScanScheduleState,
+                    ) => AiFixScheduleState | AiScanScheduleState),
+              ) => void,
+              normalizeAiFixSchedule,
+            )}
+            <Grid columns={2} gap={12}>
+              <Stack gap={4}>
+                <FieldLabel>{t(uiLang, "aiMaintenanceLastRun")}</FieldLabel>
+                <ChromeText>{fixSchedule.lastRun}</ChromeText>
+              </Stack>
+              <Stack gap={4}>
+                <FieldLabel>{t(uiLang, "aiMaintenanceNextRun")}</FieldLabel>
+                <ChromeText>{computeAiNextRunStamp(fixSchedule)}</ChromeText>
+              </Stack>
+            </Grid>
+            <Button
+              variant="primary"
+              disabled={!aiOn || !fixSchedule.enabled}
+              onClick={runFixScheduleNow}
+            >
+              {t(uiLang, "aiMaintenanceRunNowDemo")}
+            </Button>
+          </Stack>
+        ) : null}
+        {tab === "scan-schedule" ? (
+          <Stack gap={12} style={{ width: "100%" }}>
+            <Stack
+              gap={14}
+              style={{
+                border: CHROME_FIELD_BORDER,
+                borderRadius: 10,
+                background: CHROME_WHITE,
+                padding: 16,
+                boxSizing: "border-box",
+              }}
+            >
+              <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                {t(uiLang, "aiMaintenanceScanHint")}
+              </ChromeText>
+              <Row gap={10} align="center">
+                <ChromeToggle
+                  checked={scanSchedule.enabled}
+                  disabled={!aiOn}
+                  onChange={(v) =>
+                    setScanSchedule((prev) => ({
+                      ...normalizeAiScanSchedule(prev),
+                      enabled: v,
+                    }))
+                  }
+                  size="md"
+                />
+                <ChromeText weight="semibold">
+                  {t(uiLang, "aiMaintenanceScheduleEnable")}
+                </ChromeText>
+              </Row>
+              {renderScheduleFields(
+                scanSchedule,
+                setScanSchedule as (
+                  action:
+                    | AiFixScheduleState
+                    | AiScanScheduleState
+                    | ((
+                        prev: AiFixScheduleState | AiScanScheduleState,
+                      ) => AiFixScheduleState | AiScanScheduleState),
+                ) => void,
+                normalizeAiScanSchedule,
+              )}
+              <Grid columns={2} gap={12}>
+                <Stack gap={4}>
+                  <FieldLabel>{t(uiLang, "aiMaintenanceLastRun")}</FieldLabel>
+                  <ChromeText>{scanSchedule.lastRun}</ChromeText>
+                </Stack>
+                <Stack gap={4}>
+                  <FieldLabel>{t(uiLang, "aiMaintenanceNextRun")}</FieldLabel>
+                  <ChromeText>{computeAiNextRunStamp(scanSchedule)}</ChromeText>
+                </Stack>
+              </Grid>
+              <Button
+                variant="primary"
+                disabled={!aiOn || !scanSchedule.enabled}
+                onClick={runScanNow}
+              >
+                {t(uiLang, "aiMaintenanceRunNowDemo")}
+              </Button>
+            </Stack>
+            <Stack
+              gap={8}
+              style={{
+                border: CHROME_FIELD_BORDER,
+                borderRadius: 10,
+                background: CHROME_PANE_BG,
+                padding: 12,
+                boxSizing: "border-box",
+                flexShrink: 0,
+              }}
+            >
+              <ChromeText weight="semibold">
+                {t(uiLang, "aiMaintenanceInstructionsTitle")}
+              </ChromeText>
+              <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+                {t(uiLang, "aiMaintenanceInstructionsAppliesNote")}
+              </ChromeText>
+              <ChromeTextArea
+                value={aiInstructionsDraft}
+                onChange={setAiInstructionsDraft}
+                placeholder={t(uiLang, "aiMaintenanceInstructionsPlaceholder")}
+                disabled={!aiOn}
+                rows={3}
+                style={{
+                  width: "100%",
+                  resize: "vertical",
+                  minHeight: 64,
+                }}
+              />
+              <Row gap={8} align="center" style={{ flexWrap: "wrap" }}>
+                <Button
+                  variant="primary"
+                  disabled={!aiOn}
+                  onClick={saveAiInstructions}
+                >
+                  {t(uiLang, "aiMaintenanceInstructionsSave")}
+                </Button>
+                <Stack gap={2} style={{ flex: 1, minWidth: 160 }}>
+                  {savedAiInstructions ? (
+                    <>
+                      <ChromeText
+                        size="small"
+                        weight="semibold"
+                        style={{ color: CHROME_INK }}
+                      >
+                        {t(uiLang, "aiMaintenanceInstructionsOverride")}
+                      </ChromeText>
+                      <ChromeText
+                        size="small"
+                        style={{ color: CHROME_INK_MUTED }}
+                      >
+                        {savedAiInstructions.length > 140
+                          ? `${savedAiInstructions.slice(0, 140)}…`
+                          : savedAiInstructions}
+                      </ChromeText>
+                    </>
+                  ) : (
+                    <ChromeText
+                      size="small"
+                      style={{ color: CHROME_INK_MUTED }}
+                    >
+                      {t(uiLang, "aiMaintenanceInstructionsDefault")}
+                    </ChromeText>
+                  )}
+                </Stack>
+              </Row>
+            </Stack>
+          </Stack>
+        ) : null}
+        {tab === "history-fixes" ? (
+          <Stack gap={12} style={{ width: "100%" }}>
+            <Row gap={8} style={{ flexWrap: "wrap", flexShrink: 0 }}>
+              {historyFilterTabs.map((f) => {
+                const active = historyFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setHistoryFilter(f.id)}
+                    style={{
+                      all: "unset",
+                      cursor: "pointer",
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      boxSizing: "border-box",
+                      background: active ? CHROME_SELECTED_BLUE : CHROME_WHITE,
+                      border: CHROME_FIELD_BORDER,
+                      color: CHROME_INK,
+                      fontSize: 12,
+                      fontWeight: active ? 700 : 500,
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </Row>
+            <div
+              style={{
+                border: CHROME_FIELD_BORDER,
+                borderRadius: 10,
+                background: CHROME_WHITE,
+                boxSizing: "border-box",
+                overflow: "hidden",
+              }}
+            >
+              {visibleHistory.length === 0 ? (
+                <div style={{ padding: 14 }}>
+                  <ChromeText size="small">
+                    {t(uiLang, "aiMaintenanceHistoryEmpty")}
+                  </ChromeText>
+                </div>
+              ) : (
+                visibleHistory.map((entry, index) => {
+                  const dateLabel = entry.date.replace("T", " ").slice(0, 16);
+                  return (
+                    <div
+                      key={entry.id}
+                      style={{
+                        padding: "10px 12px",
+                        boxSizing: "border-box",
+                        borderBottom:
+                          index < visibleHistory.length - 1
+                            ? `1px solid ${CHROME_SOFT_BLUE}`
+                            : "none",
+                        background: CHROME_WHITE,
+                      }}
+                    >
+                      <Row
+                        gap={10}
+                        align="center"
+                        style={{ width: "100%", flexWrap: "wrap" }}
+                      >
+                        <Stack gap={2} style={{ flex: 1, minWidth: 160 }}>
+                          <Row gap={8} align="center" style={{ width: "100%" }}>
+                            <ChromeText
+                              weight="semibold"
+                              style={{ flex: 1, minWidth: 0 }}
+                            >
+                              {dateLabel}
+                            </ChromeText>
+                            <span
+                              style={{
+                                padding: "2px 8px",
+                                borderRadius: 8,
+                                background: CHROME_SOFT_BLUE,
+                                border: CHROME_FIELD_BORDER,
+                                color: CHROME_INK,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {historyKindLabel(entry.kind)}
+                            </span>
+                          </Row>
+                          <ChromeText
+                            size="small"
+                            style={{ color: CHROME_INK_MUTED }}
+                          >
+                            {entry.description}
+                          </ChromeText>
+                        </Stack>
+                      </Row>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Stack>
+        ) : null}
+      </div>
+    </Stack>
+  );
+}
+
+type HelpFabVia = "ai" | "human";
+
+/** Help compose panel — opposite page corner; AI vs Human choice. */
+function WorkerHelpFeedbackFab({
+  visible,
+  authorName,
+  authorWorkerId,
+}: {
+  visible: boolean;
+  authorName: string;
+  authorWorkerId: string;
+}) {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [open, setOpen] = useCanvasState("crmHelpFabOpen.v1", false);
+  const [mode, setMode] = useCanvasState<HelpFeedbackKind>(
+    "crmHelpFabMode.v1",
+    "help",
+  );
+  const [via, setVia] = useCanvasState<HelpFabVia>("crmHelpFabVia.v1", "human");
+  const [subject, setSubject] = useCanvasState("crmHelpFabSubject.v1", "");
+  const [body, setBody] = useCanvasState("crmHelpFabBody.v1", "");
+  const [flash, setFlash] = useCanvasState("crmHelpFabFlash.v1", "");
+  const [aiBusy, setAiBusy] = useCanvasState("crmHelpFabAiBusy.v1", false);
+  const [lastAiReply, setLastAiReply] = useCanvasState(
+    "crmHelpFabLastAiReply.v1",
+    "",
+  );
+  const [, setItems] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFeedback.v1",
+    DEFAULT_HELP_FEEDBACK_ITEMS,
+  );
+  const [companySettingsRaw] = useCanvasState<CompanySettings>(
+    "crmCompanySettings.v1",
+    DEFAULT_COMPANY_SETTINGS,
+  );
+  const aiEnabled = firmAiIntegrationEnabled(companySettingsRaw);
+  const effectiveVia: HelpFabVia =
+    aiEnabled && via === "ai" ? "ai" : "human";
+
+  useEffect(() => {
+    if (!visible && open) setOpen(false);
+  }, [visible, open]);
+
+  useEffect(() => {
+    if (!aiEnabled && via === "ai") setVia("human");
+  }, [aiEnabled, via]);
+
+  if (!visible || !open) return null;
+
+  const bodyPlaceholder =
+    mode === "bug"
+      ? t(uiLang, "helpFabBodyPlaceholderBug")
+      : mode === "suggestion"
+        ? t(uiLang, "helpFabBodyPlaceholderSuggestion")
+        : t(uiLang, "helpFabBodyPlaceholderHelp");
+
+  const modes: { id: HelpFeedbackKind; label: string }[] = [
+    { id: "help", label: t(uiLang, "helpFabModeHelp") },
+    { id: "bug", label: t(uiLang, "helpFabModeBug") },
+    { id: "suggestion", label: t(uiLang, "helpFabModeSuggestion") },
+  ];
+
+  const viaOptions: {
+    id: HelpFabVia;
+    label: string;
+    disabled: boolean;
+  }[] = [
+    {
+      id: "ai",
+      label: t(uiLang, "helpFabViaAi"),
+      disabled: !aiEnabled,
+    },
+    {
+      id: "human",
+      label: t(uiLang, "helpFabViaHuman"),
+      disabled: false,
+    },
+  ];
+
+  const send = () => {
+    const subj = subject.trim();
+    const details = body.trim();
+    if (!subj || !details) return;
+    const stamp = Date.now();
+    const useAi = effectiveVia === "ai" && aiEnabled;
+    /** Only Bug + Suggestion report to Systemadmin — never Help type. */
+    const reportsToInbox = mode === "bug" || mode === "suggestion";
+    let aiReply: string | undefined;
+    if (useAi) {
+      setAiBusy(true);
+      aiReply = helpFeedbackDemoAiReply(mode, subj, uiLang);
+      setLastAiReply(aiReply);
+      setAiBusy(false);
+    } else {
+      setLastAiReply("");
+    }
+    if (reportsToInbox) {
+      const item: HelpFeedbackItem = {
+        id: `hf-${mode}-${stamp}`,
+        kind: mode,
+        subject: subj,
+        body: details,
+        authorName,
+        authorWorkerId,
+        createdAt: new Date(stamp).toISOString().slice(0, 19),
+        read: false,
+        status: aiReply ? "ai_replied" : "queued",
+        aiReply,
+      };
+      setItems((prev) => [item, ...normalizeHelpFeedbackItems(prev)]);
+      setFlash(
+        aiReply ? t(uiLang, "helpFabSentBugAi") : t(uiLang, "helpFabSentHuman"),
+      );
+    } else {
+      /** Help type: local / AI reply only — never Systemadmin inbox. */
+      setFlash(
+        useAi ? t(uiLang, "helpFabSentAi") : t(uiLang, "helpFabSentHelpLocal"),
+      );
+    }
+    setSubject("");
+    setBody("");
+  };
+
+  return (
+    <div
+      data-chrome="worker-help-panel-v5"
+      role="dialog"
+      aria-label={t(uiLang, "helpFabTitle")}
+      style={{
+        /**
+         * Sibling of AppPrimaryRail (overflow:hidden clips children).
+         * Opposite corner from rail-bottom Help: bottom + inline-end.
+         */
+        position: "absolute",
+        bottom: 4,
+        insetInlineEnd: 2,
+        top: "auto",
+        insetInlineStart: "auto",
+        zIndex: 50,
+        width: 320,
+        maxWidth: "min(320px, calc(100% - 24px))",
+        maxHeight: "min(480px, calc(100% - 24px))",
+        overflowY: "auto",
+        background: CHROME_WHITE,
+        border: `1px solid ${CHROME_BORDER_BLUE}`,
+        borderRadius: 14,
+        padding: 14,
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        pointerEvents: "auto",
+      }}
+    >
+      <Row gap={8} align="center" style={{ width: "100%" }}>
+        <ChromeText weight="semibold" style={{ flex: 1 }}>
+          {t(uiLang, "helpFabTitle")}
+        </ChromeText>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          title={t(uiLang, "helpFabClose")}
+          aria-label={t(uiLang, "helpFabClose")}
+          style={{
+            all: "unset",
+            cursor: "pointer",
+            color: CHROME_INK_MUTED,
+            fontSize: 18,
+            lineHeight: 1,
+            padding: 4,
+          }}
+        >
+          ×
+        </button>
+      </Row>
+      <Row gap={6} style={{ flexWrap: "wrap" }}>
+        {modes.map((m) => {
+          const active = mode === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => {
+                setMode(m.id);
+                setFlash("");
+                setLastAiReply("");
+              }}
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                padding: "5px 10px",
+                borderRadius: 8,
+                background: active ? CHROME_SELECTED_BLUE : CHROME_PANE_BG,
+                border: CHROME_FIELD_BORDER,
+                color: CHROME_INK,
+                fontSize: 12,
+                fontWeight: active ? 700 : 500,
+              }}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </Row>
+      <FieldLabel>{t(uiLang, "helpFabViaLabel")}</FieldLabel>
+      <Row gap={6} style={{ flexWrap: "wrap" }}>
+        {viaOptions.map((opt) => {
+          const active = effectiveVia === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={opt.disabled}
+              title={
+                opt.disabled ? t(uiLang, "helpFabViaAiDisabled") : undefined
+              }
+              onClick={() => {
+                if (opt.disabled) return;
+                setVia(opt.id);
+                setFlash("");
+                setLastAiReply("");
+              }}
+              style={{
+                all: "unset",
+                cursor: opt.disabled ? "not-allowed" : "pointer",
+                padding: "5px 10px",
+                borderRadius: 8,
+                background: active ? CHROME_SELECTED_BLUE : CHROME_PANE_BG,
+                border: CHROME_FIELD_BORDER,
+                color: opt.disabled ? CHROME_INK_MUTED : CHROME_INK,
+                fontSize: 12,
+                fontWeight: active ? 700 : 500,
+                opacity: opt.disabled ? 0.55 : 1,
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </Row>
+      <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+        {!aiEnabled
+          ? t(uiLang, "helpFabViaAiDisabled")
+          : effectiveVia === "ai"
+            ? t(uiLang, "helpFabViaAiHint")
+            : t(uiLang, "helpFabViaHumanHint")}
+      </ChromeText>
+      <FieldLabel>{t(uiLang, "helpFabSubject")}</FieldLabel>
+      <TextInput
+        value={subject}
+        onChange={setSubject}
+        placeholder={t(uiLang, "helpFabSubjectPlaceholder")}
+        style={chromeFieldStyle({ width: "100%" })}
+      />
+      <FieldLabel>{t(uiLang, "helpFabBody")}</FieldLabel>
+      <TextArea
+        value={body}
+        onChange={setBody}
+        placeholder={bodyPlaceholder}
+        rows={4}
+        style={chromeFieldStyle({ width: "100%", minHeight: 88 })}
+      />
+      {aiBusy ? (
+        <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
+          {t(uiLang, "helpFabAiThinking")}
+        </ChromeText>
+      ) : null}
+      {lastAiReply ? (
+        <Callout tone="info" title={t(uiLang, "helpFeedbackAiReply")}>
+          {lastAiReply}
+        </Callout>
+      ) : null}
+      {flash ? (
+        <ChromeText size="small" style={{ color: theme.category.green }}>
+          {flash}
+        </ChromeText>
+      ) : null}
+      <Button
+        variant="primary"
+        disabled={!subject.trim() || !body.trim()}
+        onClick={send}
+      >
+        {t(uiLang, "helpFabSend")}
+      </Button>
+    </div>
+  );
+}
+
 function FilesRootScreen() {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
@@ -44081,6 +47544,673 @@ function FilesRootScreen() {
       <Callout tone="info" title={t(uiLang, "whoCanOpen")}>
         {t(uiLang, "filesRootWho")}
       </Callout>
+    </Stack>
+  );
+}
+
+type ReportsCategoryId =
+  | "hours"
+  | "cashFlow"
+  | "progress"
+  | "vat"
+  | "wip";
+
+type ReportsPeriodId = "thisMonth" | "lastQuarter" | "ytd" | "last12";
+
+const REPORTS_CATEGORIES: Array<{
+  id: ReportsCategoryId;
+  titleKey: CrmUiKey;
+  descKey: CrmUiKey;
+}> = [
+  {
+    id: "hours",
+    titleKey: "reportsCategoryHours",
+    descKey: "reportsCategoryHoursDesc",
+  },
+  {
+    id: "cashFlow",
+    titleKey: "reportsCategoryCashFlow",
+    descKey: "reportsCategoryCashFlowDesc",
+  },
+  {
+    id: "progress",
+    titleKey: "reportsCategoryProgress",
+    descKey: "reportsCategoryProgressDesc",
+  },
+  {
+    id: "vat",
+    titleKey: "reportsCategoryVat",
+    descKey: "reportsCategoryVatDesc",
+  },
+  {
+    id: "wip",
+    titleKey: "reportsCategoryWip",
+    descKey: "reportsCategoryWipDesc",
+  },
+];
+
+/** Slice cash-flow demo series by report period (trailing months). */
+function reportsCashFlowSlice(period: ReportsPeriodId): CashFlowQbPoint[] {
+  const all = CASH_FLOW_QB_LAST12;
+  if (period === "thisMonth") return all.slice(-1);
+  if (period === "lastQuarter") return all.slice(-3);
+  if (period === "ytd") return all.filter((p) => p.yearShort === "'26");
+  return all;
+}
+
+function ReportsScreen() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [departments] = useCanvasState<FirmDepartment[]>(
+    "firmDepartments.v3",
+    DEFAULT_FIRM_DEPARTMENTS,
+  );
+  const [category, setCategory] = useCanvasState<ReportsCategoryId>(
+    "firmReportsCategory.v1",
+    "hours",
+  );
+  const [period, setPeriod] = useCanvasState<ReportsPeriodId>(
+    "firmReportsPeriod.v1",
+    "thisMonth",
+  );
+  const [deptFilter, setDeptFilter] = useCanvasState(
+    "firmReportsDept.v1",
+    "all",
+  );
+  const [ranKey, setRanKey] = useCanvasState("firmReportsRanKey.v1", "");
+
+  const activeMeta =
+    REPORTS_CATEGORIES.find((c) => c.id === category) ?? REPORTS_CATEGORIES[0]!;
+  const resultKey = `${category}|${period}|${deptFilter}`;
+  const showResults = ranKey === resultKey;
+
+  const periodLabel = (id: ReportsPeriodId) => {
+    if (id === "thisMonth") return t(uiLang, "reportsPeriodThisMonth");
+    if (id === "lastQuarter") return t(uiLang, "reportsPeriodLastQuarter");
+    if (id === "ytd") return t(uiLang, "reportsPeriodYtd");
+    return t(uiLang, "reportsPeriodLast12");
+  };
+
+  const deptName = (deptId: string) =>
+    deptId === "all"
+      ? t(uiLang, "reportsDeptAll")
+      : departmentLabel(uiLang, deptId, departments);
+
+  const matchDept = (deptId: string) =>
+    deptFilter === "all" || deptFilter === deptId;
+
+  const hoursScale =
+    period === "thisMonth"
+      ? 1
+      : period === "lastQuarter"
+        ? 3
+        : period === "ytd"
+          ? 9
+          : 12;
+
+  type HoursRow = {
+    workerEn: string;
+    workerHe: string;
+    deptId: string;
+    total: number;
+    billable: number;
+  };
+  const hoursSeed: HoursRow[] = [
+    {
+      workerEn: "Maya Billing",
+      workerHe: "מאיה גבייה",
+      deptId: "reportDeptBilling",
+      total: 148,
+      billable: 132,
+    },
+    {
+      workerEn: "Eli Audit",
+      workerHe: "אלי ביקורת",
+      deptId: "reportDeptAuditCompanies",
+      total: 156,
+      billable: 140,
+    },
+    {
+      workerEn: "Noa Books",
+      workerHe: "נועה הנה״ח",
+      deptId: "reportDeptAccounting",
+      total: 162,
+      billable: 151,
+    },
+    {
+      workerEn: "Tom Tax",
+      workerHe: "תום מסים",
+      deptId: "reportDeptTax",
+      total: 139,
+      billable: 118,
+    },
+    {
+      workerEn: "Sara Desk",
+      workerHe: "שרה מזכירות",
+      deptId: "reportDeptSecretariat",
+      total: 120,
+      billable: 42,
+    },
+  ];
+  const hoursRows = hoursSeed
+    .filter((r) => matchDept(r.deptId))
+    .map((r) => ({
+      ...r,
+      total: Math.round(r.total * hoursScale),
+      billable: Math.round(r.billable * hoursScale),
+    }));
+  const hoursTotal = hoursRows.reduce((s, r) => s + r.total, 0);
+  const hoursBillable = hoursRows.reduce((s, r) => s + r.billable, 0);
+  const hoursUtil =
+    hoursTotal > 0 ? Math.round((hoursBillable / hoursTotal) * 100) : 0;
+
+  const cfSlice = reportsCashFlowSlice(period);
+  const cfIn = cfSlice.reduce((s, p) => s + p.inflow, 0);
+  const cfOut = cfSlice.reduce((s, p) => s + p.outflow, 0);
+  const cfNet = cfIn - cfOut;
+  const cfRows = cfSlice.map((p) => [
+    uiLang === "he"
+      ? `${p.monthHe} ${p.yearShort}`
+      : `${p.monthEn} ${p.yearShort}`,
+    formatIls(p.inflow),
+    formatIls(p.outflow),
+    formatIls(p.inflow - p.outflow),
+  ]);
+
+  type ProgressRow = {
+    clientEn: string;
+    clientHe: string;
+    deptId: string;
+    stageEn: string;
+    stageHe: string;
+    status: "onTrack" | "atRisk" | "blocked";
+    due: string;
+  };
+  const progressSeed: ProgressRow[] = [
+    {
+      clientEn: "Cohen Books",
+      clientHe: "כהן הנה״ח",
+      deptId: "reportDeptAccounting",
+      stageEn: "Month close",
+      stageHe: "סגירת חודש",
+      status: "onTrack",
+      due: "31/10/2026",
+    },
+    {
+      clientEn: "Levi Holdings Ltd",
+      clientHe: "לוי אחזקות בע״מ",
+      deptId: "reportDeptAuditCompanies",
+      stageEn: "Fieldwork",
+      stageHe: "עבודת שטח",
+      status: "atRisk",
+      due: "15/11/2026",
+    },
+    {
+      clientEn: "Dana Individual",
+      clientHe: "דנה פרטית",
+      deptId: "reportDeptIndividualTaxReturn",
+      stageEn: "Docs received",
+      stageHe: "מסמכים התקבלו",
+      status: "onTrack",
+      due: "30/11/2026",
+    },
+    {
+      clientEn: "Green Osek",
+      clientHe: "גרין עוסק",
+      deptId: "reportDeptTax",
+      stageEn: "Waiting client",
+      stageHe: "ממתין ללקוח",
+      status: "blocked",
+      due: "20/10/2026",
+    },
+    {
+      clientEn: "Shalom Trust",
+      clientHe: "שלום נאמנות",
+      deptId: "reportDeptAccounting",
+      stageEn: "Bank reconcile",
+      stageHe: "התאמת בנק",
+      status: "atRisk",
+      due: "28/10/2026",
+    },
+  ];
+  const progressRows = progressSeed.filter((r) => matchDept(r.deptId));
+  const progressStatusLabel = (s: ProgressRow["status"]) => {
+    if (s === "onTrack") return t(uiLang, "reportsStatusOnTrack");
+    if (s === "atRisk") return t(uiLang, "reportsStatusAtRisk");
+    return t(uiLang, "reportsStatusBlocked");
+  };
+
+  type VatRow = {
+    clientEn: string;
+    clientHe: string;
+    deptId: string;
+    cycleEn: string;
+    cycleHe: string;
+    period: string;
+    status: "filed" | "due" | "pending";
+    amount: number;
+  };
+  const vatSeed: VatRow[] = [
+    {
+      clientEn: "Cohen Books",
+      clientHe: "כהן הנה״ח",
+      deptId: "reportDeptAccounting",
+      cycleEn: "Monthly",
+      cycleHe: "חודשי",
+      period: "09/2026",
+      status: "filed",
+      amount: 18420,
+    },
+    {
+      clientEn: "Levi Holdings Ltd",
+      clientHe: "לוי אחזקות בע״מ",
+      deptId: "reportDeptAuditCompanies",
+      cycleEn: "Monthly",
+      cycleHe: "חודשי",
+      period: "09/2026",
+      status: "due",
+      amount: 42680,
+    },
+    {
+      clientEn: "Green Osek",
+      clientHe: "גרין עוסק",
+      deptId: "reportDeptTax",
+      cycleEn: "Bimonthly",
+      cycleHe: "דו־חודשי",
+      period: "07–08/2026",
+      status: "pending",
+      amount: 6120,
+    },
+    {
+      clientEn: "Market Plus Ltd",
+      clientHe: "מרקט פלוס בע״מ",
+      deptId: "reportDeptBilling",
+      cycleEn: "Monthly",
+      cycleHe: "חודשי",
+      period: "09/2026",
+      status: "due",
+      amount: 29150,
+    },
+  ];
+  const vatRows = vatSeed.filter((r) => matchDept(r.deptId));
+  const vatStatusLabel = (s: VatRow["status"]) => {
+    if (s === "filed") return t(uiLang, "reportsStatusFiled");
+    if (s === "due") return t(uiLang, "reportsStatusDue");
+    return t(uiLang, "reportsStatusPending");
+  };
+
+  type WipRow = {
+    clientEn: string;
+    clientHe: string;
+    deptId: string;
+    hours: number;
+    ils: number;
+    age: number;
+  };
+  const wipSeed: WipRow[] = [
+    {
+      clientEn: "Cohen Books",
+      clientHe: "כהן הנה״ח",
+      deptId: "reportDeptAccounting",
+      hours: 18.5,
+      ils: 7400,
+      age: 12,
+    },
+    {
+      clientEn: "Levi Holdings Ltd",
+      clientHe: "לוי אחזקות בע״מ",
+      deptId: "reportDeptAuditCompanies",
+      hours: 42,
+      ils: 25200,
+      age: 28,
+    },
+    {
+      clientEn: "Dana Individual",
+      clientHe: "דנה פרטית",
+      deptId: "reportDeptIndividualTaxReturn",
+      hours: 6.5,
+      ils: 2600,
+      age: 5,
+    },
+    {
+      clientEn: "Shalom Trust",
+      clientHe: "שלום נאמנות",
+      deptId: "reportDeptAccounting",
+      hours: 11,
+      ils: 4400,
+      age: 19,
+    },
+    {
+      clientEn: "Market Plus Ltd",
+      clientHe: "מרקט פלוס בע״מ",
+      deptId: "reportDeptBilling",
+      hours: 3,
+      ils: 1500,
+      age: 4,
+    },
+  ];
+  const wipRows = wipSeed.filter((r) => matchDept(r.deptId));
+  const wipHours = wipRows.reduce((s, r) => s + r.hours, 0);
+  const wipIls = wipRows.reduce((s, r) => s + r.ils, 0);
+
+  const runReport = () => setRanKey(resultKey);
+  const selectCategory = (id: ReportsCategoryId) => {
+    setCategory(id);
+    setRanKey("");
+  };
+
+  let resultHeaders: string[] = [];
+  let resultRows: TableProps["rows"] = [];
+  let resultTone: TableProps["rowTone"] | undefined;
+
+  if (category === "hours") {
+    resultHeaders = [
+      t(uiLang, "colWorker"),
+      t(uiLang, "reportsColDept"),
+      t(uiLang, "reportColTotalHours"),
+      t(uiLang, "reportColBillable"),
+      t(uiLang, "reportsKpiUtilization"),
+    ];
+    resultRows = hoursRows.map((r) => {
+      const util = r.total > 0 ? Math.round((r.billable / r.total) * 100) : 0;
+      return [
+        uiLang === "he" ? r.workerHe : r.workerEn,
+        deptName(r.deptId),
+        String(r.total),
+        String(r.billable),
+        `${util}%`,
+      ];
+    });
+  } else if (category === "cashFlow") {
+    resultHeaders = [
+      t(uiLang, "reportColMonth"),
+      t(uiLang, "chartSeriesInflow"),
+      t(uiLang, "chartSeriesOutflow"),
+      t(uiLang, "chartSeriesNetChange"),
+    ];
+    resultRows = cfRows;
+  } else if (category === "progress") {
+    resultHeaders = [
+      t(uiLang, "colClient"),
+      t(uiLang, "reportsColDept"),
+      t(uiLang, "reportsColStage"),
+      t(uiLang, "colStatus"),
+      t(uiLang, "reportsColDue"),
+    ];
+    resultRows = progressRows.map((r) => [
+      uiLang === "he" ? r.clientHe : r.clientEn,
+      deptName(r.deptId),
+      uiLang === "he" ? r.stageHe : r.stageEn,
+      progressStatusLabel(r.status),
+      r.due,
+    ]);
+    resultTone = progressRows.map((r) =>
+      r.status === "onTrack"
+        ? "success"
+        : r.status === "atRisk"
+          ? "warning"
+          : "danger",
+    );
+  } else if (category === "vat") {
+    resultHeaders = [
+      t(uiLang, "colClient"),
+      t(uiLang, "reportsColCycle"),
+      t(uiLang, "colPeriod"),
+      t(uiLang, "colStatus"),
+      t(uiLang, "colAmount"),
+    ];
+    resultRows = vatRows.map((r) => [
+      uiLang === "he" ? r.clientHe : r.clientEn,
+      uiLang === "he" ? r.cycleHe : r.cycleEn,
+      r.period,
+      vatStatusLabel(r.status),
+      formatIls(r.amount),
+    ]);
+    resultTone = vatRows.map((r) =>
+      r.status === "filed"
+        ? "success"
+        : r.status === "due"
+          ? "warning"
+          : "neutral",
+    );
+  } else {
+    resultHeaders = [
+      t(uiLang, "colClient"),
+      t(uiLang, "reportsColDept"),
+      t(uiLang, "reportsColUnbilled"),
+      t(uiLang, "reportsColWipIls"),
+      t(uiLang, "reportsColAgeDays"),
+    ];
+    resultRows = wipRows.map((r) => [
+      uiLang === "he" ? r.clientHe : r.clientEn,
+      deptName(r.deptId),
+      String(r.hours),
+      formatIls(r.ils),
+      String(r.age),
+    ]);
+  }
+
+  return (
+    <Stack gap={14} style={{ ...SHELL_SCROLL, paddingInlineEnd: 4 }}>
+      <Stack gap={4}>
+        <H1 style={{ margin: 0 }}>{t(uiLang, "reports")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "reportsModuleHint")}</ChromeText>
+      </Stack>
+
+      <Stack gap={8}>
+        {REPORTS_CATEGORIES.map((cat) => {
+          const selected = category === cat.id;
+          return (
+            <Row
+              key={cat.id}
+              align="center"
+              gap={12}
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: `1px solid ${
+                  selected ? theme.accent.primary : chromeBorder(theme)
+                }`,
+                background: selected ? CHROME_SELECTED_BLUE : CHROME_WHITE,
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            >
+              <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                <ChromeText weight="semibold">
+                  {t(uiLang, cat.titleKey)}
+                </ChromeText>
+                <ChromeText size="small" tone="secondary">
+                  {t(uiLang, cat.descKey)}
+                </ChromeText>
+              </Stack>
+              <Button
+                variant={selected ? "primary" : "secondary"}
+                onClick={() => selectCategory(cat.id)}
+              >
+                {t(uiLang, "reportsOpen")}
+              </Button>
+            </Row>
+          );
+        })}
+      </Stack>
+
+      <Stack
+        gap={10}
+        style={{
+          padding: 14,
+          borderRadius: 10,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: CHROME_WHITE,
+          width: "100%",
+          boxSizing: "border-box",
+        }}
+      >
+        <ChromeText weight="semibold">{t(uiLang, activeMeta.titleKey)}</ChromeText>
+        <Grid columns={2} gap={10}>
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "reportsFilterPeriod")}</FieldLabel>
+            <Select
+              value={period}
+              onChange={(v) => {
+                setPeriod(v as ReportsPeriodId);
+                setRanKey("");
+              }}
+              options={(
+                [
+                  "thisMonth",
+                  "lastQuarter",
+                  "ytd",
+                  "last12",
+                ] as ReportsPeriodId[]
+              ).map((id) => ({ value: id, label: periodLabel(id) }))}
+            />
+          </Stack>
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "reportsFilterDepartment")}</FieldLabel>
+            <Select
+              value={deptFilter}
+              onChange={(v) => {
+                setDeptFilter(v);
+                setRanKey("");
+              }}
+              options={[
+                { value: "all", label: t(uiLang, "reportsDeptAll") },
+                ...departments.map((d) => ({
+                  value: d.id,
+                  label: departmentLabel(uiLang, d.id, departments),
+                })),
+              ]}
+            />
+          </Stack>
+        </Grid>
+        <Row gap={8} wrap>
+          <Button variant="primary" onClick={runReport}>
+            {t(uiLang, "reportsRun")}
+          </Button>
+        </Row>
+      </Stack>
+
+      {showResults ? (
+        <Stack gap={12}>
+          <Stack gap={4}>
+            <H2 style={{ margin: 0 }}>{t(uiLang, "reportsResults")}</H2>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "reportsDemoCaption")}
+              {" · "}
+              {periodLabel(period)}
+              {" · "}
+              {deptName(deptFilter)}
+            </ChromeText>
+          </Stack>
+
+          {category === "hours" ? (
+            <Grid columns={3} gap={10}>
+              <Stat
+                value={String(hoursTotal)}
+                label={t(uiLang, "reportsKpiTotalHours")}
+              />
+              <Stat
+                value={String(hoursBillable)}
+                label={t(uiLang, "reportsKpiBillable")}
+              />
+              <Stat
+                value={`${hoursUtil}%`}
+                label={t(uiLang, "reportsKpiUtilization")}
+              />
+            </Grid>
+          ) : null}
+
+          {category === "cashFlow" ? (
+            <Grid columns={3} gap={10}>
+              <Stat
+                value={formatIls(cfIn)}
+                label={t(uiLang, "reportsKpiInflow")}
+              />
+              <Stat
+                value={formatIls(cfOut)}
+                label={t(uiLang, "reportsKpiOutflow")}
+              />
+              <Stat
+                value={formatIls(cfNet)}
+                label={t(uiLang, "reportsKpiNet")}
+              />
+            </Grid>
+          ) : null}
+
+          {category === "progress" ? (
+            <Grid columns={3} gap={10}>
+              <Stat
+                value={String(
+                  progressRows.filter((r) => r.status === "onTrack").length,
+                )}
+                label={t(uiLang, "reportsKpiOnTrack")}
+              />
+              <Stat
+                value={String(
+                  progressRows.filter((r) => r.status === "atRisk").length,
+                )}
+                label={t(uiLang, "reportsKpiAtRisk")}
+              />
+              <Stat
+                value={String(
+                  progressRows.filter((r) => r.status === "blocked").length,
+                )}
+                label={t(uiLang, "reportsKpiBlocked")}
+              />
+            </Grid>
+          ) : null}
+
+          {category === "vat" ? (
+            <Grid columns={3} gap={10}>
+              <Stat
+                value={String(
+                  vatRows.filter((r) => r.status === "filed").length,
+                )}
+                label={t(uiLang, "reportsKpiVatFiled")}
+              />
+              <Stat
+                value={formatIls(
+                  vatRows
+                    .filter((r) => r.status === "due")
+                    .reduce((s, r) => s + r.amount, 0),
+                )}
+                label={t(uiLang, "reportsKpiVatDue")}
+              />
+              <Stat
+                value={String(
+                  vatRows.filter((r) => r.status === "pending").length,
+                )}
+                label={t(uiLang, "reportsKpiVatPending")}
+              />
+            </Grid>
+          ) : null}
+
+          {category === "wip" ? (
+            <Grid columns={3} gap={10}>
+              <Stat
+                value={formatIls(wipIls)}
+                label={t(uiLang, "reportsKpiWipValue")}
+              />
+              <Stat
+                value={String(wipHours)}
+                label={t(uiLang, "reportsKpiWipHours")}
+              />
+              <Stat
+                value={String(wipRows.length)}
+                label={t(uiLang, "reportsKpiWipClients")}
+              />
+            </Grid>
+          ) : null}
+
+          <FirmDataTable
+            headers={resultHeaders}
+            rows={resultRows}
+            rowTone={resultTone}
+            emptyMessage="—"
+          />
+        </Stack>
+      ) : null}
     </Stack>
   );
 }
@@ -48806,6 +52936,76 @@ function trelloBoardBgColor(
   return undefined;
 }
 
+/** Parse #rgb / #rrggbb(#a) / rgb()/rgba() into 0–255 channels. */
+function parseCssColorRgb(
+  color: string | undefined,
+): { r: number; g: number; b: number } | null {
+  if (!color) return null;
+  const c = color.trim();
+  if (c.startsWith("#")) {
+    let hex = c.slice(1);
+    if (hex.length === 3 || hex.length === 4) {
+      hex = hex
+        .slice(0, 3)
+        .split("")
+        .map((ch) => ch + ch)
+        .join("");
+    } else if (hex.length === 8) {
+      hex = hex.slice(0, 6);
+    }
+    if (hex.length !== 6) return null;
+    const n = Number.parseInt(hex, 16);
+    if (Number.isNaN(n)) return null;
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+  const m = c.match(
+    /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)/i,
+  );
+  if (!m) return null;
+  return {
+    r: Math.min(255, Math.max(0, Number(m[1]))),
+    g: Math.min(255, Math.max(0, Number(m[2]))),
+    b: Math.min(255, Math.max(0, Number(m[3]))),
+  };
+}
+
+function srgbChannelToLinear(channel: number): number {
+  const s = channel / 255;
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+
+/** WCAG relative luminance (0–1). */
+function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
+  return (
+    0.2126 * srgbChannelToLinear(rgb.r) +
+    0.7152 * srgbChannelToLinear(rgb.g) +
+    0.0722 * srgbChannelToLinear(rgb.b)
+  );
+}
+
+/**
+ * Writing color for text on a user-colored board banner.
+ * Dark / saturated bg → light onAccent; light bg (e.g. yellow) → chrome ink.
+ * Returns null when there is no colored background (default chrome ink).
+ */
+function textColorsOnBoardBg(
+  bg: string | undefined,
+  theme: ReturnType<typeof useHostTheme>,
+): { title: string; body: string } | null {
+  const rgb = parseCssColorRgb(bg);
+  if (!rgb) return null;
+  if (relativeLuminance(rgb) < 0.45) {
+    return {
+      title: theme.text.onAccent,
+      body: theme.text.onAccent,
+    };
+  }
+  return {
+    title: CHROME_INK,
+    body: CHROME_INK_MUTED,
+  };
+}
+
 /** Compact Trello-style background swatches (board theme). */
 function TrelloBgSwatchRow({
   value,
@@ -49726,6 +53926,7 @@ function MyBoardsScreen({
     ? activeBoard.cards.filter((c) => c.archived)
     : [];
   const boardBg = trelloBoardBgColor(theme, activeBoard?.background);
+  const onBoardText = textColorsOnBoardBg(boardBg, theme);
   const workerOptions = firmWorkers.map((w) => ({
     value: w.id,
     label: staffDisplayName(uiLang, w.id, firmWorkers),
@@ -49778,8 +53979,20 @@ function MyBoardsScreen({
         </IconButton>
       </Row>
       <Stack gap={4}>
-        <H1 style={{ margin: 0 }}>{t(uiLang, "myBoardsHomeTitle")}</H1>
-        <ChromeText tone="secondary">{t(uiLang, "myBoardsHomeHint")}</ChromeText>
+        <H1
+          style={{
+            margin: 0,
+            ...(onBoardText ? { color: onBoardText.title } : null),
+          }}
+        >
+          {t(uiLang, "myBoardsHomeTitle")}
+        </H1>
+        <ChromeText
+          tone="secondary"
+          style={onBoardText ? { color: onBoardText.body } : undefined}
+        >
+          {t(uiLang, "myBoardsHomeHint")}
+        </ChromeText>
       </Stack>
 
       <TrelloBoardSideTabs
@@ -59018,11 +63231,12 @@ function toolsUnreadSignedCount(packets: SignDocPacket[]): number {
 
 type ToolsModuleId =
   | "catalog"
+  | "ai-chat"
   | "signature"
   | "converter"
+  | "sumit-dapi"
   | "section46"
-  | "masav"
-  | "sumit-dapi";
+  | "masav";
 type ToolsNavId = "prepare" | "waiting" | "sent" | "signed";
 type ConverterMode = "files" | "voice";
 type ConvertFileKind = "image" | "pdf" | "excel" | "word" | "csv";
@@ -59032,7 +63246,15 @@ const TOOLS_MODULES: {
   id: Exclude<ToolsModuleId, "catalog">;
   labelKey: CrmUiKey;
   hintKey: CrmUiKey;
+  /** When true, only listed when Company settings AI integration is on. */
+  requiresAiIntegration?: boolean;
 }[] = [
+  {
+    id: "ai-chat",
+    labelKey: "toolsToolAiChat",
+    hintKey: "toolsToolAiChatHint",
+    requiresAiIntegration: true,
+  },
   {
     id: "signature",
     labelKey: "toolsToolSignature",
@@ -59044,6 +63266,11 @@ const TOOLS_MODULES: {
     hintKey: "toolsToolConverterHint",
   },
   {
+    id: "sumit-dapi",
+    labelKey: "toolsToolSumitDapi",
+    hintKey: "toolsToolSumitDapiHint",
+  },
+  {
     id: "section46",
     labelKey: "toolsToolSection46",
     hintKey: "toolsToolSection46Hint",
@@ -59053,12 +63280,13 @@ const TOOLS_MODULES: {
     labelKey: "toolsToolMasav",
     hintKey: "toolsToolMasavHint",
   },
-  {
-    id: "sumit-dapi",
-    labelKey: "toolsToolSumitDapi",
-    hintKey: "toolsToolSumitDapiHint",
-  },
 ];
+
+function visibleToolsModules(aiIntegrationOn: boolean) {
+  return TOOLS_MODULES.filter(
+    (tool) => !tool.requiresAiIntegration || aiIntegrationOn,
+  );
+}
 
 /** Per-tool secondary-row badge; extend when more tools get unread counts. */
 function toolsModuleBadgeCount(
@@ -59106,20 +63334,22 @@ function convertExtFor(kind: ConvertFileKind): string {
 }
 
 function toolsModuleLabel(lang: UiLang, id: ToolsModuleId): string {
+  if (id === "ai-chat") return t(lang, "toolsToolAiChat");
   if (id === "signature") return t(lang, "toolsToolSignature");
   if (id === "converter") return t(lang, "toolsToolConverter");
+  if (id === "sumit-dapi") return t(lang, "toolsToolSumitDapi");
   if (id === "section46") return t(lang, "toolsToolSection46");
   if (id === "masav") return t(lang, "toolsToolMasav");
-  if (id === "sumit-dapi") return t(lang, "toolsToolSumitDapi");
   return t(lang, "toolsCatalogTitle");
 }
 
 function toolsModuleHint(lang: UiLang, id: ToolsModuleId): string {
+  if (id === "ai-chat") return t(lang, "toolsToolAiChatHint");
   if (id === "signature") return t(lang, "toolsToolSignatureHint");
   if (id === "converter") return t(lang, "toolsToolConverterHint");
+  if (id === "sumit-dapi") return t(lang, "toolsToolSumitDapiHint");
   if (id === "section46") return t(lang, "toolsToolSection46Hint");
   if (id === "masav") return t(lang, "toolsToolMasavHint");
-  if (id === "sumit-dapi") return t(lang, "toolsToolSumitDapiHint");
   return t(lang, "toolsCatalogHint");
 }
 
@@ -60158,6 +64388,528 @@ function SumitDapiToolsPanel({ uiLang }: { uiLang: UiLang }) {
   );
 }
 
+type AiChatRole = "user" | "assistant";
+type AiChatMessage = { id: string; role: AiChatRole; text: string; at: number };
+type AiDevFileKind = "pdf" | "excel" | "word" | "other";
+type AiDevEntry = {
+  id: string;
+  fileName: string;
+  kind: AiDevFileKind;
+  mime: string;
+  /** Demo blob body for downloadBlobFile. */
+  content: string;
+  note?: string;
+  sourcePrompt?: string;
+  at: number;
+};
+type AiChatWorkerBundle = {
+  messages: AiChatMessage[];
+  developments: AiDevEntry[];
+};
+type AiChatByWorker = Record<string, AiChatWorkerBundle>;
+type AiChatPanelTabId = "chat" | "dev-file";
+
+function aiDevKindLabel(lang: UiLang, kind: AiDevFileKind): string {
+  if (kind === "pdf") return t(lang, "toolsAiChatKindPdf");
+  if (kind === "excel") return t(lang, "toolsAiChatKindExcel");
+  if (kind === "word") return t(lang, "toolsAiChatKindWord");
+  return t(lang, "toolsAiChatKindOther");
+}
+
+function demoAiArtifactContent(
+  fileName: string,
+  kind: AiDevFileKind,
+  prompt: string,
+): string {
+  const safePrompt = prompt.replace(/\r?\n/g, " ").slice(0, 240);
+  if (kind === "excel") {
+    return [
+      "Item,Value",
+      "File," + JSON.stringify(fileName),
+      "Generated,demo",
+      "Prompt," + JSON.stringify(safePrompt),
+      "",
+    ].join("\n");
+  }
+  if (kind === "pdf") {
+    return [
+      "%PDF-1.4 demo stub",
+      "% Intertax AI development file",
+      `%% File: ${fileName}`,
+      `%% Prompt: ${safePrompt}`,
+      "%%EOF",
+      "",
+    ].join("\n");
+  }
+  if (kind === "word") {
+    return [
+      `Demo Word artifact: ${fileName}`,
+      `Prompt: ${safePrompt}`,
+      "",
+    ].join("\n");
+  }
+  return `Demo artifact: ${fileName}\nPrompt: ${safePrompt}\n`;
+}
+
+function detectAiDownloadRequest(msg: string): {
+  kind: AiDevFileKind;
+  fileName: string;
+  mime: string;
+} | null {
+  const wantsExcel =
+    /\b(excel|xlsx|xls|spreadsheet|workbook)\b/i.test(msg) ||
+    /אקסל|גיליון/.test(msg);
+  const wantsPdf = /\bpdf\b/i.test(msg) || /פידיאף|פיד״ף|מסמך\s*pdf/.test(msg);
+  const wantsWord =
+    /\b(word|docx?)\b/i.test(msg) || /וורד|מסמך\s*word/.test(msg);
+  const makeVerb =
+    /\b(make|create|generate|export|download|prepare|build)\b/i.test(msg) ||
+    /צור|תייצר|הכן|הור[די]|ייצ[אא]|תכין/.test(msg) ||
+    wantsExcel ||
+    wantsPdf ||
+    wantsWord;
+  if (!makeVerb) return null;
+  if (wantsExcel) {
+    return {
+      kind: "excel",
+      fileName: "ai-export.csv",
+      mime: "text/csv;charset=utf-8",
+    };
+  }
+  if (wantsPdf) {
+    return {
+      kind: "pdf",
+      fileName: "ai-document.pdf",
+      mime: "application/pdf",
+    };
+  }
+  if (wantsWord) {
+    return {
+      kind: "word",
+      fileName: "ai-document.txt",
+      mime: "text/plain;charset=utf-8",
+    };
+  }
+  return null;
+}
+
+function normalizeAiDevEntry(raw: unknown): AiDevEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id : `d-${Date.now()}`;
+  const at = typeof row.at === "number" ? row.at : Date.now();
+  if (typeof row.fileName === "string" && row.fileName.trim()) {
+    const kindRaw = row.kind;
+    const kind: AiDevFileKind =
+      kindRaw === "pdf" ||
+      kindRaw === "excel" ||
+      kindRaw === "word" ||
+      kindRaw === "other"
+        ? kindRaw
+        : "other";
+    const mime =
+      typeof row.mime === "string" && row.mime
+        ? row.mime
+        : kind === "pdf"
+          ? "application/pdf"
+          : kind === "excel"
+            ? "text/csv;charset=utf-8"
+            : "text/plain;charset=utf-8";
+    const content =
+      typeof row.content === "string"
+        ? row.content
+        : demoAiArtifactContent(row.fileName, kind, String(row.note ?? ""));
+    return {
+      id,
+      fileName: row.fileName.trim(),
+      kind,
+      mime,
+      content,
+      note: typeof row.note === "string" ? row.note : undefined,
+      sourcePrompt:
+        typeof row.sourcePrompt === "string" ? row.sourcePrompt : undefined,
+      at,
+    };
+  }
+  // Legacy text-only development notes → downloadable .txt stubs.
+  if (typeof row.text === "string" && row.text.trim()) {
+    const note = row.text.trim();
+    return {
+      id,
+      fileName: `note-${id}.txt`,
+      kind: "other",
+      mime: "text/plain;charset=utf-8",
+      content: note + "\n",
+      note,
+      at,
+    };
+  }
+  return null;
+}
+
+const DEFAULT_AI_CHAT_BY_WORKER: AiChatByWorker = {
+  "staff-avi": {
+    messages: [
+      {
+        id: "avi-m1",
+        role: "user",
+        text: "Make a PDF reminder letter for missing bank statements.",
+        at: Date.UTC(2026, 9, 10, 9, 0),
+      },
+      {
+        id: "avi-m2",
+        role: "assistant",
+        text: "Demo AI: generated bank-statements-reminder.pdf and saved it to My development file (open that tab to download). Stub; private to Avi.",
+        at: Date.UTC(2026, 9, 10, 9, 0, 5),
+      },
+    ],
+    developments: [
+      {
+        id: "avi-d1",
+        fileName: "bank-statements-reminder.pdf",
+        kind: "pdf",
+        mime: "application/pdf",
+        content: demoAiArtifactContent(
+          "bank-statements-reminder.pdf",
+          "pdf",
+          "Make a PDF reminder letter for missing bank statements.",
+        ),
+        note: "Portal reminder PDF (seed)",
+        sourcePrompt: "Make a PDF reminder letter for missing bank statements.",
+        at: Date.UTC(2026, 9, 10, 9, 0, 5),
+      },
+      {
+        id: "avi-d2",
+        fileName: "cohen-holdings-checklist.csv",
+        kind: "excel",
+        mime: "text/csv;charset=utf-8",
+        content: demoAiArtifactContent(
+          "cohen-holdings-checklist.csv",
+          "excel",
+          "Export Cohen Holdings audit checklist to Excel",
+        ),
+        note: "Audit checklist workbook (seed)",
+        sourcePrompt: "Export Cohen Holdings audit checklist to Excel",
+        at: Date.UTC(2026, 9, 10, 10, 15),
+      },
+    ],
+  },
+  "staff-dana": {
+    messages: [
+      {
+        id: "dana-m1",
+        role: "user",
+        text: "Generate an Excel summary of open Management tasks this week.",
+        at: Date.UTC(2026, 9, 11, 8, 30),
+      },
+      {
+        id: "dana-m2",
+        role: "assistant",
+        text: "Demo AI: generated management-tasks-week.csv and saved it to My development file. Stub; private to Dana — Avi cannot see this.",
+        at: Date.UTC(2026, 9, 11, 8, 30, 5),
+      },
+    ],
+    developments: [
+      {
+        id: "dana-d1",
+        fileName: "management-tasks-week.csv",
+        kind: "excel",
+        mime: "text/csv;charset=utf-8",
+        content: demoAiArtifactContent(
+          "management-tasks-week.csv",
+          "excel",
+          "Generate an Excel summary of open Management tasks this week.",
+        ),
+        note: "Management weekly tasks (seed)",
+        sourcePrompt:
+          "Generate an Excel summary of open Management tasks this week.",
+        at: Date.UTC(2026, 9, 11, 8, 30, 5),
+      },
+    ],
+  },
+};
+
+function aiChatBundleForWorker(
+  store: AiChatByWorker | null | undefined,
+  workerId: string,
+): AiChatWorkerBundle {
+  const row = store?.[workerId];
+  const developments = Array.isArray(row?.developments)
+    ? row!.developments
+        .map((d) => normalizeAiDevEntry(d))
+        .filter((d): d is AiDevEntry => d != null)
+    : [];
+  return {
+    messages: Array.isArray(row?.messages) ? row!.messages : [],
+    developments,
+  };
+}
+
+/** Tools → AI chat — Chat tab + private My development file tab per worker. */
+function AiChatToolsPanel({ uiLang }: { uiLang: UiLang }) {
+  const theme = useHostTheme();
+  const accent = theme.accent.primary;
+  const [signedInWorkerId] = useCanvasState(
+    "signedInWorkerId.v1",
+    DEMO_WORKER.id,
+  );
+  const [firmWorkers] = useCanvasState<FirmWorker[]>(
+    "firmWorkers.v3",
+    DEMO_STAFF,
+  );
+  const [byWorker, setByWorker] = useCanvasState<AiChatByWorker>(
+    "toolsAiChatByWorker.v2",
+    DEFAULT_AI_CHAT_BY_WORKER,
+  );
+  const [draft, setDraft] = useCanvasState("toolsAiChatDraft.v1", "");
+  const [aiTab, setAiTab] = useCanvasState<AiChatPanelTabId>(
+    "toolsAiChatPanelTab.v1",
+    "chat",
+  );
+  const workerId = signedInWorkerId || DEMO_WORKER.id;
+  const bundle = aiChatBundleForWorker(byWorker, workerId);
+  const workerName = staffDisplayName(uiLang, workerId, firmWorkers);
+  const activeTab: AiChatPanelTabId =
+    aiTab === "dev-file" ? "dev-file" : "chat";
+
+  const patchWorker = (partial: Partial<AiChatWorkerBundle>) => {
+    setByWorker((prev) => {
+      const cur = aiChatBundleForWorker(prev, workerId);
+      return {
+        ...(prev ?? {}),
+        [workerId]: {
+          messages: partial.messages ?? cur.messages,
+          developments: partial.developments ?? cur.developments,
+        },
+      };
+    });
+  };
+
+  const sendChat = () => {
+    const msg = draft.trim();
+    if (!msg) return;
+    const now = Date.now();
+    const detected = detectAiDownloadRequest(msg);
+    let reply = t(uiLang, "toolsAiChatStubReply");
+    let nextDevelopments = bundle.developments;
+    if (detected) {
+      const stamp = new Date(now).toISOString().slice(0, 10);
+      const base = detected.fileName.replace(/(\.[^.]+)$/, `-${stamp}$1`);
+      const fileName =
+        base === detected.fileName ? `${stamp}-${detected.fileName}` : base;
+      const entry: AiDevEntry = {
+        id: `d-${workerId}-${now}`,
+        fileName,
+        kind: detected.kind,
+        mime: detected.mime,
+        content: demoAiArtifactContent(fileName, detected.kind, msg),
+        note: msg.slice(0, 160),
+        sourcePrompt: msg,
+        at: now + 1,
+      };
+      nextDevelopments = [entry, ...bundle.developments];
+      reply = t(uiLang, "toolsAiChatStubReplyWithFile").replace(
+        "{fileName}",
+        fileName,
+      );
+    }
+    patchWorker({
+      messages: [
+        ...bundle.messages,
+        { id: `u-${workerId}-${now}`, role: "user", text: msg, at: now },
+        {
+          id: `a-${workerId}-${now}`,
+          role: "assistant",
+          text: reply,
+          at: now + 1,
+        },
+      ],
+      developments: nextDevelopments,
+    });
+    setDraft("");
+  };
+
+  const fmtWhen = (at: number) => {
+    try {
+      return new Date(at).toLocaleString(uiLang === "he" ? "he-IL" : "en-GB", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return String(at);
+    }
+  };
+
+  const downloadEntry = (entry: AiDevEntry) => {
+    downloadBlobFile(entry.fileName, entry.content, entry.mime);
+  };
+
+  return (
+    <Stack gap={12}>
+      <div
+        style={{
+          padding: 12,
+          paddingBottom: 28,
+          borderRadius: 10,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: CHROME_WHITE,
+          overflowY: "auto",
+          maxHeight: "calc(100vh - 220px)",
+          minHeight: 0,
+        }}
+      >
+        <Stack gap={14}>
+          <ChromeText size="small" tone="secondary">
+            {t(uiLang, "toolsAiChatDemoNote")}
+          </ChromeText>
+          <ChromeText size="small" weight="semibold" style={{ color: accent }}>
+            {workerName}
+          </ChromeText>
+          <RaisedTabBar
+            ariaLabel={t(uiLang, "toolsToolAiChat")}
+            activeId={activeTab}
+            onSelect={(id) => {
+              setAiTab(id === "dev-file" ? "dev-file" : "chat");
+            }}
+            variant="raised"
+            compact
+            tabs={[
+              {
+                id: "chat",
+                label: t(uiLang, "toolsAiChatTabChat"),
+              },
+              {
+                id: "dev-file",
+                label: t(uiLang, "toolsAiChatDevFileTitle"),
+                badgeCount:
+                  bundle.developments.length > 0
+                    ? bundle.developments.length
+                    : undefined,
+              },
+            ]}
+          />
+          {activeTab === "chat" ? (
+            <Stack gap={12}>
+              <Stack
+                gap={8}
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                  background: chromeSoftFill(theme),
+                  minHeight: 140,
+                  maxHeight: 320,
+                  overflowY: "auto",
+                }}
+              >
+                {bundle.messages.length === 0 ? (
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "toolsAiChatEmpty")}
+                  </ChromeText>
+                ) : (
+                  bundle.messages.map((m) => (
+                    <Stack
+                      key={m.id}
+                      gap={2}
+                      style={{
+                        alignSelf:
+                          m.role === "user" ? "flex-end" : "flex-start",
+                        maxWidth: "92%",
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${chromeBorder(theme)}`,
+                        background:
+                          m.role === "user"
+                            ? CHROME_SELECTED_BLUE
+                            : CHROME_WHITE,
+                      }}
+                    >
+                      <ChromeText size="small" weight="semibold">
+                        {m.role === "user"
+                          ? t(uiLang, "toolsAiChatYou")
+                          : t(uiLang, "toolsAiChatAssistant")}
+                      </ChromeText>
+                      <ChromeText size="small">{m.text}</ChromeText>
+                      <ChromeText size="small" tone="tertiary">
+                        {fmtWhen(m.at)}
+                      </ChromeText>
+                    </Stack>
+                  ))
+                )}
+              </Stack>
+              <ChromeTextArea
+                value={draft}
+                onChange={setDraft}
+                placeholder={t(uiLang, "toolsAiChatPlaceholder")}
+                rows={3}
+              />
+              <Row gap={8} wrap>
+                <Button variant="primary" onClick={sendChat}>
+                  {t(uiLang, "toolsAiChatSend")}
+                </Button>
+              </Row>
+            </Stack>
+          ) : (
+            <Stack gap={10}>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "toolsAiChatDevFileHint")}
+              </ChromeText>
+              {bundle.developments.length === 0 ? (
+                <ChromeText size="small" tone="secondary">
+                  {t(uiLang, "toolsAiChatDevEmpty")}
+                </ChromeText>
+              ) : (
+                <Stack gap={8}>
+                  {bundle.developments.map((d) => (
+                    <Stack
+                      key={d.id}
+                      gap={6}
+                      style={{
+                        padding: 10,
+                        borderRadius: 8,
+                        border: `1px solid ${chromeBorder(theme)}`,
+                        background: chromeSoftFill(theme),
+                      }}
+                    >
+                      <Row gap={10} wrap style={{ alignItems: "center" }}>
+                        <ChromeText
+                          size="small"
+                          weight="semibold"
+                          style={{ flex: "1 1 160px" }}
+                        >
+                          {d.fileName}
+                        </ChromeText>
+                        <ChromeText size="small" tone="secondary">
+                          {aiDevKindLabel(uiLang, d.kind)}
+                        </ChromeText>
+                        <ChromeText size="small" tone="tertiary">
+                          {fmtWhen(d.at)}
+                        </ChromeText>
+                        <Button
+                          variant="secondary"
+                          onClick={() => downloadEntry(d)}
+                        >
+                          {t(uiLang, "toolsAiChatDownload")}
+                        </Button>
+                      </Row>
+                      {d.note ? (
+                        <ChromeText size="small" tone="secondary">
+                          {d.note}
+                        </ChromeText>
+                      ) : null}
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+          )}
+        </Stack>
+      </div>
+    </Stack>
+  );
+}
+
+
 function ToolsScreen({
   clients,
   hideSideRail = false,
@@ -60170,6 +64922,12 @@ function ToolsScreen({
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const accent = theme.accent.primary;
+  const [companySettingsRaw] = useCanvasState<CompanySettings>(
+    "crmCompanySettings.v1",
+    DEFAULT_COMPANY_SETTINGS,
+  );
+  const aiIntegrationOn = firmAiIntegrationEnabled(companySettingsRaw);
+  const toolsVisible = visibleToolsModules(aiIntegrationOn);
   const [toolsModule, setToolsModule] = useCanvasState<ToolsModuleId>(
     "toolsModule.v1",
     "catalog",
@@ -60178,6 +64936,11 @@ function ToolsScreen({
     "toolsNav.v1",
     "prepare",
   );
+  useEffect(() => {
+    if (toolsModule === "ai-chat" && !aiIntegrationOn) {
+      setToolsModule("catalog");
+    }
+  }, [toolsModule, aiIntegrationOn]);
   const [packets, setPackets] = useCanvasState<SignDocPacket[]>(
     "signDocPackets.v2",
     DEFAULT_SIGN_DOC_PACKETS,
@@ -60746,73 +65509,138 @@ function ToolsScreen({
       ) : null}
 
       {toolsModule === "catalog" ? (
-        <Stack gap={10}>
-          {TOOLS_MODULES.map((tool) => {
+        /**
+         * Same big-square grid as Clients HomeScreen (`ModuleCard` tiles):
+         * Grid columns ≤4, stretch cells, centered icon + label + hint; whole tile opens.
+         */
+        <Grid
+          columns={Math.min(Math.max(toolsVisible.length, 1), 4)}
+          gap={12}
+          align="stretch"
+          style={{ width: "100%" }}
+        >
+          {toolsVisible.map((tool) => {
             const iconAccent = chromeIconAccent(tool.id, theme.category);
+            const badge = toolsModuleBadgeCount(tool.id, packets);
+            const badgeLabel = badge > 99 ? "99+" : String(badge);
+            /** Same destination as Tools secondary sidebar tile / prior Open. */
+            const openTool = () => {
+              setToolsModule(tool.id);
+              setToolsNav("prepare");
+            };
             return (
-              <button
+              <div
                 key={tool.id}
-                type="button"
-                onClick={() => {
-                  setToolsModule(tool.id);
-                  setToolsNav("prepare");
-                }}
                 style={{
-                  all: "unset",
-                  boxSizing: "border-box",
-                  cursor: "pointer",
-                  display: "block",
-                  padding: 14,
-                  borderRadius: 10,
-                  border: `1px solid ${chromeBorder(theme)}`,
-                  background: chromeSoftFill(theme),
                   width: "100%",
+                  minWidth: 0,
+                  height: "100%",
+                  display: "flex",
                 }}
               >
-                <Row align="center" gap={12} style={{ width: "100%" }}>
-                  <div
-                    aria-hidden
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 999,
-                      background: waveChipAlpha(iconAccent, "28"),
-                      border: `1px solid ${waveChipAlpha(iconAccent, "66")}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: iconAccent,
-                      flexShrink: 0,
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    <ModuleTileIcon
-                      tileId={tool.id}
-                      color={iconAccent}
-                      size={20}
-                    />
-                  </div>
-                  <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
-                    <ChromeText weight="semibold">
+                <button
+                  type="button"
+                  onClick={openTool}
+                  style={{
+                    all: "unset",
+                    cursor: "pointer",
+                    display: "block",
+                    boxSizing: "border-box",
+                    width: "100%",
+                    height: "100%",
+                    background: chromeCardBg(theme),
+                    border: `1px solid ${waveChipAlpha(iconAccent, "55")}`,
+                    borderRadius: 12,
+                    padding: "20px 16px",
+                    minHeight: 112,
+                    textAlign: "center",
+                    color: theme.text.primary,
+                  }}
+                >
+                  <Stack gap={8} style={{ alignItems: "center" }}>
+                    <div
+                      style={{
+                        position: "relative",
+                        width: 44,
+                        height: 44,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 12,
+                          background: waveChipAlpha(iconAccent, "28"),
+                          border: `1px solid ${waveChipAlpha(iconAccent, "66")}`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <ModuleTileIcon
+                          tileId={tool.id}
+                          color={iconAccent}
+                        />
+                      </div>
+                      {badge > 0 ? (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: -5,
+                            right: -5,
+                            minWidth: 18,
+                            height: 18,
+                            padding: "0 5px",
+                            borderRadius: 999,
+                            background: theme.category.red,
+                            color: theme.text.onAccent,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            boxSizing: "border-box",
+                            border: `2px solid ${chromeCardBg(theme)}`,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            lineHeight: 1,
+                          }}
+                          aria-label={`${badge} new`}
+                        >
+                          {badgeLabel}
+                        </div>
+                      ) : null}
+                    </div>
+                    <ChromeText
+                      weight="semibold"
+                      style={{ textAlign: "center", color: theme.text.primary }}
+                    >
                       {t(uiLang, tool.labelKey)}
                     </ChromeText>
-                    <ChromeText size="small" tone="secondary">
+                    <ChromeText
+                      size="small"
+                      style={{
+                        textAlign: "center",
+                        color: chromeInkMuted(theme),
+                      }}
+                    >
                       {t(uiLang, tool.hintKey)}
                     </ChromeText>
                   </Stack>
-                </Row>
-              </button>
+                </button>
+              </div>
             );
           })}
-        </Stack>
+        </Grid>
+      ) : toolsModule === "ai-chat" ? (
+        <AiChatToolsPanel uiLang={uiLang} />
       ) : toolsModule === "converter" ? (
         <ConverterToolsPanel uiLang={uiLang} />
+      ) : toolsModule === "sumit-dapi" ? (
+        <SumitDapiToolsPanel uiLang={uiLang} />
       ) : toolsModule === "section46" ? (
         <Section46ToolsPanel uiLang={uiLang} />
       ) : toolsModule === "masav" ? (
         <MasavToolsPanel uiLang={uiLang} />
-      ) : toolsModule === "sumit-dapi" ? (
-        <SumitDapiToolsPanel uiLang={uiLang} />
       ) : (
         <Stack gap={12}>
           <RaisedTabBar
@@ -71348,6 +76176,11 @@ export default function CrmModulesHome() {
     setHoverKey(id);
   };
 
+  const clearHoverFlyout = () => {
+    clearHoverLeaveTimer();
+    setHoverKey(null);
+  };
+
   const onHoverNavBridgeEnter = () => {
     clearHoverLeaveTimer();
   };
@@ -71440,6 +76273,9 @@ export default function CrmModulesHome() {
             ? "worker"
             : preferredPrimaryCategoryForDepts(signedInDeptIds),
         );
+        if (SYSTEMADMIN_HELP_HIDE_SCREENS.has(screen)) {
+          setScreen("home");
+        }
         return;
       }
       const fallback = preferredPrimaryCategoryForDepts(signedInDeptIds);
@@ -71456,6 +76292,19 @@ export default function CrmModulesHome() {
       }
     }
   }, [signedInDeptIds.join("|"), role, selectedCategory, screen]);
+
+  /** Drop stale Systemadmin inbox/settings screens after role/primary leave. */
+  useEffect(() => {
+    if (isSystemAdmin(role)) return;
+    if (!SYSTEMADMIN_HELP_HIDE_SCREENS.has(screen)) return;
+    const effectiveCat = effectivePrimaryCategoryForHelp(
+      role,
+      selectedCategory,
+      signedInDeptIds,
+    );
+    if (effectiveCat === "systemadmin") return;
+    setScreen("home");
+  }, [role, screen, selectedCategory, signedInDeptIds.join("|")]);
 
   const [billingNavShell, setBillingNavShell] = useCanvasState<BillingNavId>(
     "billingNav.v2",
@@ -71488,6 +76337,17 @@ export default function CrmModulesHome() {
     "toolsModule.v1",
     "catalog",
   );
+  const [companySettingsShellRaw] = useCanvasState<CompanySettings>(
+    "crmCompanySettings.v1",
+    DEFAULT_COMPANY_SETTINGS,
+  );
+  const aiIntegrationShellOn = firmAiIntegrationEnabled(companySettingsShellRaw);
+  const toolsModulesShell = visibleToolsModules(aiIntegrationShellOn);
+  useEffect(() => {
+    if (toolsModuleShell === "ai-chat" && !aiIntegrationShellOn) {
+      setToolsModuleShell("catalog");
+    }
+  }, [toolsModuleShell, aiIntegrationShellOn]);
   const [myBoardsViewShell, setMyBoardsViewShell] = useCanvasState<MyBoardsView>(
     "myBoardsView.v1",
     "board",
@@ -71536,6 +76396,13 @@ export default function CrmModulesHome() {
   );
   /** Primary Work badge always sums both secondary sources. */
   const workRailBadge = tasksOpenBadge + boardsUnreadBadge;
+  const [helpFeedbackRaw] = useCanvasState<HelpFeedbackItem[]>(
+    "crmHelpFeedback.v1",
+    DEFAULT_HELP_FEEDBACK_ITEMS,
+  );
+  const helpFeedbackItems = normalizeHelpFeedbackItems(helpFeedbackRaw);
+  /** Unread bugs + suggestions → Systemadmin rail + Help & feedback module. */
+  const helpFeedbackRailBadge = helpFeedbackBadgeCount(helpFeedbackItems);
   const [, setInvoicesSubTabShell] = useCanvasState<BillingInvoicesSubTab>(
     "billingInvoicesSubTab.v1",
     "all",
@@ -71670,10 +76537,10 @@ export default function CrmModulesHome() {
   );
   const [listColumnVisibility, setListColumnVisibility] =
     useCanvasState<ListColumnVisibility>(
-      "crmListColumnVisibility.v3",
+      "crmListColumnVisibility.v4",
       DEFAULT_LIST_COLUMN_VISIBILITY,
     );
-  const [, setClientModuleSettingsTab] =
+  const [clientModuleSettingsTab, setClientModuleSettingsTab] =
     useCanvasState<ClientModuleSettingsTab>(
       "clientModuleSettingsTab",
       "form-fields",
@@ -71751,6 +76618,17 @@ export default function CrmModulesHome() {
     if (screen === "list-columns") {
       setClientModuleSettingsTab("list-columns");
     }
+    if (screen === "client-types") {
+      setClientModuleSettingsTab("types-filters");
+    }
+    /** Legacy prospect screen → Client module settings Prospects (Potential clients) tab. */
+    if (screen === "prospect-required-fields") {
+      if (selectedCategory !== "admin" && selectedCategory !== "systemadmin") {
+        setSelectedCategory("admin");
+      }
+      setClientModuleSettingsTab("prospect-settings");
+      setScreen("client-fields");
+    }
   }, [screen, selectedClientId, clientCardEntryIntent]);
 
   const [, setBkSectionIntents] = useCanvasState<Record<string, string>>(
@@ -71818,21 +76696,43 @@ export default function CrmModulesHome() {
       return;
     }
     if (tile.opens === "client-types") {
-      setScreen("client-types");
+      // Admin secondary icon → Client module settings (types & filters tab).
+      setSelectedCategory("admin");
+      setNavSecondaryOpen(true);
+      setClientModuleSettingsTab("types-filters");
+      setScreen("client-fields");
       return;
     }
     if (tile.opens === "prospect-required-fields") {
+      // Admin secondary icon → Client module settings (Prospects / Potential clients tab).
       setSelectedCategory("admin");
-      setScreen("prospect-required-fields");
+      setNavSecondaryOpen(true);
+      setClientModuleSettingsTab("prospect-settings");
+      setScreen("client-fields");
       return;
     }
     if (tile.opens === "client-fields") {
+      /**
+       * Admin form-fields icon → Admin primary.
+       * Systemadmin hub tile keeps Admin or Systemadmin (dual-homed).
+       */
+      if (tile.id === "client-form-fields") {
+        setSelectedCategory("admin");
+      } else if (
+        selectedCategory !== "admin" &&
+        selectedCategory !== "systemadmin"
+      ) {
+        setSelectedCategory("admin");
+      }
+      setNavSecondaryOpen(true);
       setClientModuleSettingsTab("form-fields");
       setScreen("client-fields");
       return;
     }
     if (tile.opens === "list-columns") {
-      // List columns lives inside Client module settings (Gmail tab).
+      // Admin secondary icon → Client module settings (list columns tab).
+      setSelectedCategory("admin");
+      setNavSecondaryOpen(true);
       setClientModuleSettingsTab("list-columns");
       setScreen("client-fields");
       return;
@@ -71886,6 +76786,18 @@ export default function CrmModulesHome() {
       setScreen("files-root");
       return;
     }
+    if (tile.opens === "help-feedback") {
+      setSelectedCategory("systemadmin");
+      setNavSecondaryOpen(true);
+      setScreen("help-feedback");
+      return;
+    }
+    if (tile.opens === "ai-maintenance") {
+      setSelectedCategory("systemadmin");
+      setNavSecondaryOpen(true);
+      setScreen("ai-maintenance");
+      return;
+    }
     if (tile.opens === "wave-import") {
       setSelectedCategory("systemadmin");
       setNavSecondaryOpen(true);
@@ -71895,6 +76807,12 @@ export default function CrmModulesHome() {
     if (tile.opens === "departments") {
       setSelectedCategory("admin");
       setScreen("departments");
+      return;
+    }
+    if (tile.opens === "reports") {
+      setSelectedCategory("admin");
+      setNavSecondaryOpen(true);
+      setScreen("reports");
       return;
     }
     if (tile.opens === "billing") {
@@ -72246,6 +77164,8 @@ export default function CrmModulesHome() {
                         : t(uiLang, "myAssignments")
                       : screen === "departments"
                         ? t(uiLang, "departments")
+                        : screen === "reports"
+                          ? t(uiLang, "reports")
                         : screen === "whatsapp-settings"
                           ? t(uiLang, "waDeskSettings")
                           : screen === "services"
@@ -72267,7 +77187,8 @@ export default function CrmModulesHome() {
                                         : screen === "user-settings"
                                           ? t(uiLang, "userSettings")
                                           : screen === "client-fields" ||
-                                              screen === "list-columns"
+                                              screen === "list-columns" ||
+                                              screen === "client-types"
                                             ? t(uiLang, "clientFields")
                                             : screen === "users-rights"
                                               ? t(uiLang, "usersRights")
@@ -72671,19 +77592,15 @@ export default function CrmModulesHome() {
   /** Pinned secondary only — hamburger / click. Hover uses TempTabPopup instead. */
   const secondaryVisible = pinnedOpen;
 
-  const railCategories = primaryCategoriesForUser(role, uiLang, {
-    chats: CHATS_NEW_COUNT,
-    whatsapp: WHATSAPP_NEW_COUNT,
-    work: workRailBadge,
-    tools: toolsUnreadSignedCount(signDocPackets),
-  }, signedInDeptIds);
-  const hoverRailIndex = hoverKey
-    ? railCategories.findIndex((c) => c.id === hoverKey)
-    : -1;
-  const flyoutTopOffset =
-    TEMP_TAB_FLYOUT_TOP_BASE +
-    Math.max(0, hoverRailIndex) * TEMP_TAB_FLYOUT_ITEM_STRIDE -
-    8;
+  const staffChatsUnreadBadge = visibleStaffThreads(threads, role).filter(
+    (th) => th.unread,
+  ).length;
+  const whatsappUnreadBadge = visibleWhatsAppThreads(
+    threads,
+    role,
+    signedInWorkerId,
+    firmWorkers,
+  ).filter((th) => th.unread).length;
 
   const fillSecondaryForCategory = (
     categoryId: string,
@@ -72888,7 +77805,7 @@ export default function CrmModulesHome() {
     if (categoryId === "tools") {
       return {
         title: t(uiLang, "tools"),
-        rows: TOOLS_MODULES.map((tool) => ({
+        rows: toolsModulesShell.map((tool) => ({
           id: tool.id,
           label: t(uiLang, tool.labelKey),
           iconId: tool.id,
@@ -72959,18 +77876,26 @@ export default function CrmModulesHome() {
     }
     const tiles = tilesForCategory(categoryId, signedInDeptIds);
     if (tiles.length > 0) {
-      const tileRows: SecondaryNavRow[] = tiles.map((tile) => ({
-        id: tile.id,
-        label: tileLabel(uiLang, tile.id, tile.label),
-        iconId: tile.id,
-        badge: tile.badgeCount || undefined,
-        active: showActiveMarks && tile.opens === screen,
-        onClick: () => {
-          clearHoverLeaveTimer();
-          setHoverKey(null);
-          openTile(tile);
-        },
-      }));
+      const tileRows: SecondaryNavRow[] = tiles.map((tile) => {
+        const liveBadge =
+          tile.id === "help-feedback"
+            ? helpFeedbackRailBadge
+            : tile.badgeCount || 0;
+        return {
+          id: tile.id,
+          label: tileLabel(uiLang, tile.id, tile.label),
+          iconId: tile.id,
+          badge: liveBadge || undefined,
+          active:
+            showActiveMarks &&
+            isModuleTileActive(tile, screen, clientModuleSettingsTab),
+          onClick: () => {
+            clearHoverLeaveTimer();
+            setHoverKey(null);
+            openTile(tile);
+          },
+        };
+      });
       if (categoryId === "worker" && isAdminLike(role)) {
         tileRows.push({
           id: "all-workers",
@@ -73344,22 +78269,9 @@ export default function CrmModulesHome() {
           />
         </Stack>
       ) : null}
-      {screen === "client-types" && (
-        <Stack gap={0} style={{ ...SHELL_SCROLL }}>
-          <ClientTypesScreen
-            types={clientTypes}
-            setTypes={setClientTypes}
-            newName={newTypeName}
-            setNewName={setNewTypeName}
-          />
-        </Stack>
-      )}
-      {screen === "prospect-required-fields" && (
-        <Stack gap={0} style={{ ...SHELL_SCROLL }}>
-          <ProspectSettingsScreen />
-        </Stack>
-      )}
-      {(screen === "client-fields" || screen === "list-columns") && (
+      {(screen === "client-fields" ||
+        screen === "list-columns" ||
+        screen === "client-types") && (
         <Stack gap={0} style={{ ...SHELL_SCROLL }}>
           <ClientFieldsConfigScreen
             fields={fieldConfig}
@@ -73379,11 +78291,13 @@ export default function CrmModulesHome() {
         </Stack>
       )}
       {screen === "users-rights" && (
-        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
-          <ModuleChromeBar
-            pill={t(uiLang, "usersRights")}
-            onSecondaryBack={onSecondaryBack}
-          />
+        <Stack gap={12} style={{ ...SHELL_FILL, width: "100%" }}>
+          <div style={{ flexShrink: 0, width: "100%" }}>
+            <ModuleChromeBar
+              pill={t(uiLang, "usersRights")}
+              onSecondaryBack={onSecondaryBack}
+            />
+          </div>
           <UsersRightsScreen />
         </Stack>
       )}
@@ -73394,6 +78308,16 @@ export default function CrmModulesHome() {
             onSecondaryBack={onSecondaryBack}
           />
           <FilesRootScreen />
+        </Stack>
+      )}
+      {screen === "help-feedback" && (
+        <Stack gap={0} style={{ ...SHELL_FILL, width: "100%" }}>
+          <HelpFeedbackScreen />
+        </Stack>
+      )}
+      {screen === "ai-maintenance" && (
+        <Stack gap={0} style={{ ...SHELL_FILL, width: "100%" }}>
+          <AiMaintenanceScreen />
         </Stack>
       )}
       {screen === "user-settings" && (
@@ -73530,6 +78454,15 @@ export default function CrmModulesHome() {
           <DepartmentsScreen role={role} />
         </Stack>
       )}
+      {screen === "reports" && isAdminLike(role) && (
+        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
+          <ModuleChromeBar
+            pill={t(uiLang, "reports")}
+            onSecondaryBack={onSecondaryBack}
+          />
+          <ReportsScreen />
+        </Stack>
+      )}
       {screen === "placeholder" && (
         <Stack gap={12} style={{ ...SHELL_SCROLL }}>
           <ModuleChromeBar
@@ -73618,23 +78551,30 @@ export default function CrmModulesHome() {
           deptIds={signedInDeptIds}
           selectedCategory={selectedCategory}
           hoverKey={hoverKey}
+          screen={screen}
           secondaryOpen={pinnedOpen}
           onToggleSecondary={togglePinnedSecondary}
           onSelectCategory={selectPrimaryCategory}
           onHoverCategory={onHoverCategory}
           onHoverRailLeave={scheduleHoverClear}
-          chatsBadge={CHATS_NEW_COUNT}
-          whatsappBadge={
-            visibleWhatsAppThreads(
-              threads,
-              role,
-              signedInWorkerId,
-              firmWorkers,
-            ).filter((th) => th.unread).length
-          }
+          onClearHoverFlyout={clearHoverFlyout}
+          chatsBadge={staffChatsUnreadBadge}
+          whatsappBadge={whatsappUnreadBadge}
           workBadge={workRailBadge}
           toolsBadge={toolsUnreadSignedCount(signDocPackets)}
+          systemadminBadge={helpFeedbackRailBadge}
           showProfile={!secondaryVisible}
+          helpVisible={showWorkerHelpFeedbackFab(
+            role,
+            effectivePrimaryCategoryForHelp(
+              role,
+              selectedCategory,
+              signedInDeptIds,
+            ),
+            hoverKey,
+            screen,
+            signedInDeptIds,
+          )}
         />
         {secondaryVisible ? (
           <AppSecondarySidebar
@@ -73648,11 +78588,11 @@ export default function CrmModulesHome() {
          * Hover flyout only — never used for the pinned/selected secondary.
          * Pinned Work (etc.) is always AppSecondarySidebar above, in flex flow.
          */}
-        {flyoutPreview ? (
+        {flyoutPreview && hoverKey ? (
           <TempTabPopup
             title={flyoutPreview.title}
             rows={flyoutPreview.rows}
-            topOffset={flyoutTopOffset}
+            anchorCategoryId={hoverKey}
             onMouseEnter={onHoverNavBridgeEnter}
             onMouseLeave={scheduleHoverClear}
           />
@@ -73699,6 +78639,25 @@ export default function CrmModulesHome() {
             {mainContent}
           </div>
         </Stack>
+        <WorkerHelpFeedbackFab
+          visible={showWorkerHelpFeedbackFab(
+            role,
+            effectivePrimaryCategoryForHelp(
+              role,
+              selectedCategory,
+              signedInDeptIds,
+            ),
+            hoverKey,
+            screen,
+            signedInDeptIds,
+          )}
+          authorName={staffDisplayName(
+            uiLang,
+            signedInWorkerId,
+            firmWorkers,
+          )}
+          authorWorkerId={signedInWorkerId}
+        />
       </div>
       )}
     </div>
