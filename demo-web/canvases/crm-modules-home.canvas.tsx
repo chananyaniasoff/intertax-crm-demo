@@ -32,8 +32,8 @@ import {
   type TableProps,
   type TextProps,
 } from "cursor/canvas";
-/** Bust stale canvas preview — today's elapsed resets at local midnight. */
-const GMAIL_DUAL_NAV_BUILD = "v723-2026-10-13-android-header-round-punch";
+/** Bust stale canvas preview — clock-out returns the punch face to 0:00. */
+const GMAIL_DUAL_NAV_BUILD = "v732-2026-10-13-clock-out-reset";
 /**
  * Persisted Android phone-preview toggle (useCanvasState key + localStorage).
  * v2 — stale v1 is cleared on hydrate so Home wins; intentional ON persists as "1".
@@ -44,7 +44,7 @@ const ANDROID_PREVIEW_LS_KEY_LEGACY = "crmAndroidPreview.v1";
  * Live ModuleSectionTabs (side layout) published into Android Menu while preview is on.
  * Cleared when the section unmounts or Android turns off.
  */
-const ANDROID_MODULE_SECTION_MENU_KEY = "androidModuleSectionMenu.v1";
+const ANDROID_MODULE_SECTION_MENU_KEY = "androidModuleSectionMenu.v2";
 const ANDROID_MODULE_SECTION_SELECT_KEY = "androidModuleSectionSelect.v1";
 /** Default AppPrimaryRail module + landing view — Home (Clients modules). */
 const DEFAULT_PRIMARY_CATEGORY = "client";
@@ -64,7 +64,16 @@ type AndroidModuleSectionMenuState = {
   ariaLabel: string;
   items: { id: string; label: string; badge?: string }[];
   activeId: string;
+  /** Live route stamp — Menu ignores payloads from a previous screen. */
+  routeKey: string;
 } | null;
+
+function androidOverflowRouteKey(
+  screen: string,
+  selectedCategory: string,
+): string {
+  return `${screen}|${normalizePrimaryCategory(selectedCategory)}`;
+}
 
 type AndroidModuleSectionSelectState = {
   id: string;
@@ -7679,6 +7688,7 @@ const CRM_UI = {
   androidNavMenu: { en: "Menu", he: "תפריט" },
   androidNavClose: { en: "Close menu", he: "סגור תפריט" },
   androidSecondaryNav: { en: "Module menu", he: "תפריט מודול" },
+  androidBackToList: { en: "Back to list", he: "חזרה לרשימה" },
   waSearchChats: { en: "Search chats…", he: "חיפוש צ׳אטים…" },
   waMyLabeledFilter: {
     en: "My labels",
@@ -15143,7 +15153,7 @@ function ModuleSectionTabs({
     ANDROID_PREVIEW_LS_KEY,
     false,
   );
-  const [, setAndroidSectionMenu] =
+  const [androidSectionMenuLive, setAndroidSectionMenu] =
     useCanvasState<AndroidModuleSectionMenuState>(
       ANDROID_MODULE_SECTION_MENU_KEY,
       null,
@@ -15153,6 +15163,15 @@ function ModuleSectionTabs({
       ANDROID_MODULE_SECTION_SELECT_KEY,
       { id: "", n: 0 },
     );
+  const [screenForMenu] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  const [categoryForMenu] = useCanvasState(
+    SELECTED_CATEGORY_STATE_KEY,
+    DEFAULT_PRIMARY_CATEGORY,
+  );
+  const menuRouteKey = androidOverflowRouteKey(
+    screenForMenu,
+    categoryForMenu,
+  );
   const accent = theme.accent.primary;
   const dir = uiDir(uiLang);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -15162,8 +15181,35 @@ function ModuleSectionTabs({
 
   /**
    * Android: hide 180px side rail; publish sections into Menu (3rd-bar).
-   * Top layout (Inbox tabs) stays in-content — not a desktop side rail.
+   * Publish with routeKey so Menu never shows a previous screen's items.
+   * Sync-during-render closes the one-frame stale gap from useEffect-only.
    */
+  if (androidPreview && layout !== "top") {
+    const nextMenu: NonNullable<AndroidModuleSectionMenuState> = {
+      title: title || ariaLabel,
+      ariaLabel,
+      items: items.map((it) => ({
+        id: it.id,
+        label: it.label,
+        badge: it.badge,
+      })),
+      activeId,
+      routeKey: menuRouteKey,
+    };
+    const prev = androidSectionMenuLive;
+    const stale =
+      !prev ||
+      prev.routeKey !== nextMenu.routeKey ||
+      prev.ariaLabel !== nextMenu.ariaLabel ||
+      prev.activeId !== nextMenu.activeId ||
+      prev.items
+        .map((it) => `${it.id}:${it.label}:${it.badge ?? ""}`)
+        .join("|") !== sectionItemsKey;
+    if (stale) {
+      setAndroidSectionMenu(nextMenu);
+    }
+  }
+
   useEffect(() => {
     if (!androidPreview || layout === "top") return;
     setAndroidSectionMenu({
@@ -15175,10 +15221,15 @@ function ModuleSectionTabs({
         badge: it.badge,
       })),
       activeId,
+      routeKey: menuRouteKey,
     });
     return () => {
       setAndroidSectionMenu((prev) =>
-        prev && prev.ariaLabel === ariaLabel ? null : prev,
+        prev &&
+        prev.ariaLabel === ariaLabel &&
+        prev.routeKey === menuRouteKey
+          ? null
+          : prev,
       );
     };
   }, [
@@ -15188,6 +15239,7 @@ function ModuleSectionTabs({
     title,
     activeId,
     sectionItemsKey,
+    menuRouteKey,
   ]);
 
   useEffect(() => {
@@ -31801,6 +31853,12 @@ function WhatsAppWebFirmScreen({
   const [reassignOpen, setReassignOpen] = useState(false);
   const [reassignKind, setReassignKind] = useState<WaRouteKind>("worker");
   const [reassignTargetId, setReassignTargetId] = useState("");
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
+  /** Android: list full-width; open thread replaces list (no side-by-side). */
+  const [androidShowThread, setAndroidShowThread] = useState(false);
   const deskOpenNow = isWithinWaBusinessHours(deskSettings);
   const showSettings = settingsOpen && isAdminLike(role);
   const labeledBase = myLabeledOnly
@@ -32026,23 +32084,30 @@ function WhatsAppWebFirmScreen({
         align="stretch"
         style={{
           flex: 1,
-          minHeight: 420,
+          minHeight: androidPreview ? 0 : 420,
           width: "100%",
           border: `1px solid ${CHROME_BORDER_BLUE}`,
           borderRadius: 10,
           overflow: "hidden",
           background: CHROME_WHITE,
+          flexDirection: androidPreview ? "column" : "row",
         }}
       >
         <Stack
           gap={0}
           style={{
-            width: 300,
+            width: androidPreview ? "100%" : 300,
             flexShrink: 0,
-            borderInlineEnd: `1px solid ${chromeBorder(theme)}`,
+            borderInlineEnd: androidPreview
+              ? "none"
+              : `1px solid ${chromeBorder(theme)}`,
             background: chromeSoftFill(theme),
             minHeight: 0,
             overflow: "hidden",
+            display:
+              androidPreview && androidShowThread ? "none" : "flex",
+            flexDirection: "column",
+            flex: androidPreview ? 1 : undefined,
           }}
         >
           <div style={{ padding: 10, flexShrink: 0 }}>
@@ -32089,7 +32154,10 @@ function WhatsAppWebFirmScreen({
                 <button
                   key={thread.id}
                   type="button"
-                  onClick={() => setSelectedChatId(thread.id)}
+                  onClick={() => {
+                    setSelectedChatId(thread.id);
+                    if (androidPreview) setAndroidShowThread(true);
+                  }}
                   style={{
                     all: "unset",
                     cursor: "pointer",
@@ -32165,6 +32233,10 @@ function WhatsAppWebFirmScreen({
             minWidth: 0,
             minHeight: 0,
             background: CHROME_WHITE,
+            display:
+              androidPreview && !androidShowThread ? "none" : "flex",
+            flexDirection: "column",
+            width: androidPreview ? "100%" : undefined,
           }}
         >
           {active ? (
@@ -32178,6 +32250,14 @@ function WhatsAppWebFirmScreen({
                   flexShrink: 0,
                 }}
               >
+                {androidPreview ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAndroidShowThread(false)}
+                  >
+                    {`${navBackArrow(uiLang)} ${t(uiLang, "androidBackToList")}`}
+                  </Button>
+                ) : null}
                 <Row align="center" gap={10}>
                   <WaAvatar label={active.title} size={36} />
                   <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
@@ -32891,6 +32971,11 @@ function ClientWhatsAppDemoScreen({
     "{name}",
     demoAdminName,
   );
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
+  const [androidShowThread, setAndroidShowThread] = useState(false);
 
   return (
     <Stack gap={12} style={{ width: "100%", ...SHELL_FILL }}>
@@ -32922,23 +33007,30 @@ function ClientWhatsAppDemoScreen({
         align="stretch"
         style={{
           flex: 1,
-          minHeight: 440,
+          minHeight: androidPreview ? 0 : 440,
           width: "100%",
           border: `1px solid ${CHROME_BORDER_BLUE}`,
           borderRadius: 10,
           overflow: "hidden",
           background: CHROME_WHITE,
+          flexDirection: androidPreview ? "column" : "row",
         }}
       >
         <Stack
           gap={0}
           style={{
-            width: 300,
+            width: androidPreview ? "100%" : 300,
             flexShrink: 0,
-            borderInlineEnd: `1px solid ${chromeBorder(theme)}`,
+            borderInlineEnd: androidPreview
+              ? "none"
+              : `1px solid ${chromeBorder(theme)}`,
             background: chromeSoftFill(theme),
             minHeight: 0,
             overflow: "hidden",
+            display:
+              androidPreview && androidShowThread ? "none" : "flex",
+            flexDirection: "column",
+            flex: androidPreview ? 1 : undefined,
           }}
         >
           <div style={{ padding: 10, flexShrink: 0 }}>
@@ -32976,7 +33068,10 @@ function ClientWhatsAppDemoScreen({
                 <button
                   key={thread.id}
                   type="button"
-                  onClick={() => setSelectedChatId(thread.id)}
+                  onClick={() => {
+                    setSelectedChatId(thread.id);
+                    if (androidPreview) setAndroidShowThread(true);
+                  }}
                   style={{
                     all: "unset",
                     cursor: "pointer",
@@ -33031,19 +33126,34 @@ function ClientWhatsAppDemoScreen({
             minWidth: 0,
             minHeight: 0,
             background: CHROME_WHITE,
+            display:
+              androidPreview && !androidShowThread ? "none" : "flex",
+            flexDirection: "column",
+            width: androidPreview ? "100%" : undefined,
           }}
         >
           {active ? (
             <>
-              <Row
-                align="center"
-                gap={10}
+              <Stack
+                gap={8}
                 style={{
                   padding: "10px 14px",
                   borderBottom: `1px solid ${chromeBorder(theme)}`,
                   background: CHROME_WHITE,
                   flexShrink: 0,
                 }}
+              >
+                {androidPreview ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAndroidShowThread(false)}
+                  >
+                    {`${navBackArrow(uiLang)} ${t(uiLang, "androidBackToList")}`}
+                  </Button>
+                ) : null}
+              <Row
+                align="center"
+                gap={10}
               >
                 <WaAvatar label={clientDisplayName} size={36} />
                 <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
@@ -33064,6 +33174,7 @@ function ClientWhatsAppDemoScreen({
                   </ChromeText>
                 </Stack>
               </Row>
+              </Stack>
               <Stack
                 gap={8}
                 style={{
@@ -33293,6 +33404,11 @@ function MessagingScreen({
     "chatsFirmSettingsOpen.v1",
     false,
   );
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
+  const [androidShowThread, setAndroidShowThread] = useState(false);
   const isInternal = mode === "internal";
   const showSettings =
     isInternal && settingsOpen && isAdminLike(role ?? "worker");
@@ -33409,18 +33525,28 @@ function MessagingScreen({
         </CardBody>
       </Card>
 
-      {/* Inbox + thread grow with content; outer HomeScreen shell scrolls. */}
-      <Row gap={16} align="stretch" style={{ width: "100%" }}>
+      {/* Inbox + thread: desktop side-by-side; Android list OR conversation. */}
+      <Row
+        gap={androidPreview ? 0 : 16}
+        align="stretch"
+        style={{
+          width: "100%",
+          flexDirection: androidPreview ? "column" : "row",
+        }}
+      >
         <Stack
           gap={6}
           style={{
-            width: 260,
+            width: androidPreview ? "100%" : 260,
             flexShrink: 0,
             padding: 8,
             borderRadius: 10,
             background: chromeSoftFill(theme),
             border: `1px solid ${chromeBorder(theme)}`,
             boxSizing: "border-box",
+            display:
+              androidPreview && androidShowThread ? "none" : "flex",
+            flexDirection: "column",
           }}
         >
           <ChromeText size="small" weight="semibold" tone="secondary">
@@ -33434,6 +33560,7 @@ function MessagingScreen({
                   type="button"
                   onClick={() => {
                     setSelectedChatId(thread.id);
+                    if (androidPreview) setAndroidShowThread(true);
                     if (thread.unread) {
                       setThreads((prev) =>
                         prev.map((th) =>
@@ -33496,10 +33623,22 @@ function MessagingScreen({
             background: CHROME_WHITE,
             border: `1px solid ${CHROME_BORDER_BLUE}`,
             boxSizing: "border-box",
+            display:
+              androidPreview && !androidShowThread ? "none" : "flex",
+            flexDirection: "column",
+            width: androidPreview ? "100%" : undefined,
           }}
         >
           {active ? (
             <>
+              {androidPreview ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => setAndroidShowThread(false)}
+                >
+                  {`${navBackArrow(uiLang)} ${t(uiLang, "androidBackToList")}`}
+                </Button>
+              ) : null}
               <Row align="center" gap={8}>
                 <H2>{active.title}</H2>
                 <Pill tone={channelTone(active.channel)}>
@@ -33776,37 +33915,38 @@ function HomeScreen({
                 <Divider />
               </>
             ) : null}
+            {androidPreview ? (
+              <Stack gap={10} data-chrome="android-home-menu-inline-v1">
+                <H2>{t(uiLang, "androidSecondaryNav")}</H2>
+                <ChromeText size="small" tone="secondary">
+                  {title}
+                </ChromeText>
+                <Stack gap={6}>
+                  {tiles.map((tile) => (
+                    <ModuleCard key={tile.id} tile={tile} onOpen={onOpen} />
+                  ))}
+                </Stack>
+              </Stack>
+            ) : (
             <Stack gap={12}>
               <H2>{title}</H2>
               <div
-                data-chrome={
-                  androidPreview
-                    ? "client-modules-list-android-v1"
-                    : "client-modules-grid-v2"
-                }
-                style={
-                  androidPreview
-                    ? {
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 8,
-                        width: "100%",
-                      }
-                    : {
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fill, 152px)",
-                        gap: 6,
-                        width: "100%",
-                        justifyContent: "start",
-                        alignContent: "start",
-                      }
-                }
+                data-chrome="client-modules-grid-v2"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, 152px)",
+                  gap: 6,
+                  width: "100%",
+                  justifyContent: "start",
+                  alignContent: "start",
+                }}
               >
                 {tiles.map((tile) => (
                   <ModuleCard key={tile.id} tile={tile} onOpen={onOpen} />
                 ))}
               </div>
             </Stack>
+            )}
           </>
         )}
       </Stack>
@@ -35985,6 +36125,10 @@ function TaxReturnFolderBrowser({
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [androidPreview] = useCanvasState<boolean>(
+    ANDROID_PREVIEW_LS_KEY,
+    false,
+  );
 
   const renderNode = (node: TaxReturnFolderNode, depth: number) => {
     const isFolder = node.kind === "folder";
@@ -36084,7 +36228,12 @@ function TaxReturnFolderBrowser({
       <ChromeText size="small" tone="tertiary">
         {t(uiLang, "taxReturnWorkingFolderHint")}
       </ChromeText>
-      <Grid columns="minmax(0, 1.1fr) minmax(0, 0.9fr)" gap={12}>
+      <Grid
+        columns={
+          androidPreview ? 1 : "minmax(0, 1.1fr) minmax(0, 0.9fr)"
+        }
+        gap={12}
+      >
         <div
           style={{
             padding: 10,
@@ -54515,6 +54664,10 @@ function useLiveNowMs(running: boolean): number {
  * Worked seconds for a local calendar day from punch pairs (breaks pause).
  * Default day = local today from `nowMs`. Open overnight sessions only count
  * the slice after local midnight; prior-day closed segments are excluded.
+ *
+ * Closed segments (out / break-start) are NOT clipped by `nowMs` — only the
+ * still-open live slice is. Clipping closed work by a frozen post-clock-out
+ * `nowMs` was zeroing “today’s elapsed” after Clock out.
  */
 function workedSecondsFromPunches(
   punches: TimePunch[],
@@ -54538,7 +54691,15 @@ function workedSecondsFromPunches(
   let segmentStart: number | null = null;
   let onBreak = false;
 
-  const addClipped = (fromMs: number, toMs: number) => {
+  /** Historical closed slice — keep full punch-bounded duration for the day. */
+  const addClosed = (fromMs: number, toMs: number) => {
+    const a = Math.max(fromMs, dayStart);
+    const b = Math.min(toMs, dayEnd);
+    if (b > a) total += b - a;
+  };
+
+  /** Still-open slice — cap at live now so the timer ticks. */
+  const addLive = (fromMs: number, toMs: number) => {
     const a = Math.max(fromMs, dayStart);
     const b = Math.min(toMs, dayEnd, nowMs);
     if (b > a) total += b - a;
@@ -54550,21 +54711,86 @@ function workedSecondsFromPunches(
       segmentStart = tMs;
       onBreak = false;
     } else if (p.kind === "break-start" && segmentStart != null && !onBreak) {
-      addClipped(segmentStart, tMs);
+      addClosed(segmentStart, tMs);
       onBreak = true;
       segmentStart = null;
     } else if (p.kind === "break-end" && onBreak) {
       segmentStart = tMs;
       onBreak = false;
-    } else if (p.kind === "out" && segmentStart != null && !onBreak) {
-      addClipped(segmentStart, tMs);
+    } else if (p.kind === "out") {
+      // Clock out ends the open segment; if still on break, drop break with no
+      // extra work (break-end may be missing from a partial write).
+      if (segmentStart != null && !onBreak) {
+        addClosed(segmentStart, tMs);
+      }
       segmentStart = null;
+      onBreak = false;
     }
   }
   if (segmentStart != null && !onBreak) {
-    addClipped(segmentStart, nowMs);
+    addLive(segmentStart, nowMs);
   }
   return Math.floor(total / 1000);
+}
+
+/**
+ * Seconds on the punch-clock face for the current shift only.
+ * Clock out ends the shift, so the face returns to 0:00 (Out / Clock in).
+ * Day totals for Overview still use workedSecondsFromPunches.
+ */
+function openShiftSeconds(
+  punches: TimePunch[],
+  nowMs: number,
+  workerId: string,
+): number {
+  const ordered = punches
+    .filter((p) => p.workerId === workerId)
+    .slice()
+    .sort((a, b) => parsePunchInstantMs(a) - parsePunchInstantMs(b));
+
+  let session = 0;
+  let segmentStart: number | null = null;
+  let onBreak = false;
+
+  for (const p of ordered) {
+    const tMs = parsePunchInstantMs(p);
+    if (p.kind === "in") {
+      session = 0;
+      segmentStart = tMs;
+      onBreak = false;
+    } else if (p.kind === "break-start" && segmentStart != null && !onBreak) {
+      session += Math.max(0, tMs - segmentStart);
+      segmentStart = null;
+      onBreak = true;
+    } else if (p.kind === "break-end" && onBreak) {
+      segmentStart = tMs;
+      onBreak = false;
+    } else if (p.kind === "out") {
+      session = 0;
+      segmentStart = null;
+      onBreak = false;
+    }
+  }
+  if (segmentStart != null && !onBreak) {
+    session += Math.max(0, nowMs - segmentStart);
+  }
+  return Math.floor(session / 1000);
+}
+
+/** Build a punch row with a unique id (kind suffix avoids same-ms collisions). */
+function buildTimePunch(
+  kind: PunchKind,
+  workerId: string,
+  atMs: number = Date.now(),
+): TimePunch {
+  return {
+    id: `tp-${atMs}-${kind}`,
+    workerId,
+    kind,
+    time: formatClockNow(),
+    day: todayLocalIso(),
+    atMs,
+  };
 }
 
 /** Derive clock status from today's punch sequence for a worker. */
@@ -54906,9 +55132,12 @@ function CompactHomePunchButton({
   );
 
   const liveRunning = status === "in" || status === "break";
-  const nowMs = useLiveNowMs(liveRunning);
+  const tickMs = useLiveNowMs(liveRunning);
+  const nowMs = liveRunning ? tickMs : Math.max(tickMs, Date.now());
   const elapsed = formatElapsedClock(
-    workedSecondsFromPunches(punches, nowMs, DEMO_WORKER.id),
+    status === "out"
+      ? 0
+      : openShiftSeconds(punches, nowMs, DEMO_WORKER.id),
   );
   const clockToday = todayLocalIso();
   const lastIn = punches
@@ -54930,54 +55159,55 @@ function CompactHomePunchButton({
   const scale = size / PUNCH_BUTTON_SIZE;
   /** Header / tiny: drop floor so labels fit inside the circle. */
   const dense = size < 100;
-  const labelSize = Math.max(dense ? 9 : 11, Math.round(13 * scale));
-  const elapsedSize = Math.max(dense ? 15 : 24, Math.round(32 * scale));
-  const labelMaxWidth = Math.round((dense ? 56 : 176) * (dense ? 1 : scale));
+  /** Status (Out/In) + action (Clock in/out) — larger than the meta label. */
+  const statusActionSize = Math.max(
+    dense ? 11 : 17,
+    Math.round((dense ? 12 : 19) * scale),
+  );
+  const metaSize = Math.max(dense ? 8 : 10, Math.round(11 * scale));
+  const elapsedSize = Math.max(dense ? 14 : 22, Math.round(28 * scale));
+  const labelMaxWidth = Math.round((dense ? 58 : 176) * (dense ? 1 : scale));
   const breakMinHeight = Math.max(dense ? 18 : 28, Math.round(44 * scale));
   const breakFontSize = Math.max(dense ? 8 : 10, Math.round(12 * scale));
   const breakPadY = Math.max(dense ? 2 : 4, Math.round(7 * scale));
   const breakPadX = Math.max(dense ? 6 : 8, Math.round(14 * scale));
   const breakMarginTop = Math.max(dense ? 2 : 3, Math.round(6 * scale));
   const breakRadius = Math.max(dense ? 5 : 6, Math.round(8 * scale));
-  const punchPad = Math.max(dense ? 4 : 8, Math.round(14 * scale));
+  const punchPad = Math.max(dense ? 3 : 6, Math.round(12 * scale));
 
-  const addPunch = (kind: PunchKind) => {
-    const atMs = Date.now();
+  const appendPunches = (kinds: PunchKind[]) => {
+    if (kinds.length === 0) return;
+    const baseMs = Date.now();
     setPunches((prev) => [
       ...prev,
-      {
-        id: `tp-${atMs}`,
-        workerId: DEMO_WORKER.id,
-        kind,
-        time: formatClockNow(),
-        day: todayLocalIso(),
-        atMs,
-      },
+      ...kinds.map((kind, i) =>
+        buildTimePunch(kind, DEMO_WORKER.id, baseMs + i),
+      ),
     ]);
   };
 
   const onClockIn = () => {
     if (status !== "out") return;
-    addPunch("in");
+    appendPunches(["in"]);
     setStatus("in");
   };
 
   const onClockOut = () => {
     if (status === "out") return;
-    if (status === "break") addPunch("break-end");
-    addPunch("out");
+    // Single write: close break (if any) + out so today’s segments stay intact.
+    appendPunches(status === "break" ? ["break-end", "out"] : ["out"]);
     setStatus("out");
   };
 
   const onStartBreak = () => {
     if (status !== "in") return;
-    addPunch("break-start");
+    appendPunches(["break-start"]);
     setStatus("break");
   };
 
   const onEndBreak = () => {
     if (status !== "break") return;
-    addPunch("break-end");
+    appendPunches(["break-end"]);
     setStatus("in");
   };
 
@@ -54991,6 +55221,9 @@ function CompactHomePunchButton({
         height: size,
         borderRadius: 999,
         border: "none",
+        appearance: "none",
+        WebkitAppearance: "none",
+        fontFamily: "inherit",
         cursor: "pointer",
         background: theme.accent.primary,
         color: "#000000",
@@ -54998,18 +55231,20 @@ function CompactHomePunchButton({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: Math.max(2, Math.round(4 * scale)),
-        padding: `${punchPad}px ${Math.round(punchPad * 1.1)}px ${Math.max(8, punchPad - 2)}px`,
+        gap: Math.max(1, Math.round(dense ? 1 : 3 * scale)),
+        padding: `${punchPad}px ${Math.round(punchPad * 1.1)}px ${Math.max(6, punchPad - 2)}px`,
         textAlign: "center",
         flexShrink: 0,
       }}
     >
       <span
         style={{
-          fontSize: labelSize,
-          fontWeight: 600,
-          lineHeight: 1.2,
+          fontSize: statusActionSize,
+          fontWeight: 800,
+          lineHeight: 1.1,
+          letterSpacing: "-0.01em",
           color: "#000000",
+          maxWidth: labelMaxWidth,
         }}
       >
         {statusLabel}
@@ -55017,10 +55252,10 @@ function CompactHomePunchButton({
       {!dense ? (
         <span
           style={{
-            fontSize: labelSize,
-            fontWeight: 500,
-            lineHeight: 1.3,
-            color: "#000000",
+            fontSize: metaSize,
+            fontWeight: 600,
+            lineHeight: 1.25,
+            color: "rgba(0,0,0,0.78)",
             maxWidth: labelMaxWidth,
           }}
         >
@@ -55036,8 +55271,8 @@ function CompactHomePunchButton({
           fontWeight: 700,
           lineHeight: 1.05,
           letterSpacing: "-0.02em",
-          marginTop: dense ? 0 : 2,
-          marginBottom: dense ? 0 : 2,
+          marginTop: dense ? 0 : 1,
+          marginBottom: dense ? 0 : 1,
           color: "#000000",
           fontVariantNumeric: "tabular-nums",
         }}
@@ -55046,10 +55281,12 @@ function CompactHomePunchButton({
       </span>
       <span
         style={{
-          fontSize: labelSize,
-          fontWeight: 600,
-          lineHeight: 1.2,
+          fontSize: statusActionSize,
+          fontWeight: 800,
+          lineHeight: 1.1,
+          letterSpacing: "-0.01em",
           color: "#000000",
+          maxWidth: labelMaxWidth,
         }}
       >
         {status === "out" ? t(uiLang, "clockIn") : t(uiLang, "clockOut")}
@@ -64047,7 +64284,9 @@ function TimeClockScreen({
     return t(uiLang, "timeClockNavSettings");
   };
 
-  const nowMs = useLiveNowMs(status === "in" || status === "break");
+  const liveRunning = status === "in" || status === "break";
+  const tickMs = useLiveNowMs(liveRunning);
+  const nowMs = liveRunning ? tickMs : Math.max(tickMs, Date.now());
   const clockToday = todayLocalIso();
   const todayPunches = punches
     .filter(
@@ -64058,12 +64297,12 @@ function TimeClockScreen({
     )
     .slice()
     .sort((a, b) => parsePunchInstantMs(b) - parsePunchInstantMs(a));
+  const elapsedWorkerId = canPunch ? DEMO_WORKER.id : hoursWorkerId;
   const elapsed = formatElapsedClock(
-    workedSecondsFromPunches(
-      punches,
-      nowMs,
-      canPunch ? DEMO_WORKER.id : hoursWorkerId,
-    ),
+    workedSecondsFromPunches(punches, nowMs, elapsedWorkerId),
+  );
+  const faceElapsed = formatElapsedClock(
+    status === "out" ? 0 : openShiftSeconds(punches, nowMs, elapsedWorkerId),
   );
   const lastIn = todayPunches.find((p) => p.kind === "in");
 
@@ -64478,41 +64717,38 @@ function TimeClockScreen({
     );
   };
 
-  const addPunch = (kind: PunchKind) => {
-    const atMs = Date.now();
-    const punch: TimePunch = {
-      id: `tp-${atMs}`,
-      workerId: DEMO_WORKER.id,
-      kind,
-      time: formatClockNow(),
-      day: todayLocalIso(),
-      atMs,
-    };
-    setPunches((prev) => [...prev, punch]);
+  const appendPunches = (kinds: PunchKind[]) => {
+    if (kinds.length === 0) return;
+    const baseMs = Date.now();
+    setPunches((prev) => [
+      ...prev,
+      ...kinds.map((kind, i) =>
+        buildTimePunch(kind, DEMO_WORKER.id, baseMs + i),
+      ),
+    ]);
   };
 
   const onClockIn = () => {
     if (status !== "out") return;
-    addPunch("in");
+    appendPunches(["in"]);
     setStatus("in");
   };
 
   const onClockOut = () => {
     if (status === "out") return;
-    if (status === "break") addPunch("break-end");
-    addPunch("out");
+    appendPunches(status === "break" ? ["break-end", "out"] : ["out"]);
     setStatus("out");
   };
 
   const onStartBreak = () => {
     if (status !== "in") return;
-    addPunch("break-start");
+    appendPunches(["break-start"]);
     setStatus("break");
   };
 
   const onEndBreak = () => {
     if (status !== "break") return;
-    addPunch("break-end");
+    appendPunches(["break-end"]);
     setStatus("in");
   };
 
@@ -65110,6 +65346,9 @@ function TimeClockScreen({
           height: PUNCH_BUTTON_SIZE,
           borderRadius: 999,
           border: "none",
+          appearance: "none",
+          WebkitAppearance: "none",
+          fontFamily: "inherit",
           cursor: "pointer",
           background: theme.accent.primary,
           color: "#000000",
@@ -65124,20 +65363,22 @@ function TimeClockScreen({
       >
         <span
           style={{
-            fontSize: 13,
-            fontWeight: 600,
-            lineHeight: 1.2,
+            fontSize: 19,
+            fontWeight: 800,
+            lineHeight: 1.1,
+            letterSpacing: "-0.01em",
             color: "#000000",
+            maxWidth: 176,
           }}
         >
           {statusLabel}
         </span>
         <span
           style={{
-            fontSize: 13,
-            fontWeight: 500,
-            lineHeight: 1.3,
-            color: "#000000",
+            fontSize: 11,
+            fontWeight: 600,
+            lineHeight: 1.25,
+            color: "rgba(0,0,0,0.78)",
             maxWidth: 176,
           }}
         >
@@ -65148,23 +65389,26 @@ function TimeClockScreen({
         </span>
         <span
           style={{
-            fontSize: 32,
+            fontSize: 28,
             fontWeight: 700,
             lineHeight: 1.05,
             letterSpacing: "-0.02em",
-            marginTop: 2,
-            marginBottom: 2,
+            marginTop: 1,
+            marginBottom: 1,
             color: "#000000",
+            fontVariantNumeric: "tabular-nums",
           }}
         >
-          {elapsed}
+          {faceElapsed}
         </span>
         <span
           style={{
-            fontSize: 13,
-            fontWeight: 600,
-            lineHeight: 1.2,
+            fontSize: 19,
+            fontWeight: 800,
+            lineHeight: 1.1,
+            letterSpacing: "-0.01em",
             color: "#000000",
+            maxWidth: 176,
           }}
         >
           {status === "out" ? t(uiLang, "clockIn") : t(uiLang, "clockOut")}
@@ -78151,6 +78395,7 @@ function NewClientFormScreen({
             }}
           />
           <ModuleSectionTabs
+            layout="top"
             ariaLabel={`${t(uiLang, "prospectFormTabDetails")} / ${t(uiLang, "prospectChecklistTab")}`}
             items={[
               {
@@ -80018,18 +80263,30 @@ export default function CrmModulesHome() {
   }, []);
 
   /**
-   * Android Menu: drop stale ModuleSectionTabs overflow when the route no
-   * longer mounts a side-section publisher (publishers re-seed on mount).
+   * Android Menu: drop overflow whose routeKey does not match the live route.
+   * Never keep a previous module's ModuleSectionTabs items after navigation.
    */
+  const liveAndroidMenuRouteKey = androidOverflowRouteKey(
+    screen,
+    selectedCategory,
+  );
+  const liveAndroidSectionMenu =
+    androidSectionMenu &&
+    androidSectionMenu.routeKey === liveAndroidMenuRouteKey
+      ? androidSectionMenu
+      : null;
   useEffect(() => {
     if (!androidPreview) {
       if (androidSectionMenu) setAndroidSectionMenu(null);
       return;
     }
-    if (screen !== "client-card" && screen !== "new-client") {
-      if (androidSectionMenu) setAndroidSectionMenu(null);
+    if (
+      androidSectionMenu &&
+      androidSectionMenu.routeKey !== liveAndroidMenuRouteKey
+    ) {
+      setAndroidSectionMenu(null);
     }
-  }, [androidPreview, screen, selectedCategory]);
+  }, [androidPreview, screen, selectedCategory, liveAndroidMenuRouteKey]);
 
   /** Seed Individual Tax Return into firmDepartments + one random worker (once). */
   useEffect(() => {
@@ -81366,6 +81623,8 @@ export default function CrmModulesHome() {
     clearHoverLeaveTimer();
     setHoverKey(null);
     trailModeRef.current = "clear";
+    setAndroidSectionMenu(null);
+    setAndroidDrawerOpen(false);
     setSelectedCategory(id);
     setNavSecondaryOpen(true);
     if (id === "workers" && isAdminLike(role)) {
@@ -82521,7 +82780,7 @@ export default function CrmModulesHome() {
                   </div>
                   {androidDrawerOpen ? (
                     <div
-                      key={`android-menu-${screen}-${normalizePrimaryCategory(selectedCategory)}-${filter}-${billingNavShell}-${toolsModuleShell}-${timeClockNav}`}
+                      key={`android-menu-${liveAndroidMenuRouteKey}-${filter}-${billingNavShell}-${toolsModuleShell}-${timeClockNav}-${androidSectionMenu?.ariaLabel ?? "sec"}-${androidSectionMenu?.activeId ?? ""}`}
                       data-chrome="android-secondary-drawer"
                       style={{
                         flex: 1,
@@ -82544,7 +82803,7 @@ export default function CrmModulesHome() {
                         }}
                       >
                         <ChromeText weight="semibold" size="small">
-                          {androidSectionMenu?.title ||
+                          {liveAndroidSectionMenu?.title ||
                             secondaryTitle ||
                             t(uiLang, "androidSecondaryNav")}
                         </ChromeText>
@@ -82571,8 +82830,8 @@ export default function CrmModulesHome() {
                           boxSizing: "border-box",
                         }}
                       >
-                        {androidSectionMenu &&
-                        androidSectionMenu.items.length > 0 ? (
+                        {liveAndroidSectionMenu &&
+                        liveAndroidSectionMenu.items.length > 0 ? (
                           <Stack gap={6} style={{ marginBottom: 12 }}>
                             <ChromeText
                               size="small"
@@ -82582,11 +82841,11 @@ export default function CrmModulesHome() {
                                 paddingInline: 4,
                               }}
                             >
-                              {androidSectionMenu.title}
+                              {liveAndroidSectionMenu.title}
                             </ChromeText>
-                            {androidSectionMenu.items.map((item) => {
+                            {liveAndroidSectionMenu.items.map((item) => {
                               const active =
-                                androidSectionMenu.activeId === item.id;
+                                liveAndroidSectionMenu.activeId === item.id;
                               return (
                                 <button
                                   key={`section-${screen}-${item.id}`}
@@ -82731,7 +82990,19 @@ export default function CrmModulesHome() {
                 >
                   <button
                     type="button"
-                    onClick={() => setAndroidDrawerOpen((o) => !o)}
+                    onClick={() => {
+                      setAndroidDrawerOpen((o) => {
+                        if (o) return false;
+                        if (
+                          androidSectionMenu &&
+                          androidSectionMenu.routeKey !==
+                            liveAndroidMenuRouteKey
+                        ) {
+                          setAndroidSectionMenu(null);
+                        }
+                        return true;
+                      });
+                    }}
                     title={t(uiLang, "androidNavMenu")}
                     aria-label={t(uiLang, "androidNavMenu")}
                     aria-expanded={androidDrawerOpen}

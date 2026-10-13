@@ -196,6 +196,8 @@
       KEEP THE TOPIC URL IN SYNC with demo-web/src/temp-suggestions/store.ts.
       A done mark POSTs {"id","done":true}. The latest done flag wins.
       A delete tombstone still wins over done. Writes never replace the list.
+      POST once. ntfy can take about two seconds to show the message on read.
+      Do not post again just because the read is briefly behind.
     -->
     <main>
       <h1>הצעות לדמו</h1>
@@ -484,6 +486,45 @@
         });
       }
 
+      async function postBody(body) {
+        let lastError = new Error("write failed");
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            const response = await fetch(TOPIC_URL, {
+              method: "POST",
+              headers: { "Content-Type": "text/plain; charset=UTF-8" },
+              body: body,
+            });
+            const text = await response.text();
+            if (response.ok) return;
+            const detail = String(text || "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 180);
+            lastError = new Error("write " + response.status + (detail ? " " + detail : ""));
+            await sleep(response.status === 429 ? 6000 : 1000 * (attempt + 1));
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error("write failed");
+            await sleep(1000 * (attempt + 1));
+          }
+        }
+        throw lastError;
+      }
+
+      async function pollReady(ready) {
+        const pauses = [2200, 1500];
+        for (const pause of pauses) {
+          await sleep(pause);
+          try {
+            rememberParsed(await readTopic());
+            if (ready()) return true;
+          } catch (error) {
+            /* A late or rate-limited read must not undo a POST that succeeded. */
+          }
+        }
+        return false;
+      }
+
       async function readTopic() {
         const response = await fetch(TOPIC_URL + "/json?poll=1&since=all", { cache: "no-store" });
         if (!response.ok) throw new Error(String(response.status));
@@ -524,30 +565,9 @@
         render(latest);
         status.className = "status";
         status.textContent = "מוחק…";
-        let removed = false;
-        let lastError = null;
         try {
-          for (let attempt = 0; attempt < 5 && !removed; attempt += 1) {
-            try {
-              const response = await fetch(TOPIC_URL, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain; charset=UTF-8" },
-                body: JSON.stringify({ id: id, deleted: true }),
-              });
-              if (!response.ok) throw new Error(String(response.status));
-              await sleep(1500);
-              rememberParsed(await readTopic());
-              if (!latest.some((item) => item.id === id)) {
-                removed = true;
-                break;
-              }
-              lastError = new Error("still present");
-            } catch (error) {
-              lastError = error;
-            }
-            await sleep(500 * (attempt + 1));
-          }
-          if (!removed) throw lastError || new Error("delete failed");
+          await postBody(JSON.stringify({ id: id, deleted: true }));
+          await pollReady(() => !latest.some((item) => item.id === id));
           render(latest);
           showStatus(latest);
         } catch (error) {
@@ -572,31 +592,14 @@
         render(latest);
         status.className = "status";
         status.textContent = "מסמן…";
-        let marked = false;
-        let lastError = null;
         try {
-          for (let attempt = 0; attempt < 5 && !marked; attempt += 1) {
-            try {
-              const response = await fetch(TOPIC_URL, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain; charset=UTF-8" },
-                body: JSON.stringify({ id: id, done: true }),
-              });
-              if (!response.ok) throw new Error(String(response.status));
-              await sleep(1500);
-              rememberParsed(await readTopic());
-              const gone = !latest.some((item) => item.id === id);
-              if (gone || serverDone.has(id) || serverDone.has(id.trim())) {
-                marked = true;
-                break;
-              }
-              lastError = new Error("not done");
-            } catch (error) {
-              lastError = error;
-            }
-            await sleep(500 * (attempt + 1));
-          }
-          if (!marked) throw lastError || new Error("done failed");
+          await postBody(JSON.stringify({ id: id, done: true }));
+          await pollReady(
+            () =>
+              !latest.some((item) => item.id === id) ||
+              serverDone.has(id) ||
+              serverDone.has(id.trim()),
+          );
           render(latest);
           showStatus(latest);
         } catch (error) {

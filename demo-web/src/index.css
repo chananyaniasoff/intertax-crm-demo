@@ -14,6 +14,17 @@ body {
 }
 
 /*
+ * Cursor's canvas host paints <button> as a custom control (inherited
+ * type, no native chrome). Without this, the round punch clock keeps
+ * the Windows button face and Arial metrics.
+ */
+button {
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/*
  * Cursor's light canvas host paints thin overlay scrollbars (rounded,
  * low-contrast thumb, transparent track, no arrow buttons). A plain
  * browser uses the Windows classic scrollbar on every overflow pane,

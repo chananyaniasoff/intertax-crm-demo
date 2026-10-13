@@ -7,21 +7,26 @@
  * 400 "Endpoint has exceeded allowed number of requests (100)." jsonblob.com
  * still blocks browser writes from this network with Cloudflare.
  *
- * The shared log is one public ntfy.sh topic. A save POSTs one message and
- * then re-reads. It never replaces the whole list, so two people adding at
- * once cannot wipe each other. ntfy.sh public topics cannot delete or edit
- * one cached message without auth, so a delete POSTs a tombstone
- * `{ "id": "<same id>", "deleted": true }` and a done mark POSTs
- * `{ "id": "<same id>", "done": true }`. Both leave every other message in
- * place. Readers skip an id once any tombstone names it. Readers treat the
- * latest done flag for that id as its done state, and a tombstone still
- * wins over done. ntfy.sh keeps each message for 12 hours and does not
- * require an account. The topic name is a public resource id, not an API
- * secret. Do not put private client data in a suggestion.
+ * The shared log is one public ntfy.sh topic. A save POSTs one message. It
+ * never replaces the whole list, so two people adding at once cannot wipe
+ * each other. ntfy.sh public topics cannot delete or edit one cached message
+ * without auth, so a delete POSTs a tombstone `{ "id": "<same id>", "deleted":
+ * true }` and a done mark POSTs `{ "id": "<same id>", "done": true }`. Both
+ * leave every other message in place. Readers skip an id once any tombstone
+ * names it. Readers treat the latest done flag for that id as its done state,
+ * and a tombstone still wins over done. ntfy.sh keeps each message for 12
+ * hours and does not require an account. The topic name is a public resource
+ * id, not an API secret. Do not put private client data in a suggestion.
+ *
+ * A POST often returns HTTP 200 before GET /json?poll=1&since=all includes
+ * that message (about two seconds on the public server). Re-posting while the
+ * cache catches up burns the anonymous daily message cap (250) and the
+ * request bucket (60, then one every 5 seconds). Post once. Poll the read a
+ * couple of times. If the POST succeeded and the read is still behind, merge
+ * that one message into the local snapshot instead of failing the save.
  *
  * KEEP THE URL IN SYNC with demo-web/public/suggestions.html.
- * Poll about every 30s. ntfy.sh refills one request per 10 seconds after a
- * short burst, and the demo page and the inbox poll separately.
+ * Poll about every 30s. The demo page and the inbox poll separately.
  */
 
 export const SUGGESTION_TOPIC_URL = "https://ntfy.sh/intertax-crm-demo-sug-7f3a9c2e4b81";
@@ -190,12 +195,19 @@ function suggestionsFromTopic(text: string): SuggestionSnapshot {
   };
 }
 
+function clipError(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
 export async function readSuggestions(): Promise<SuggestionSnapshot> {
   const response = await fetch(`${SUGGESTION_TOPIC_URL}/json?poll=1&since=all`, {
     cache: "no-store",
     credentials: "omit",
   });
-  if (!response.ok) throw new Error(`read ${response.status}`);
+  if (!response.ok) {
+    const detail = clipError(await response.text().catch(() => ""));
+    throw new Error(`read ${response.status}${detail ? ` ${detail}` : ""}`);
+  }
   return suggestionsFromTopic(await response.text());
 }
 
@@ -217,84 +229,122 @@ function messageBody(item: Suggestion): string {
 }
 
 async function postMessage(body: string): Promise<void> {
-  const response = await fetch(SUGGESTION_TOPIC_URL, {
-    method: "POST",
-    credentials: "omit",
-    headers: { "Content-Type": "text/plain; charset=UTF-8" },
-    body,
-  });
-  if (!response.ok) throw new Error(`write ${response.status}`);
+  let lastError: Error = new Error("write failed");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(SUGGESTION_TOPIC_URL, {
+        method: "POST",
+        credentials: "omit",
+        headers: { "Content-Type": "text/plain; charset=UTF-8" },
+        body,
+      });
+      const text = await response.text().catch(() => "");
+      if (response.ok) return;
+      const detail = clipError(text);
+      lastError = new Error(`write ${response.status}${detail ? ` ${detail}` : ""}`);
+      await sleep(response.status === 429 ? 6000 : 1000 * (attempt + 1));
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("write failed");
+      await sleep(1000 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+async function pollSnapshot(
+  ready: (snapshot: SuggestionSnapshot) => boolean,
+): Promise<SuggestionSnapshot | null> {
+  let last: SuggestionSnapshot | null = null;
+  const pauses = [2200, 1500];
+  for (const pause of pauses) {
+    await sleep(pause);
+    try {
+      last = await readSuggestions();
+      if (ready(last)) return last;
+    } catch {
+      /* A rate-limited read must not undo a POST that already returned 200. */
+    }
+  }
+  return last;
+}
+
+function emptySnapshot(): SuggestionSnapshot {
+  return { suggestions: [], deletedIds: [], doneIds: [] };
+}
+
+function hasId(ids: string[], id: string): boolean {
+  return ids.includes(id) || ids.includes(id.trim());
 }
 
 export async function appendSuggestion(item: Suggestion): Promise<SuggestionSnapshot> {
-  let lastError: unknown = new Error("save failed");
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      const current = await readSuggestions();
-      if (current.suggestions.some((suggestion) => suggestion.id === item.id)) return current;
-      await postMessage(messageBody(item));
-      await sleep(1500);
-      const verified = await readSuggestions();
-      if (verified.suggestions.some((suggestion) => suggestion.id === item.id)) return verified;
-      lastError = new Error("missing after write");
-    } catch (error) {
-      lastError = error;
-    }
-    await sleep(500 * (attempt + 1));
+  try {
+    const current = await readSuggestions();
+    if (current.suggestions.some((suggestion) => suggestion.id === item.id)) return current;
+  } catch {
+    /* Still try the write. A failed read is not proof the note is missing. */
   }
-  throw lastError instanceof Error ? lastError : new Error("save failed");
+  await postMessage(messageBody(item));
+  const confirmed = await pollSnapshot((snapshot) =>
+    snapshot.suggestions.some((suggestion) => suggestion.id === item.id),
+  );
+  if (confirmed?.suggestions.some((suggestion) => suggestion.id === item.id)) return confirmed;
+  const base = confirmed ?? emptySnapshot();
+  return {
+    suggestions: mergeSuggestions(base.suggestions, [item], base.deletedIds),
+    deletedIds: base.deletedIds,
+    doneIds: base.doneIds,
+  };
 }
 
 export async function deleteSuggestion(id: string): Promise<SuggestionSnapshot> {
   if (!id.trim()) throw new Error("missing id");
-  const body = JSON.stringify({ id, deleted: true });
-  let lastError: unknown = new Error("delete failed");
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      const current = await readSuggestions();
-      const marked = current.deletedIds.includes(id) || current.deletedIds.includes(id.trim());
-      const present = current.suggestions.some((suggestion) => suggestion.id === id);
-      if (marked && !present) return current;
-      if (!marked) {
-        await postMessage(body);
-        await sleep(1500);
-      }
-      const verified = await readSuggestions();
-      const stillThere = verified.suggestions.some((suggestion) => suggestion.id === id);
-      const nowMarked = verified.deletedIds.includes(id) || verified.deletedIds.includes(id.trim());
-      if (!stillThere && (nowMarked || !present)) return verified;
-      lastError = new Error("still present after delete");
-    } catch (error) {
-      lastError = error;
-    }
-    await sleep(500 * (attempt + 1));
+  try {
+    const current = await readSuggestions();
+    const marked = hasId(current.deletedIds, id);
+    const present = current.suggestions.some((suggestion) => suggestion.id === id);
+    if (marked && !present) return current;
+  } catch {
+    /* Post the tombstone even if the latest read was rate-limited. */
   }
-  throw lastError instanceof Error ? lastError : new Error("delete failed");
+  await postMessage(JSON.stringify({ id, deleted: true }));
+  const confirmed = await pollSnapshot((snapshot) => {
+    const gone = !snapshot.suggestions.some((suggestion) => suggestion.id === id);
+    return gone && hasId(snapshot.deletedIds, id);
+  });
+  if (
+    confirmed &&
+    hasId(confirmed.deletedIds, id) &&
+    !confirmed.suggestions.some((suggestion) => suggestion.id === id)
+  ) {
+    return confirmed;
+  }
+  const base = confirmed ?? emptySnapshot();
+  const deletedIds = hasId(base.deletedIds, id) ? base.deletedIds : [...base.deletedIds, id];
+  return {
+    suggestions: base.suggestions.filter((suggestion) => suggestion.id !== id),
+    deletedIds,
+    doneIds: base.doneIds.filter((doneId) => doneId !== id && doneId.trim() !== id.trim()),
+  };
 }
 
 export async function markSuggestionDone(id: string): Promise<SuggestionSnapshot> {
   if (!id.trim()) throw new Error("missing id");
-  const body = JSON.stringify({ id, done: true });
-  let lastError: unknown = new Error("done failed");
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      const current = await readSuggestions();
-      const deleted = current.deletedIds.includes(id) || current.deletedIds.includes(id.trim());
-      if (deleted) return current;
-      const already = current.doneIds.includes(id) || current.doneIds.includes(id.trim());
-      if (!already) {
-        await postMessage(body);
-        await sleep(1500);
-      }
-      const verified = await readSuggestions();
-      const nowDeleted = verified.deletedIds.includes(id) || verified.deletedIds.includes(id.trim());
-      const nowDone = verified.doneIds.includes(id) || verified.doneIds.includes(id.trim());
-      if (nowDeleted || nowDone) return verified;
-      lastError = new Error("not done after write");
-    } catch (error) {
-      lastError = error;
-    }
-    await sleep(500 * (attempt + 1));
+  try {
+    const current = await readSuggestions();
+    if (hasId(current.deletedIds, id)) return current;
+    if (hasId(current.doneIds, id)) return current;
+  } catch {
+    /* Post the done mark even if the latest read was rate-limited. */
   }
-  throw lastError instanceof Error ? lastError : new Error("done failed");
+  await postMessage(JSON.stringify({ id, done: true }));
+  const confirmed = await pollSnapshot(
+    (snapshot) => hasId(snapshot.deletedIds, id) || hasId(snapshot.doneIds, id),
+  );
+  if (confirmed && (hasId(confirmed.deletedIds, id) || hasId(confirmed.doneIds, id))) return confirmed;
+  const base = confirmed ?? emptySnapshot();
+  if (hasId(base.deletedIds, id)) return base;
+  return {
+    ...base,
+    doneIds: hasId(base.doneIds, id) ? base.doneIds : [...base.doneIds, id],
+  };
 }
