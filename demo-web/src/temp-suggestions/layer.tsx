@@ -507,20 +507,18 @@ export function SuggestionLayer() {
                 if (done && !open) {
                   return (
                     <li key={suggestion.id}>
-                      <div className={itemClass}>
+                      <div className={itemClass} data-suggestion-id={suggestion.id}>
                         <div className="itx-sug-collapsed-row">
                           <button
                             type="button"
-                            data-suggestion-id={suggestion.id}
                             className="itx-sug-line"
-                            title={suggestion.text}
                             aria-expanded={false}
                             onClick={() => expandSuggestion(suggestion.id)}
                           >
                             <span className="itx-sug-num">{index + 1}</span>
                             <span className="itx-sug-author">{suggestion.author}</span>
-                            <span className="itx-sug-line-text">{suggestion.text}</span>
                           </button>
+                          <p className="itx-sug-line-text">{suggestion.text}</p>
                           <button
                             type="button"
                             className="itx-sug-mini"
@@ -536,30 +534,29 @@ export function SuggestionLayer() {
                 }
                 return (
                   <li key={suggestion.id}>
-                    <div className={itemClass}>
-                      <button
-                        type="button"
-                        data-suggestion-id={suggestion.id}
-                        className="itx-sug-item-main"
-                        aria-expanded={done ? true : undefined}
-                        onClick={() => {
-                          if (done) collapseSuggestion(suggestion.id);
-                          else setActiveId(suggestion.id);
-                        }}
-                      >
-                        <span className="itx-sug-item-head">
+                    <div className={itemClass} data-suggestion-id={suggestion.id}>
+                      <div className="itx-sug-item-main">
+                        <button
+                          type="button"
+                          className="itx-sug-item-head"
+                          aria-expanded={done ? true : undefined}
+                          onClick={() => {
+                            if (done) collapseSuggestion(suggestion.id);
+                            else setActiveId(suggestion.id);
+                          }}
+                        >
                           <span className="itx-sug-num">{index + 1}</span>
                           <span className="itx-sug-author">{suggestion.author}</span>
                           <time className="itx-sug-time" dateTime={suggestion.createdAt}>
                             {formatTime(suggestion.createdAt)}
                           </time>
-                        </span>
+                        </button>
                         <p className="itx-sug-text">{suggestion.text}</p>
                         <p className="itx-sug-meta">
                           {suggestion.anchor ? `ליד: ${suggestion.anchor}` : "בלי טקסט קרוב"}
                           {` · ${Math.round(suggestion.xPct)}% לרוחב, ${Math.round(suggestion.yPct)}% לגובה`}
                         </p>
-                      </button>
+                      </div>
                       <div className="itx-sug-item-actions">
                         {done ? (
                           <button

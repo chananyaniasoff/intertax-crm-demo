@@ -95,11 +95,14 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        flex: 1 1 auto;
+        flex: 0 1 auto;
+        max-width: 46%;
         min-width: 0;
         padding: 0;
         border-radius: 8px;
         text-align: right;
+        -webkit-user-select: none;
+        user-select: none;
       }
       button.head {
         width: 100%;
@@ -178,6 +181,9 @@
         text-overflow: ellipsis;
         margin: 0;
         color: #6f675d;
+        cursor: text;
+        -webkit-user-select: text;
+        user-select: text;
       }
       time {
         margin-inline-start: auto;
@@ -187,6 +193,13 @@
       p {
         margin: 0 0 6px;
         white-space: pre-wrap;
+        cursor: text;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      p.excerpt {
+        margin: 0;
+        white-space: nowrap;
       }
     </style>
   </head>
@@ -309,7 +322,6 @@
             const line = document.createElement("button");
             line.type = "button";
             line.className = "line";
-            line.title = item.text;
             line.setAttribute("aria-expanded", "false");
             line.addEventListener("click", () => {
               expandedIds.add(item.id);
@@ -321,10 +333,10 @@
             const author = document.createElement("span");
             author.className = "author";
             author.textContent = item.author;
-            const excerpt = document.createElement("span");
+            line.append(num, author);
+            const excerpt = document.createElement("p");
             excerpt.className = "excerpt";
             excerpt.textContent = item.text;
-            line.append(num, author, excerpt);
             const expand = document.createElement("button");
             expand.type = "button";
             expand.className = "mini";
@@ -333,7 +345,7 @@
               expandedIds.add(item.id);
               render(latest);
             });
-            card.append(line, expand, makeDelete(item.id));
+            card.append(line, excerpt, expand, makeDelete(item.id));
             li.appendChild(card);
             list.appendChild(li);
             continue;

@@ -1,4 +1,4 @@
-import {
+﻿import {
   BarChart,
   Callout,
   Card,
@@ -32,8 +32,8 @@ import {
   type TableProps,
   type TextProps,
 } from "cursor/canvas";
-/** Bust stale canvas preview — clock-out returns the punch face to 0:00. */
-const GMAIL_DUAL_NAV_BUILD = "v732-2026-10-13-clock-out-reset";
+/** Bust stale canvas preview — Out=closed day frozen; In=session from 0; contrast. */
+const GMAIL_DUAL_NAV_BUILD = "v752-2026-10-13-admin-fees-screen";
 /**
  * Persisted Android phone-preview toggle (useCanvasState key + localStorage).
  * v2 — stale v1 is cleared on hydrate so Home wins; intentional ON persists as "1".
@@ -1143,6 +1143,7 @@ type Screen =
   | "help-feedback"
   | "ai-maintenance"
   | "reports"
+  | "fees"
   | "placeholder";
 
 /**
@@ -1175,6 +1176,7 @@ function secondaryIdentity(
   }
   if (screen === "departments") return "departments";
   if (screen === "reports") return "reports";
+  if (screen === "fees") return "fees";
   if (
     screen === "clients" ||
     screen === "new-client" ||
@@ -3583,6 +3585,33 @@ const CRM_UI = {
     he: "חשבוניות מס ודרישות תשלום ב־CRM",
   },
   hintFees: { en: "Agreed fee schedules", he: "לוחות שכר טרחה מוסכמים" },
+  feesHint: {
+    en: "Firm default fee schedules — amount (ILS), frequency, and terms EN/HE. Managers use these when agreeing client fees.",
+    he: "לוחות שכר טרחה ברירת מחדל — סכום (₪), תדירות, ותנאים EN/HE. מנהלים משתמשים בהן בהסכמת שכר טרחה ללקוח.",
+  },
+  feesAdd: { en: "Add fee type", he: "הוספת סוג שכר טרחה" },
+  feesEdit: { en: "Edit", he: "עריכה" },
+  feesDelete: { en: "Delete", he: "מחיקה" },
+  feesSave: { en: "Save", he: "שמירה" },
+  feesCancel: { en: "Cancel", he: "ביטול" },
+  feesNameEn: { en: "Name (EN)", he: "שם (EN)" },
+  feesNameHe: { en: "Name (HE)", he: "שם (HE)" },
+  feesAmount: { en: "Amount (ILS)", he: "סכום (₪)" },
+  feesFrequency: { en: "Frequency", he: "תדירות" },
+  feesTermsEn: { en: "Terms (EN)", he: "תנאים (EN)" },
+  feesTermsHe: { en: "Terms (HE)", he: "תנאים (HE)" },
+  feesEmpty: {
+    en: "No fee schedules yet.",
+    he: "אין לוחות שכר טרחה עדיין.",
+  },
+  feesNameRequired: {
+    en: "Name (EN) is required.",
+    he: "שם (EN) חובה.",
+  },
+  feesWho: {
+    en: "Manager and System Admin can edit firm fee schedules in this demo.",
+    he: "מנהל ומנהל מערכת יכולים לערוך לוחות שכר טרחה בדמו זה.",
+  },
   hintAssign: { en: "Who owns each file", he: "מי אחראי על כל תיק" },
   hintReports: {
     en: "Hours, cash flow, progress, VAT, WIP",
@@ -4259,6 +4288,10 @@ const CRM_UI = {
     en: "VAT reported",
     he: "דווח מע״מ",
   },
+  bkCheckSalaries: {
+    en: "Salaries / payroll processed",
+    he: "משכורות עובדו",
+  },
   taxReturnProcessTitle: {
     en: "Personal tax return process",
     he: "תהליך הכנת והגשת דוח אישי",
@@ -4555,6 +4588,42 @@ const CRM_UI = {
     en: "Adds under the selected folder (or client root).",
     he: "נוסף תחת התיקייה שנבחרה (או שורש הלקוח).",
   },
+  taxReturnFolderUpload: {
+    en: "Upload",
+    he: "העלאה",
+  },
+  taxReturnFolderUploadHint: {
+    en: "Upload into the current folder.",
+    he: "העלאה לתיקייה הנוכחית.",
+  },
+  taxReturnFolderPreview: {
+    en: "Preview",
+    he: "תצוגה מקדימה",
+  },
+  taxReturnFolderPreviewClose: {
+    en: "Close preview",
+    he: "סגור תצוגה",
+  },
+  taxReturnFolderViewList: {
+    en: "List",
+    he: "רשימה",
+  },
+  taxReturnFolderViewGrid: {
+    en: "Grid",
+    he: "רשת",
+  },
+  taxReturnFolderViewIcons: {
+    en: "Icons",
+    he: "סמלים",
+  },
+  taxReturnFolderItems: {
+    en: "Items",
+    he: "פריטים",
+  },
+  taxReturnFolderCtxNew: {
+    en: "New folder",
+    he: "תיקייה חדשה",
+  },
   taxReturnYearCurrent: {
     en: "{year} · current",
     he: "{year} · נוכחי",
@@ -4751,6 +4820,10 @@ const CRM_UI = {
     en: "VAT",
     he: "מע״מ",
   },
+  bkNavSalaries: {
+    en: "Salaries",
+    he: "משכורות",
+  },
   bkWorkingFolder: {
     en: "Bookkeeping folder",
     he: "תיקיית הנהלת חשבונות",
@@ -4762,6 +4835,22 @@ const CRM_UI = {
   bkRequestHint: {
     en: "Request documents from the client via portal, email, or WhatsApp — or upload files manually for this bookkeeping year.",
     he: "בקשו מסמכים מהלקוח דרך פורטל, אימייל או וואטסאפ — או העלו קבצים ידנית לשנת הנה״ח.",
+  },
+  bkSeeMessage: {
+    en: "See message",
+    he: "הצג הודעה",
+  },
+  bkRequestPreviewTitle: {
+    en: "Request message preview",
+    he: "תצוגת הודעת בקשה",
+  },
+  bkRequestPreviewEmail: {
+    en: "Recipient email",
+    he: "אימייל נמען",
+  },
+  bkRequestPreviewWhatsApp: {
+    en: "WhatsApp phone",
+    he: "טלפון וואטסאפ",
   },
   bkUploadManual: {
     en: "Upload manually (demo)",
@@ -7681,6 +7770,14 @@ const CRM_UI = {
     en: "Client WhatsApp (demo)",
     he: "וואטסאפ לקוח (דמו)",
   },
+  clientEmailSurface: {
+    en: "Client email (demo)",
+    he: "אימייל לקוח (דמו)",
+  },
+  clientPortalSurface: {
+    en: "Client portal (demo)",
+    he: "פורטל לקוח (דמו)",
+  },
   androidPreviewSurface: {
     en: "Android preview",
     he: "תצוגת Android",
@@ -8249,6 +8346,8 @@ const CRM_UI = {
   clockStatusOut: { en: "Out", he: "בחוץ" },
   clockStatusBreak: { en: "On break", he: "בהפסקה" },
   todayElapsed: { en: "Today’s elapsed", he: "זמן היום" },
+  /** In/break face — open session timer from last clock-in. */
+  sessionElapsed: { en: "Session elapsed", he: "זמן משמרת" },
   sinceTime: { en: "Since", he: "מאז" },
   todaysPunches: { en: "Today’s punches", he: "דיווחים להיום" },
   punchIn: { en: "In", he: "כניסה" },
@@ -11244,6 +11343,175 @@ type TaxReturnCustomFolder = {
   parentId: string;
 };
 
+/** Demo uploads staff add into the working folder explorer. */
+type TaxReturnFolderUpload = {
+  id: string;
+  label: string;
+  parentId: string;
+};
+
+type FolderExplorerViewMode = "list" | "grid" | "icons";
+
+function cloneTaxReturnFolderTree(
+  nodes: TaxReturnFolderNode[],
+): TaxReturnFolderNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    children: n.children ? cloneTaxReturnFolderTree(n.children) : undefined,
+  }));
+}
+
+function injectTaxReturnFolderChild(
+  nodes: TaxReturnFolderNode[],
+  parentId: string,
+  child: TaxReturnFolderNode,
+): boolean {
+  for (const n of nodes) {
+    if (n.id === parentId && n.kind === "folder") {
+      n.children = [...(n.children ?? []), child];
+      return true;
+    }
+    if (n.children && injectTaxReturnFolderChild(n.children, parentId, child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function applyFolderExplorerOverlays(
+  tree: TaxReturnFolderNode[],
+  folders: TaxReturnCustomFolder[],
+  uploads: TaxReturnFolderUpload[],
+): TaxReturnFolderNode[] {
+  const next = cloneTaxReturnFolderTree(tree);
+  const fallbackParent = next[0]?.id;
+  for (const f of folders) {
+    const parentId = f.parentId || fallbackParent;
+    if (!parentId) continue;
+    const node: TaxReturnFolderNode = {
+      id: f.id,
+      label: f.label,
+      kind: "folder",
+      children: [],
+    };
+    if (!injectTaxReturnFolderChild(next, parentId, node) && fallbackParent) {
+      injectTaxReturnFolderChild(next, fallbackParent, node);
+    }
+  }
+  for (const u of uploads) {
+    const parentId = u.parentId || fallbackParent;
+    if (!parentId) continue;
+    const node: TaxReturnFolderNode = {
+      id: u.id,
+      label: u.label,
+      kind: "file",
+    };
+    if (!injectTaxReturnFolderChild(next, parentId, node) && fallbackParent) {
+      injectTaxReturnFolderChild(next, fallbackParent, node);
+    }
+  }
+  return next;
+}
+
+function findTaxReturnFolderNode(
+  nodes: TaxReturnFolderNode[],
+  id: string,
+): TaxReturnFolderNode | null {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    if (n.children) {
+      const hit = findTaxReturnFolderNode(n.children, id);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/** Returns parent id, "" if node is a root, or null if not found. */
+function findTaxReturnFolderParentId(
+  nodes: TaxReturnFolderNode[],
+  id: string,
+  parentId: string | null = null,
+): string | null {
+  for (const n of nodes) {
+    if (n.id === id) return parentId ?? "";
+    if (n.children) {
+      const hit = findTaxReturnFolderParentId(n.children, id, n.id);
+      if (hit !== null) return hit;
+    }
+  }
+  return null;
+}
+
+function folderExplorerFileExt(label: string): string {
+  const i = label.lastIndexOf(".");
+  if (i < 0 || i === label.length - 1) return "";
+  return label.slice(i + 1).toLowerCase();
+}
+
+function folderExplorerFileGlyph(label: string, kind: "folder" | "file"): string {
+  if (kind === "folder") return "DIR";
+  const ext = folderExplorerFileExt(label);
+  if (ext === "pdf") return "PDF";
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") return "XLS";
+  if (ext === "txt" || ext === "eml") return "TXT";
+  if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif") {
+    return "IMG";
+  }
+  return "DOC";
+}
+
+function folderExplorerPreviewBody(
+  lang: UiLang,
+  label: string,
+): { title: string; lines: string[] } {
+  const ext = folderExplorerFileExt(label);
+  if (ext === "pdf") {
+    return {
+      title: lang === "he" ? "תצוגת PDF" : "PDF preview",
+      lines: [
+        lang === "he"
+          ? "עמוד 1 · תצוגה מקדימה לדוגמה"
+          : "Page 1 · demo preview canvas",
+        label,
+        lang === "he"
+          ? "המסמך זמין לצפייה במצב הדגמה."
+          : "Document available for demo viewing.",
+      ],
+    };
+  }
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+    return {
+      title: lang === "he" ? "תצוגת גיליון" : "Spreadsheet preview",
+      lines: [
+        "A1 · Client  |  B1 · Year  |  C1 · Amount",
+        "A2 · Sample  |  B2 · 2024  |  C2 · 1,250",
+        lang === "he" ? "(תצוגה מקדימה לדוגמה)" : "(demo grid preview)",
+      ],
+    };
+  }
+  if (ext === "txt" || ext === "eml") {
+    return {
+      title: lang === "he" ? "תצוגת טקסט" : "Text preview",
+      lines: [
+        lang === "he"
+          ? "שלום, מצורפים מסמכים לבדיקה."
+          : "Hello, attached are documents for review.",
+        lang === "he" ? "בברכה, צוות המשרד" : "Regards, firm team",
+      ],
+    };
+  }
+  return {
+    title: lang === "he" ? "תצוגת קובץ" : "File preview",
+    lines: [
+      label,
+      lang === "he"
+        ? "תצוגה מקדימה לדוגמה לקובץ זה."
+        : "Demo preview for this file.",
+    ],
+  };
+}
+
 const TAX_RETURN_YEARS = ["2025", "2024", "2023", "2022", "2021"] as const;
 type TaxReturnYear = (typeof TAX_RETURN_YEARS)[number];
 
@@ -12065,14 +12333,16 @@ function auditMonthlyYearAverage(monthly: Record<string, number>): number {
 
 /**
  * Bookkeeping / monthly-reporting checklist item ids.
- * Default template (20% each): import → match → reconcile → VAT reported → close.
+ * Default template: import → match → reconcile → VAT → salaries → close.
  */
 const BK_VAT_CHECK_ID = "bk-c5";
+const BK_SALARIES_CHECK_ID = "bk-c6";
 const BK_MONTH_CHECKLIST_IDS = [
   "bk-c1",
   "bk-c2",
   "bk-c3",
   BK_VAT_CHECK_ID,
+  BK_SALARIES_CHECK_ID,
   "bk-c4",
 ] as const;
 const BK_CORE_CHECKLIST_IDS = BK_MONTH_CHECKLIST_IDS;
@@ -12115,7 +12385,7 @@ function worseWorkFlowStatus(
 }
 
 /** How many checklist rows a demo % implies (step = 100 / itemCount). */
-function bkChecklistDoneCountFromPct(pct: number, itemCount = 5): number {
+function bkChecklistDoneCountFromPct(pct: number, itemCount = 6): number {
   if (itemCount <= 0) return 0;
   const step = 100 / itemCount;
   return Math.round(Math.max(0, Math.min(100, pct)) / step);
@@ -12220,6 +12490,7 @@ function bkCheckLabelKey(itemId: string): CrmUiKey {
   if (itemId === "bk-c2") return "bkCheckMatch";
   if (itemId === "bk-c3") return "bkCheckReconcile";
   if (itemId === BK_VAT_CHECK_ID) return "bkCheckVat";
+  if (itemId === BK_SALARIES_CHECK_ID) return "bkCheckSalaries";
   return "bkCheckClose";
 }
 
@@ -27021,6 +27292,11 @@ function demoBookkeepingChecklist(client: DemoRow): WorkspaceChecklistItem[] {
       done: status === "finished",
     },
     {
+      id: "bk-c6",
+      label: "Salaries / payroll processed",
+      done: status === "finished",
+    },
+    {
       id: "bk-c4",
       label: "Close month and post",
       done: status === "finished",
@@ -27378,7 +27654,7 @@ const TOOLS_APP_ICON_SRC: Partial<Record<string, string>> = {
   "section46": "data:image/png;base64,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",
 };
 
-﻿function ModuleTileIcon({
+function ModuleTileIcon({
   tileId,
   color,
   size = 22,
@@ -30036,6 +30312,7 @@ function AppSecondarySidebar({
           borderBottom: `1px solid ${chromeBorder(theme)}`,
         }}
       >
+        {/* Sole secondary punch — CompactHomePunchButton (day big + session tiny). */}
         <CompactHomePunchButton size={SECONDARY_PUNCH_SIZE} />
       </div>
 
@@ -35137,6 +35414,11 @@ function BookkeepingWorkspace({
     "stream-vat",
     workStatusOverrides,
   );
+  const salariesStatus = resolveClientWorkStatus(
+    client.id,
+    "stream-payroll",
+    workStatusOverrides,
+  );
   const files = demoBookkeepingFiles(client);
   const monthCustom = bkCustomChecklist.filter((c) => c.monthKey === activeMonth);
   const checklist = applyChecklistLabelOverrides(
@@ -35262,6 +35544,7 @@ function BookkeepingWorkspace({
     | "files"
     | "folder"
     | "vat"
+    | "salaries"
     | "audit-prep"
     | "comments";
   const [sectionStored, setSection] = useCanvasState<string>(
@@ -35278,6 +35561,7 @@ function BookkeepingWorkspace({
     sectionStored === "files" ||
     sectionStored === "folder" ||
     sectionStored === "vat" ||
+    sectionStored === "salaries" ||
     sectionStored === "audit-prep" ||
     sectionStored === "comments"
       ? sectionStored
@@ -35396,13 +35680,13 @@ function BookkeepingWorkspace({
           emailLog: reqEmail
             ? t(uiLang, "taxReturnEmailSentTo").replace(
                 "{email}",
-                client.email || "—",
+                reqRecipientEmail.trim() || client.email || "—",
               )
             : undefined,
           whatsappLog: reqWhatsApp
             ? t(uiLang, "taxReturnWhatsAppSentTo").replace(
                 "{phone}",
-                client.phone || "—",
+                reqWhatsAppPhone.trim() || client.phone || "—",
               )
             : undefined,
         };
@@ -35418,6 +35702,43 @@ function BookkeepingWorkspace({
     });
   };
 
+  const composeBkRequestMessage = (): string => {
+    const contact = client.profile?.contactName?.trim();
+    const docs = reqDrafts
+      .map((d) => {
+        const name =
+          d.name.trim() || `${bkDocTypeLabel(d.type)} ${bkYear}`;
+        return `• ${name} (${bkDocTypeLabel(d.type)})`;
+      })
+      .join("\n");
+    const channels = [
+      reqPortal ? (uiLang === "he" ? "פורטל" : "portal") : null,
+      reqEmail ? (uiLang === "he" ? "אימייל" : "email") : null,
+      reqWhatsApp ? "WhatsApp" : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    if (uiLang === "he") {
+      return `שלום${contact ? ` ${contact}` : ""},\n\nנא להעלות את המסמכים הבאים לשנת הנה״ח ${bkYear}:\n${docs}\n\nערוצים: ${channels}\n\nתודה.`;
+    }
+    return `Hello${contact ? ` ${contact}` : ""},\n\nPlease upload the following documents for bookkeeping year ${bkYear}:\n${docs}\n\nChannels: ${channels}\n\nThank you.`;
+  };
+
+  const openBkReqPreview = () => {
+    if (!reqPortal && !reqEmail && !reqWhatsApp) {
+      setReqFlash(t(uiLang, "taxReturnPickChannel"));
+      return;
+    }
+    if (!reqRecipientEmail.trim()) {
+      setReqRecipientEmail(bkContactEmails[0] || client.email || "");
+    }
+    if (!reqWhatsAppPhone.trim()) {
+      setReqWhatsAppPhone(bkContactPhones[0]?.value || client.phone || "");
+    }
+    setReqFlash("");
+    setReqPreviewOpen(true);
+  };
+
   const sendBkRequest = () => {
     if (!reqPortal && !reqEmail && !reqWhatsApp) {
       setReqFlash(t(uiLang, "taxReturnPickChannel"));
@@ -35426,6 +35747,7 @@ function BookkeepingWorkspace({
     const rows = buildBkRequestRows("pending");
     setDocRequests((prev) => [...rows, ...prev]);
     setReqDrafts([newBkDocReqDraft()]);
+    setReqPreviewOpen(false);
     setReqFlash(
       t(uiLang, "bkRequestSentMulti").replace("{n}", String(rows.length)) +
         (reqPortal ? t(uiLang, "taxReturnRequestSentPortalSuffix") : "") +
@@ -35506,6 +35828,11 @@ function BookkeepingWorkspace({
       id: "vat" as const,
       labelKey: "bkNavVat" as CrmUiKey,
       status: vatStatus,
+    },
+    {
+      id: "salaries" as const,
+      labelKey: "bkNavSalaries" as CrmUiKey,
+      status: salariesStatus,
     },
     {
       id: "requests",
@@ -35700,13 +36027,102 @@ function BookkeepingWorkspace({
             />
           </Row>
           <Row gap={8} wrap>
-            <Button variant="primary" onClick={sendBkRequest}>
-              {t(uiLang, "taxReturnSendRequest")}
+            <Button variant="primary" onClick={openBkReqPreview}>
+              {t(uiLang, "bkSeeMessage")}
             </Button>
             <Button variant="secondary" onClick={uploadBkManual}>
               {t(uiLang, "bkUploadManual")}
             </Button>
           </Row>
+          {reqPreviewOpen ? (
+            <Stack
+              gap={10}
+              style={{
+                padding: 14,
+                borderRadius: 10,
+                border: `1px solid ${chromeBorder(theme)}`,
+                background: chromeSoftFill(theme),
+              }}
+            >
+              <Row align="center" gap={8} wrap>
+                <ChromeText size="small" weight="semibold">
+                  {t(uiLang, "bkRequestPreviewTitle")}
+                </ChromeText>
+                <Spacer />
+                <Button
+                  variant="ghost"
+                  onClick={() => setReqPreviewOpen(false)}
+                >
+                  {t(uiLang, "taxReturnClosePreview")}
+                </Button>
+              </Row>
+              <ChromeText
+                size="small"
+                style={{ whiteSpace: "pre-wrap" }}
+              >
+                {composeBkRequestMessage()}
+              </ChromeText>
+              {reqEmail ? (
+                <Stack gap={4}>
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "bkRequestPreviewEmail")}
+                  </ChromeText>
+                  <ChromeTextInput
+                    value={reqRecipientEmail}
+                    onChange={setReqRecipientEmail}
+                    placeholder={client.email || "email@example.com"}
+                  />
+                  {bkContactEmails.length > 1 ? (
+                    <Select
+                      value={
+                        bkContactEmails.includes(reqRecipientEmail)
+                          ? reqRecipientEmail
+                          : bkContactEmails[0]
+                      }
+                      onChange={setReqRecipientEmail}
+                      options={bkContactEmails.map((e) => ({
+                        value: e,
+                        label: e,
+                      }))}
+                    />
+                  ) : null}
+                </Stack>
+              ) : null}
+              {reqWhatsApp ? (
+                <Stack gap={4}>
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "bkRequestPreviewWhatsApp")}
+                  </ChromeText>
+                  <Select
+                    value={
+                      bkContactPhones.some((p) => p.value === reqWhatsAppPhone)
+                        ? reqWhatsAppPhone
+                        : bkContactPhones[0]?.value || reqWhatsAppPhone
+                    }
+                    onChange={setReqWhatsAppPhone}
+                    options={
+                      bkContactPhones.length > 0
+                        ? bkContactPhones.map((p) => ({
+                            value: p.value,
+                            label: p.label,
+                          }))
+                        : [
+                            {
+                              value: reqWhatsAppPhone || client.phone || "�",
+                              label: reqWhatsAppPhone || client.phone || "�",
+                            },
+                          ]
+                    }
+                  />
+                </Stack>
+              ) : null}
+              <Row gap={8} wrap>
+                <Button variant="primary" onClick={sendBkRequest}>
+                  {t(uiLang, "taxReturnSendRequest")}
+                </Button>
+              </Row>
+            </Stack>
+          ) : null}
           {reqFlash ? (
             <Callout
               tone={
@@ -35842,6 +36258,16 @@ function BookkeepingWorkspace({
       return (
         <ClientCardPanelView
           panel="stream-vat"
+          client={client}
+          draft={draft}
+          setDraft={setDraft}
+        />
+      );
+    }
+    if (section === "salaries") {
+      return (
+        <ClientCardPanelView
+          panel="stream-payroll"
           client={client}
           draft={draft}
           setDraft={setDraft}
@@ -36129,6 +36555,100 @@ function TaxReturnFolderBrowser({
     ANDROID_PREVIEW_LS_KEY,
     false,
   );
+  const persistScope = tree[0]?.id ?? "folder-browser";
+  const [extraFolders, setExtraFolders] = useCanvasState<
+    TaxReturnCustomFolder[]
+  >(`folderExplorer.custom.v1:${persistScope}`, []);
+  const [extraUploads, setExtraUploads] = useCanvasState<
+    TaxReturnFolderUpload[]
+  >(`folderExplorer.uploads.v1:${persistScope}`, []);
+  const [viewMode, setViewMode] = useCanvasState<FolderExplorerViewMode>(
+    "folderExplorer.viewMode.v1",
+    "list",
+  );
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    parentId: string;
+  } | null>(null);
+  const [addingFolder, setAddingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderParentId, setNewFolderParentId] = useState<string | null>(
+    null,
+  );
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const liveTree = applyFolderExplorerOverlays(
+    tree,
+    extraFolders,
+    extraUploads,
+  );
+
+  const selected = selectedId
+    ? findTaxReturnFolderNode(liveTree, selectedId)
+    : null;
+  const rootId = liveTree[0]?.id ?? persistScope;
+  const currentFolderId = (() => {
+    if (!selected) return rootId;
+    if (selected.kind === "folder") return selected.id;
+    const parent = findTaxReturnFolderParentId(liveTree, selected.id);
+    return parent && parent.length > 0 ? parent : rootId;
+  })();
+  const currentFolder =
+    findTaxReturnFolderNode(liveTree, currentFolderId) ?? liveTree[0] ?? null;
+  const detailItems = currentFolder?.children ?? [];
+  const previewNode = previewId
+    ? findTaxReturnFolderNode(liveTree, previewId)
+    : selected?.kind === "file"
+      ? selected
+      : null;
+  const previewBody =
+    previewNode?.kind === "file"
+      ? folderExplorerPreviewBody(uiLang, previewNode.label)
+      : null;
+
+  const openNewFolderUi = (parentId: string) => {
+    setNewFolderParentId(parentId);
+    setNewFolderName("");
+    setAddingFolder(true);
+    setCtxMenu(null);
+    setExpandedIds({ ...expandedIds, [parentId]: true });
+  };
+
+  const commitNewFolder = () => {
+    const name = newFolderName.trim();
+    const parentId = newFolderParentId ?? currentFolderId;
+    if (!name || !parentId) return;
+    const id = `folder-custom-${Date.now()}`;
+    setExtraFolders((prev) => [...prev, { id, label: name, parentId }]);
+    setExpandedIds({ ...expandedIds, [parentId]: true });
+    setSelectedId(id);
+    setNewFolderName("");
+    setAddingFolder(false);
+    setNewFolderParentId(null);
+  };
+
+  const uploadIntoCurrent = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const parentId = currentFolderId;
+    const stamped: TaxReturnFolderUpload[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files.item(i);
+      if (!f) continue;
+      stamped.push({
+        id: `file-local-${Date.now()}-${i}`,
+        label: f.name,
+        parentId,
+      });
+    }
+    if (stamped.length === 0) return;
+    setExtraUploads((prev) => [...stamped, ...prev]);
+    setExpandedIds({ ...expandedIds, [parentId]: true });
+    setSelectedId(stamped[0]!.id);
+    setPreviewId(stamped[0]!.id);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const renderNode = (node: TaxReturnFolderNode, depth: number) => {
     const isFolder = node.kind === "folder";
@@ -36137,7 +36657,7 @@ function TaxReturnFolderBrowser({
       isFolder &&
       (expandedIds[node.id] === true ||
         (expandedIds[node.id] !== false && depth <= 1));
-    const selected = selectedId === node.id;
+    const isSelected = selectedId === node.id;
     return (
       <Stack key={node.id} gap={2}>
         <div
@@ -36145,12 +36665,28 @@ function TaxReturnFolderBrowser({
           tabIndex={0}
           onClick={() => {
             setSelectedId(node.id);
+            setCtxMenu(null);
             if (isFolder) {
               setExpandedIds({
                 ...expandedIds,
                 [node.id]: !isOpen,
               });
+            } else {
+              setPreviewId(node.id);
             }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setSelectedId(node.id);
+            const parentId = isFolder
+              ? node.id
+              : findTaxReturnFolderParentId(liveTree, node.id) || rootId;
+            setCtxMenu({
+              x: e.clientX,
+              y: e.clientY,
+              parentId: parentId || rootId,
+            });
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -36160,6 +36696,8 @@ function TaxReturnFolderBrowser({
                   ...expandedIds,
                   [node.id]: !isOpen,
                 });
+              } else {
+                setPreviewId(node.id);
               }
             }
           }}
@@ -36168,8 +36706,10 @@ function TaxReturnFolderBrowser({
             paddingInlineStart: 8 + depth * 14,
             borderRadius: 6,
             cursor: "pointer",
-            background: selected ? chromeSelectedFill(theme) : "transparent",
-            border: selected
+            background: isSelected
+              ? chromeSelectedFill(theme)
+              : "transparent",
+            border: isSelected
               ? `1px solid ${theme.accent.primary}`
               : "1px solid transparent",
             display: "flex",
@@ -36196,30 +36736,151 @@ function TaxReturnFolderBrowser({
     );
   };
 
-  const findNode = (
-    nodes: TaxReturnFolderNode[],
-    id: string,
-  ): TaxReturnFolderNode | null => {
-    for (const n of nodes) {
-      if (n.id === id) return n;
-      if (n.children) {
-        const hit = findNode(n.children, id);
-        if (hit) return hit;
+  const renderDetailItem = (item: TaxReturnFolderNode) => {
+    const isSelected = selectedId === item.id;
+    const glyph = folderExplorerFileGlyph(item.label, item.kind);
+    const openItem = () => {
+      setSelectedId(item.id);
+      setCtxMenu(null);
+      if (item.kind === "folder") {
+        setExpandedIds({ ...expandedIds, [item.id]: true });
+      } else {
+        setPreviewId(item.id);
       }
+    };
+    if (viewMode === "list") {
+      return (
+        <div
+          key={item.id}
+          role="button"
+          tabIndex={0}
+          onClick={openItem}
+          onDoubleClick={openItem}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setSelectedId(item.id);
+            setCtxMenu({
+              x: e.clientX,
+              y: e.clientY,
+              parentId:
+                item.kind === "folder"
+                  ? item.id
+                  : currentFolderId,
+            });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") openItem();
+          }}
+          style={{
+            padding: "6px 8px",
+            borderRadius: 6,
+            cursor: "pointer",
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            background: isSelected
+              ? chromeSelectedFill(theme)
+              : "transparent",
+            border: isSelected
+              ? `1px solid ${theme.accent.primary}`
+              : `1px solid transparent`,
+          }}
+        >
+          <ChromeText
+            size="small"
+            tone="tertiary"
+            style={{ width: 28, fontVariantNumeric: "tabular-nums" }}
+          >
+            {glyph}
+          </ChromeText>
+          <ChromeText
+            size="small"
+            weight={item.kind === "folder" ? "semibold" : "normal"}
+            tone={item.kind === "folder" ? "primary" : "secondary"}
+          >
+            {item.label}
+          </ChromeText>
+        </div>
+      );
     }
-    return null;
+    const iconPad = viewMode === "icons" ? 16 : 10;
+    const minW = viewMode === "icons" ? 88 : 72;
+    return (
+      <div
+        key={item.id}
+        role="button"
+        tabIndex={0}
+        onClick={openItem}
+        onDoubleClick={openItem}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setSelectedId(item.id);
+          setCtxMenu({
+            x: e.clientX,
+            y: e.clientY,
+            parentId:
+              item.kind === "folder" ? item.id : currentFolderId,
+          });
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") openItem();
+        }}
+        style={{
+          padding: iconPad,
+          borderRadius: 8,
+          cursor: "pointer",
+          minWidth: minW,
+          maxWidth: viewMode === "icons" ? 110 : 140,
+          textAlign: "center",
+          background: isSelected
+            ? chromeSelectedFill(theme)
+            : chromeSoftFill(theme),
+          border: isSelected
+            ? `1px solid ${theme.accent.primary}`
+            : `1px solid ${chromeBorder(theme)}`,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <ChromeText
+          size={viewMode === "icons" ? "large" : "small"}
+          weight="semibold"
+          tone="secondary"
+        >
+          {glyph}
+        </ChromeText>
+        <ChromeText
+          size="small"
+          weight={item.kind === "folder" ? "semibold" : "normal"}
+          tone="primary"
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            width: "100%",
+          }}
+        >
+          {item.label}
+        </ChromeText>
+      </div>
+    );
   };
 
-  const selected = selectedId ? findNode(tree, selectedId) : null;
-  const selectedFiles =
-    selected?.kind === "folder"
-      ? (selected.children ?? []).filter((c) => c.kind === "file")
-      : selected?.kind === "file"
-        ? [selected]
-        : [];
+  const viewModes: {
+    id: FolderExplorerViewMode;
+    labelKey: CrmUiKey;
+  }[] = [
+    { id: "list", labelKey: "taxReturnFolderViewList" },
+    { id: "grid", labelKey: "taxReturnFolderViewGrid" },
+    { id: "icons", labelKey: "taxReturnFolderViewIcons" },
+  ];
 
   return (
-    <Stack gap={10}>
+    <Stack gap={10} style={{ position: "relative" }}>
       <Row align="center" gap={8} wrap>
         <ChromeText size="small" weight="semibold" tone="secondary">
           {t(uiLang, "taxReturnWorkingFolder")}
@@ -36228,6 +36889,68 @@ function TaxReturnFolderBrowser({
       <ChromeText size="small" tone="tertiary">
         {t(uiLang, "taxReturnWorkingFolderHint")}
       </ChromeText>
+      <Row align="center" gap={8} wrap>
+        <Button
+          variant="secondary"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {t(uiLang, "taxReturnFolderUpload")}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => openNewFolderUi(currentFolderId)}
+        >
+          {t(uiLang, "taxReturnFolderAdd")}
+        </Button>
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, "taxReturnFolderUploadHint")}
+        </ChromeText>
+        <Spacer />
+        <Row gap={4} align="center">
+          {viewModes.map((m) => (
+            <Button
+              key={m.id}
+              variant={viewMode === m.id ? "primary" : "ghost"}
+              onClick={() => setViewMode(m.id)}
+            >
+              {t(uiLang, m.labelKey)}
+            </Button>
+          ))}
+        </Row>
+      </Row>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => uploadIntoCurrent(e.target.files)}
+      />
+      {addingFolder ? (
+        <Row gap={8} wrap align="center">
+          <ChromeTextInput
+            value={newFolderName}
+            onChange={setNewFolderName}
+            placeholder={t(uiLang, "taxReturnFolderNamePh")}
+            style={{ flex: 1, minWidth: 160 }}
+          />
+          <Button variant="primary" onClick={commitNewFolder}>
+            {t(uiLang, "taxReturnFolderAdd")}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setAddingFolder(false);
+              setNewFolderName("");
+              setNewFolderParentId(null);
+            }}
+          >
+            {t(uiLang, "taxReturnFolderPreviewClose")}
+          </Button>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "taxReturnFolderAddUnder")}
+          </ChromeText>
+        </Row>
+      ) : null}
       <Grid
         columns={
           androidPreview ? 1 : "minmax(0, 1.1fr) minmax(0, 0.9fr)"
@@ -36235,18 +36958,34 @@ function TaxReturnFolderBrowser({
         gap={12}
       >
         <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setCtxMenu({
+              x: e.clientX,
+              y: e.clientY,
+              parentId: currentFolderId,
+            });
+          }}
           style={{
             padding: 10,
             borderRadius: 10,
             background: chromeSoftFill(theme),
             border: `1px solid ${chromeBorder(theme)}`,
-            maxHeight: 320,
+            maxHeight: 360,
             overflowY: "auto",
           }}
         >
-          <Stack gap={2}>{tree.map((n) => renderNode(n, 0))}</Stack>
+          <Stack gap={2}>{liveTree.map((n) => renderNode(n, 0))}</Stack>
         </div>
         <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setCtxMenu({
+              x: e.clientX,
+              y: e.clientY,
+              parentId: currentFolderId,
+            });
+          }}
           style={{
             padding: 12,
             borderRadius: 10,
@@ -36255,32 +36994,129 @@ function TaxReturnFolderBrowser({
             minHeight: 120,
           }}
         >
-          {selectedFiles.length === 0 && !selected ? (
+          {!currentFolder ? (
             <ChromeText size="small" tone="tertiary">
               {t(uiLang, "taxReturnFolderEmpty")}
             </ChromeText>
           ) : (
-            <Stack gap={8}>
-              <ChromeText size="small" weight="semibold">
-                {selected?.label ?? ""}
-              </ChromeText>
-              {selectedFiles.length > 0 ? (
-                <Stack gap={4}>
-                  {selectedFiles.map((f) => (
-                    <ChromeText key={f.id} size="small" tone="secondary">
-                      {f.label}
-                    </ChromeText>
-                  ))}
-                </Stack>
-              ) : selected?.kind === "folder" ? (
+            <Stack gap={10}>
+              <Row align="center" gap={8} wrap>
+                <ChromeText size="small" weight="semibold">
+                  {currentFolder.label}
+                </ChromeText>
+                <Pill size="sm" tone="neutral">
+                  {`${detailItems.length} ${t(uiLang, "taxReturnFolderItems")}`}
+                </Pill>
+              </Row>
+              {detailItems.length === 0 ? (
                 <ChromeText size="small" tone="tertiary">
                   {t(uiLang, "taxReturnFolderEmpty")}
                 </ChromeText>
+              ) : viewMode === "list" ? (
+                <Stack gap={2}>
+                  {detailItems.map((item) => renderDetailItem(item))}
+                </Stack>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: viewMode === "icons" ? 12 : 8,
+                  }}
+                >
+                  {detailItems.map((item) => renderDetailItem(item))}
+                </div>
+              )}
+              {previewBody && previewNode ? (
+                <Stack
+                  gap={6}
+                  style={{
+                    padding: 10,
+                    borderRadius: 8,
+                    border: `1px solid ${chromeBorder(theme)}`,
+                    background: CHROME_WHITE,
+                  }}
+                >
+                  <Row align="center" gap={8} wrap>
+                    <ChromeText size="small" weight="semibold">
+                      {t(uiLang, "taxReturnFolderPreview")}
+                    </ChromeText>
+                    <ChromeText size="small" tone="secondary">
+                      {previewNode.label}
+                    </ChromeText>
+                    <Spacer />
+                    <Button
+                      variant="ghost"
+                      onClick={() => setPreviewId(null)}
+                    >
+                      {t(uiLang, "taxReturnFolderPreviewClose")}
+                    </Button>
+                  </Row>
+                  <ChromeText size="small" tone="tertiary">
+                    {previewBody.title}
+                  </ChromeText>
+                  {previewBody.lines.map((line, i) => (
+                    <ChromeText key={i} size="small" tone="secondary">
+                      {line}
+                    </ChromeText>
+                  ))}
+                </Stack>
               ) : null}
             </Stack>
           )}
         </div>
       </Grid>
+      {ctxMenu ? (
+        <div
+          role="menu"
+          style={{
+            position: "fixed",
+            top: ctxMenu.y,
+            left: ctxMenu.x,
+            zIndex: 40,
+            minWidth: 140,
+            padding: 4,
+            borderRadius: 8,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+          }}
+        >
+          <div
+            role="menuitem"
+            tabIndex={0}
+            onClick={() => openNewFolderUi(ctxMenu.parentId)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                openNewFolderUi(ctxMenu.parentId);
+              }
+            }}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            <ChromeText size="small" weight="semibold">
+              {t(uiLang, "taxReturnFolderCtxNew")}
+            </ChromeText>
+          </div>
+        </div>
+      ) : null}
+      {ctxMenu ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 39,
+          }}
+          onClick={() => setCtxMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setCtxMenu(null);
+          }}
+        />
+      ) : null}
     </Stack>
   );
 }
@@ -54662,18 +55498,21 @@ function useLiveNowMs(running: boolean): number {
 
 /**
  * Worked seconds for a local calendar day from punch pairs (breaks pause).
- * Default day = local today from `nowMs`. Open overnight sessions only count
- * the slice after local midnight; prior-day closed segments are excluded.
+ * Default day = local today. Open overnight sessions only count the slice
+ * after local midnight; prior-day closed segments are excluded.
  *
- * Closed segments (out / break-start) are NOT clipped by `nowMs` — only the
- * still-open live slice is. Clipping closed work by a frozen post-clock-out
- * `nowMs` was zeroing “today’s elapsed” after Clock out.
+ * Closed segments (out / break-start / implied close before a re-in) are NOT
+ * clipped by `nowMs`. The still-open live slice is added only when
+ * `includeOpenLive` is true (In/break day stats). Out face MUST pass false so
+ * today’s total stays frozen at completed in→out segments and cannot tick.
+ * Does NOT wipe punches on re-in.
  */
 function workedSecondsFromPunches(
   punches: TimePunch[],
   nowMs: number,
   workerId?: string,
   dayIso?: string,
+  includeOpenLive: boolean = true,
 ): number {
   const targetDay = dayIso ?? todayLocalIso();
   const dayStart = localMidnightMs(targetDay);
@@ -54681,7 +55520,7 @@ function workedSecondsFromPunches(
   if (!Number.isFinite(dayStart) || dayStart <= 0) return 0;
 
   // Walk full worker history so an open "in" from yesterday still contributes
-  // only the post-midnight slice toward today.
+  // only the post-midnight slice toward today (when includeOpenLive).
   const ordered = punches
     .filter((p) => (workerId ? p.workerId === workerId : true))
     .slice()
@@ -54708,6 +55547,11 @@ function workedSecondsFromPunches(
   for (const p of ordered) {
     const tMs = parsePunchInstantMs(p);
     if (p.kind === "in") {
+      // Re-in without a recorded out used to drop the prior open slice (timer
+      // jumped back to 0). Close the dangling segment at this punch first.
+      if (segmentStart != null && !onBreak) {
+        addClosed(segmentStart, tMs);
+      }
       segmentStart = tMs;
       onBreak = false;
     } else if (p.kind === "break-start" && segmentStart != null && !onBreak) {
@@ -54727,54 +55571,59 @@ function workedSecondsFromPunches(
       onBreak = false;
     }
   }
-  if (segmentStart != null && !onBreak) {
+  // Out face / closed-only totals: never grow with nowMs while clocked out
+  // (status can say Out while punches still have a dangling open "in").
+  if (includeOpenLive && segmentStart != null && !onBreak) {
     addLive(segmentStart, nowMs);
   }
   return Math.floor(total / 1000);
 }
 
 /**
- * Seconds on the punch-clock face for the current shift only.
- * Clock out ends the shift, so the face returns to 0:00 (Out / Clock in).
- * Day totals for Overview still use workedSecondsFromPunches.
+ * Open-session worked seconds only (In / break face).
+ * Starts at 0:00 from the clock-in that opened the current session (after the
+ * last out). Prior closed segments today stay in storage / day total but are
+ * excluded from this display. Breaks pause; does not wipe punches.
  */
-function openShiftSeconds(
+function openSessionSecondsFromPunches(
   punches: TimePunch[],
   nowMs: number,
-  workerId: string,
+  workerId?: string,
+  dayIso?: string,
 ): number {
   const ordered = punches
-    .filter((p) => p.workerId === workerId)
+    .filter((p) => (workerId ? p.workerId === workerId : true))
     .slice()
     .sort((a, b) => parsePunchInstantMs(a) - parsePunchInstantMs(b));
 
-  let session = 0;
-  let segmentStart: number | null = null;
-  let onBreak = false;
-
-  for (const p of ordered) {
-    const tMs = parsePunchInstantMs(p);
-    if (p.kind === "in") {
-      session = 0;
-      segmentStart = tMs;
-      onBreak = false;
-    } else if (p.kind === "break-start" && segmentStart != null && !onBreak) {
-      session += Math.max(0, tMs - segmentStart);
-      segmentStart = null;
-      onBreak = true;
-    } else if (p.kind === "break-end" && onBreak) {
-      segmentStart = tMs;
-      onBreak = false;
-    } else if (p.kind === "out") {
-      session = 0;
-      segmentStart = null;
-      onBreak = false;
+  let lastOutIdx = -1;
+  for (let i = ordered.length - 1; i >= 0; i--) {
+    if (ordered[i].kind === "out") {
+      lastOutIdx = i;
+      break;
     }
   }
-  if (segmentStart != null && !onBreak) {
-    session += Math.max(0, nowMs - segmentStart);
+  const sessionPunches = ordered.slice(lastOutIdx + 1);
+  // No open session (clocked out, or never clocked in after last out).
+  if (!sessionPunches.some((p) => p.kind === "in" || p.kind === "break-end")) {
+    return 0;
   }
-  return Math.floor(session / 1000);
+  return workedSecondsFromPunches(sessionPunches, nowMs, workerId, dayIso);
+}
+
+/** Big punch face: Out = frozen closed day total; In/break = session from 0 (v738). */
+function punchFaceSeconds(
+  status: ClockStatus,
+  punches: TimePunch[],
+  nowMs: number,
+  workerId?: string,
+  dayIso?: string,
+): number {
+  if (status === "out") {
+    // Closed in→out segments only — never addLive / never grow with nowMs.
+    return workedSecondsFromPunches(punches, nowMs, workerId, dayIso, false);
+  }
+  return openSessionSecondsFromPunches(punches, nowMs, workerId, dayIso);
 }
 
 /** Build a punch row with a unique id (kind suffix avoids same-ms collisions). */
@@ -55133,11 +55982,11 @@ function CompactHomePunchButton({
 
   const liveRunning = status === "in" || status === "break";
   const tickMs = useLiveNowMs(liveRunning);
-  const nowMs = liveRunning ? tickMs : Math.max(tickMs, Date.now());
+  // In/break: wall clock for live session. Out: frozen tick — no Date.now() per paint.
+  const nowMs = liveRunning ? Math.max(tickMs, Date.now()) : tickMs;
+  // Out = closed day total (frozen); In/break = open session from 0.
   const elapsed = formatElapsedClock(
-    status === "out"
-      ? 0
-      : openShiftSeconds(punches, nowMs, DEMO_WORKER.id),
+    punchFaceSeconds(status, punches, nowMs, DEMO_WORKER.id),
   );
   const clockToday = todayLocalIso();
   const lastIn = punches
@@ -55155,31 +56004,39 @@ function CompactHomePunchButton({
       : status === "break"
         ? t(uiLang, "clockStatusBreak")
         : t(uiLang, "clockStatusOut");
+  const elapsedMetaLabel =
+    status === "out"
+      ? t(uiLang, "todayElapsed")
+      : t(uiLang, "sessionElapsed");
 
   const scale = size / PUNCH_BUTTON_SIZE;
   /** Header / tiny: drop floor so labels fit inside the circle. */
   const dense = size < 100;
   /** Status (Out/In) + action (Clock in/out) — larger than the meta label. */
   const statusActionSize = Math.max(
-    dense ? 11 : 17,
-    Math.round((dense ? 12 : 19) * scale),
+    dense ? 11 : 16,
+    Math.round((dense ? 12 : 18) * scale),
   );
   const metaSize = Math.max(dense ? 8 : 10, Math.round(11 * scale));
   const elapsedSize = Math.max(dense ? 14 : 22, Math.round(28 * scale));
   const labelMaxWidth = Math.round((dense ? 58 : 176) * (dense ? 1 : scale));
-  const breakMinHeight = Math.max(dense ? 18 : 28, Math.round(44 * scale));
-  const breakFontSize = Math.max(dense ? 8 : 10, Math.round(12 * scale));
-  const breakPadY = Math.max(dense ? 2 : 4, Math.round(7 * scale));
-  const breakPadX = Math.max(dense ? 6 : 8, Math.round(14 * scale));
-  const breakMarginTop = Math.max(dense ? 2 : 3, Math.round(6 * scale));
+  const breakMinHeight = Math.max(dense ? 16 : 24, Math.round(36 * scale));
+  const breakFontSize = Math.max(dense ? 8 : 10, Math.round(11 * scale));
+  const breakPadY = Math.max(dense ? 2 : 3, Math.round(5 * scale));
+  const breakPadX = Math.max(dense ? 6 : 8, Math.round(12 * scale));
+  const breakMarginTop = Math.max(dense ? 1 : 2, Math.round(4 * scale));
   const breakRadius = Math.max(dense ? 5 : 6, Math.round(8 * scale));
-  const punchPad = Math.max(dense ? 3 : 6, Math.round(12 * scale));
+  const punchPad = Math.max(dense ? 3 : 5, Math.round(10 * scale));
+  /** WHITE: In/Out + Clock in/out only. */
+  const punchFaceWhite = CHROME_WHITE;
+  /** DARK: Today’s/session elapsed row + digits + Start/End break. */
+  const punchFaceInk = CHROME_INK;
 
   const appendPunches = (kinds: PunchKind[]) => {
     if (kinds.length === 0) return;
     const baseMs = Date.now();
     setPunches((prev) => [
-      ...prev,
+      ...(Array.isArray(prev) ? prev : DEFAULT_TIME_PUNCHES),
       ...kinds.map((kind, i) =>
         buildTimePunch(kind, DEMO_WORKER.id, baseMs + i),
       ),
@@ -55188,7 +56045,14 @@ function CompactHomePunchButton({
 
   const onClockIn = () => {
     if (status !== "out") return;
-    appendPunches(["in"]);
+    // If punches still look “in” (status drifted without an out), close first
+    // so the day total is not wiped by a bare second “in”.
+    const inferred = clockStatusFromPunches(punches, DEMO_WORKER.id);
+    const kinds: PunchKind[] = [];
+    if (inferred === "break") kinds.push("break-end", "out");
+    else if (inferred === "in") kinds.push("out");
+    kinds.push("in");
+    appendPunches(kinds);
     setStatus("in");
   };
 
@@ -55214,8 +56078,10 @@ function CompactHomePunchButton({
   return (
     <button
       type="button"
+      data-chrome={`compact-home-punch-${GMAIL_DUAL_NAV_BUILD}`}
+      data-punch-face={elapsed}
       onClick={status === "out" ? onClockIn : onClockOut}
-      title={`${statusLabel} · ${t(uiLang, "todayElapsed")} ${elapsed}`}
+      title={`${statusLabel} · ${elapsedMetaLabel} ${elapsed}`}
       style={{
         width: size,
         height: size,
@@ -55226,15 +56092,17 @@ function CompactHomePunchButton({
         fontFamily: "inherit",
         cursor: "pointer",
         background: theme.accent.primary,
-        color: "#000000",
+        // Do not force white fill on the root — children set explicit colors.
+        color: punchFaceInk,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: Math.max(1, Math.round(dense ? 1 : 3 * scale)),
-        padding: `${punchPad}px ${Math.round(punchPad * 1.1)}px ${Math.max(6, punchPad - 2)}px`,
+        gap: Math.max(1, Math.round(dense ? 1 : 2 * scale)),
+        padding: `${punchPad}px ${Math.round(punchPad * 1.1)}px ${Math.max(4, punchPad - 2)}px`,
         textAlign: "center",
         flexShrink: 0,
+        overflow: "visible",
       }}
     >
       <span
@@ -55243,7 +56111,8 @@ function CompactHomePunchButton({
           fontWeight: 800,
           lineHeight: 1.1,
           letterSpacing: "-0.01em",
-          color: "#000000",
+          color: punchFaceWhite,
+          WebkitTextFillColor: punchFaceWhite,
           maxWidth: labelMaxWidth,
         }}
       >
@@ -55254,12 +56123,13 @@ function CompactHomePunchButton({
           style={{
             fontSize: metaSize,
             fontWeight: 600,
-            lineHeight: 1.25,
-            color: "rgba(0,0,0,0.78)",
+            lineHeight: 1.2,
+            color: punchFaceInk,
+            WebkitTextFillColor: punchFaceInk,
             maxWidth: labelMaxWidth,
           }}
         >
-          {t(uiLang, "todayElapsed")}
+          {elapsedMetaLabel}
           {status !== "out" && lastIn
             ? ` · ${t(uiLang, "sinceTime")} ${formatClockHm(lastIn.time)}`
             : ""}
@@ -55272,8 +56142,9 @@ function CompactHomePunchButton({
           lineHeight: 1.05,
           letterSpacing: "-0.02em",
           marginTop: dense ? 0 : 1,
-          marginBottom: dense ? 0 : 1,
-          color: "#000000",
+          marginBottom: 0,
+          color: punchFaceInk,
+          WebkitTextFillColor: punchFaceInk,
           fontVariantNumeric: "tabular-nums",
         }}
       >
@@ -55285,7 +56156,8 @@ function CompactHomePunchButton({
           fontWeight: 800,
           lineHeight: 1.1,
           letterSpacing: "-0.01em",
-          color: "#000000",
+          color: punchFaceWhite,
+          WebkitTextFillColor: punchFaceWhite,
           maxWidth: labelMaxWidth,
         }}
       >
@@ -55325,7 +56197,8 @@ function CompactHomePunchButton({
             fontSize: breakFontSize,
             fontWeight: 700,
             lineHeight: 1.15,
-            color: "#000000",
+            color: punchFaceInk,
+            WebkitTextFillColor: punchFaceInk,
             cursor: "pointer",
             padding: `${breakPadY}px ${breakPadX}px`,
             borderRadius: breakRadius,
@@ -64286,7 +65159,8 @@ function TimeClockScreen({
 
   const liveRunning = status === "in" || status === "break";
   const tickMs = useLiveNowMs(liveRunning);
-  const nowMs = liveRunning ? tickMs : Math.max(tickMs, Date.now());
+  // In/break: wall clock; Out: frozen tick (no Date.now() drift on re-render).
+  const nowMs = liveRunning ? Math.max(tickMs, Date.now()) : tickMs;
   const clockToday = todayLocalIso();
   const todayPunches = punches
     .filter(
@@ -64298,12 +65172,23 @@ function TimeClockScreen({
     .slice()
     .sort((a, b) => parsePunchInstantMs(b) - parsePunchInstantMs(a));
   const elapsedWorkerId = canPunch ? DEMO_WORKER.id : hoursWorkerId;
-  const elapsed = formatElapsedClock(
-    workedSecondsFromPunches(punches, nowMs, elapsedWorkerId),
+  // Day total (stats): Out = closed only (frozen); In/break includes live open.
+  const dayElapsedSec = workedSecondsFromPunches(
+    punches,
+    nowMs,
+    elapsedWorkerId,
+    undefined,
+    liveRunning,
   );
+  const elapsed = formatElapsedClock(dayElapsedSec);
+  // Big face: Out = frozen closed day; In/break = session from 0.
   const faceElapsed = formatElapsedClock(
-    status === "out" ? 0 : openShiftSeconds(punches, nowMs, elapsedWorkerId),
+    punchFaceSeconds(status, punches, nowMs, elapsedWorkerId),
   );
+  const faceMetaLabel =
+    status === "out"
+      ? t(uiLang, "todayElapsed")
+      : t(uiLang, "sessionElapsed");
   const lastIn = todayPunches.find((p) => p.kind === "in");
 
   const ownLeave = leaveRequests.filter((r) =>
@@ -64721,7 +65606,7 @@ function TimeClockScreen({
     if (kinds.length === 0) return;
     const baseMs = Date.now();
     setPunches((prev) => [
-      ...prev,
+      ...(Array.isArray(prev) ? prev : DEFAULT_TIME_PUNCHES),
       ...kinds.map((kind, i) =>
         buildTimePunch(kind, DEMO_WORKER.id, baseMs + i),
       ),
@@ -64730,7 +65615,12 @@ function TimeClockScreen({
 
   const onClockIn = () => {
     if (status !== "out") return;
-    appendPunches(["in"]);
+    const inferred = clockStatusFromPunches(punches, DEMO_WORKER.id);
+    const kinds: PunchKind[] = [];
+    if (inferred === "break") kinds.push("break-end", "out");
+    else if (inferred === "in") kinds.push("out");
+    kinds.push("in");
+    appendPunches(kinds);
     setStatus("in");
   };
 
@@ -65327,6 +66217,7 @@ function TimeClockScreen({
     </Stack>
   );
 
+  /** Same CompactHomePunchButton as AppSecondarySidebar — no duplicate face. */
   const punchControl = canPunch ? (
     <Stack
       gap={14}
@@ -65338,131 +66229,7 @@ function TimeClockScreen({
         alignItems: "center",
       }}
     >
-      <button
-        type="button"
-        onClick={status === "out" ? onClockIn : onClockOut}
-        style={{
-          width: PUNCH_BUTTON_SIZE,
-          height: PUNCH_BUTTON_SIZE,
-          borderRadius: 999,
-          border: "none",
-          appearance: "none",
-          WebkitAppearance: "none",
-          fontFamily: "inherit",
-          cursor: "pointer",
-          background: theme.accent.primary,
-          color: "#000000",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 4,
-          padding: "14px 16px 12px",
-          textAlign: "center",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 19,
-            fontWeight: 800,
-            lineHeight: 1.1,
-            letterSpacing: "-0.01em",
-            color: "#000000",
-            maxWidth: 176,
-          }}
-        >
-          {statusLabel}
-        </span>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            lineHeight: 1.25,
-            color: "rgba(0,0,0,0.78)",
-            maxWidth: 176,
-          }}
-        >
-          {t(uiLang, "todayElapsed")}
-          {status !== "out" && lastIn
-            ? ` · ${t(uiLang, "sinceTime")} ${formatClockHm(lastIn.time)}`
-            : ""}
-        </span>
-        <span
-          style={{
-            fontSize: 28,
-            fontWeight: 700,
-            lineHeight: 1.05,
-            letterSpacing: "-0.02em",
-            marginTop: 1,
-            marginBottom: 1,
-            color: "#000000",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {faceElapsed}
-        </span>
-        <span
-          style={{
-            fontSize: 19,
-            fontWeight: 800,
-            lineHeight: 1.1,
-            letterSpacing: "-0.01em",
-            color: "#000000",
-            maxWidth: 176,
-          }}
-        >
-          {status === "out" ? t(uiLang, "clockIn") : t(uiLang, "clockOut")}
-        </span>
-        {status === "in" || status === "break" ? (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e: {
-              stopPropagation: () => void;
-              preventDefault: () => void;
-            }) => {
-              e.stopPropagation();
-              e.preventDefault();
-              if (status === "in") onStartBreak();
-              else onEndBreak();
-            }}
-            onKeyDown={(e: {
-              key: string;
-              stopPropagation: () => void;
-              preventDefault: () => void;
-            }) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.stopPropagation();
-                e.preventDefault();
-                if (status === "in") onStartBreak();
-                else onEndBreak();
-              }
-            }}
-            style={{
-              marginTop: 6,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: 44,
-              fontSize: 13,
-              fontWeight: 700,
-              lineHeight: 1.2,
-              color: "#000000",
-              cursor: "pointer",
-              padding: "7px 14px",
-              borderRadius: 8,
-              background: CHROME_SOFT_BLUE,
-              border: `1px solid ${CHROME_BORDER_BLUE}`,
-              textDecoration: "none",
-              userSelect: "none",
-            }}
-          >
-            {status === "break"
-              ? t(uiLang, "endBreak")
-              : t(uiLang, "startBreak")}
-          </span>
-        ) : null}
-      </button>
+      <CompactHomePunchButton size={PUNCH_BUTTON_SIZE} />
     </Stack>
   ) : null;
 
@@ -67161,6 +67928,30 @@ function clientEmailsForTools(client: DemoRow | null): string[] {
     out.push(v);
   }
   return out;
+}
+
+/** Demo WhatsApp / phone contacts on a client profile for choosers. */
+function clientPhonesForDemo(
+  client: DemoRow | null,
+  lang: UiLang = "en",
+): { value: string; label: string }[] {
+  if (!client) return [];
+  const p = client.profile;
+  const rows: { value: string; label: string }[] = [];
+  const push = (value: string | undefined, role: string) => {
+    const v = (value ?? "").trim();
+    if (!v || v === "—") return;
+    if (rows.some((r) => r.value === v)) return;
+    rows.push({ value: v, label: `${role}: ${v}` });
+  };
+  push(client.phone, lang === "he" ? "ראשי" : "Primary");
+  push(p?.mobile2, lang === "he" ? "נייד 2" : "Mobile 2");
+  push(p?.telephone, lang === "he" ? "טלפון" : "Telephone");
+  push(
+    p?.contactPhone,
+    p?.contactName?.trim() || (lang === "he" ? "איש קשר" : "Contact"),
+  );
+  return rows;
 }
 
 function toolsUnreadSignedCount(packets: SignDocPacket[]): number {
@@ -80074,8 +80865,16 @@ export default function CrmModulesHome() {
     DEMO_WORKER.id,
   );
   const [canvasSurface, setCanvasSurface] = useCanvasState<
-    "firm" | "client-wa"
+    "firm" | "client-wa" | "client-email" | "client-portal"
   >("crmCanvasSurface.v1", "firm");
+  /** Where Client email (demo) returns on toggle-off / Firm CRM. */
+  const [clientEmailDemoReturn, setClientEmailDemoReturn] = useCanvasState<
+    "firm" | "client-wa"
+  >("clientEmailDemoReturn.v1", "firm");
+  /** Where Client portal (demo) returns on toggle-off. */
+  const [clientPortalDemoReturn, setClientPortalDemoReturn] = useCanvasState<
+    "firm" | "client-wa"
+  >("clientPortalDemoReturn.v1", "firm");
   const [androidPreview, setAndroidPreviewRaw] = useCanvasState<boolean>(
     ANDROID_PREVIEW_LS_KEY,
     false,
@@ -80119,6 +80918,8 @@ export default function CrmModulesHome() {
     }
     if (next) {
       setCanvasSurface("firm");
+      setClientEmailDemoReturn("firm");
+      setClientPortalDemoReturn("firm");
       setAndroidDrawerOpen(false);
     }
   };
@@ -80769,6 +81570,52 @@ export default function CrmModulesHome() {
     setScreen("home");
   };
 
+  /** Header shortcut: Firm CRM client card → Client email; click again to leave. */
+  const openClientEmailDemo = () => {
+    if (canvasSurface === "client-email") {
+      setCanvasSurface(clientEmailDemoReturn);
+      return;
+    }
+    setClientEmailDemoReturn(
+      canvasSurface === "client-wa" ? "client-wa" : "firm",
+    );
+    setCanvasSurface("client-email");
+    const preferredId =
+      selectedClientId && demoRows.some((r) => r.id === selectedClientId)
+        ? selectedClientId
+        : "c-cohen";
+    setSelectedClientId(preferredId);
+    setClientCardEntryIntent("");
+    setClientCardPanel("client-email");
+    setClientPanelDraft("");
+    setSelectedCategory("client");
+    setNavSecondaryOpen(true);
+    setScreen("client-card");
+  };
+
+  /** Header shortcut: Firm CRM client card → Portal; click again to leave. */
+  const openClientPortalDemo = () => {
+    if (canvasSurface === "client-portal") {
+      setCanvasSurface(clientPortalDemoReturn);
+      return;
+    }
+    setClientPortalDemoReturn(
+      canvasSurface === "client-wa" ? "client-wa" : "firm",
+    );
+    setCanvasSurface("client-portal");
+    const preferredId =
+      selectedClientId && demoRows.some((r) => r.id === selectedClientId)
+        ? selectedClientId
+        : "c-cohen";
+    setSelectedClientId(preferredId);
+    setClientCardEntryIntent("");
+    setClientCardPanel("portal-chat");
+    setClientPanelDraft("");
+    setSelectedCategory("client");
+    setNavSecondaryOpen(true);
+    setScreen("client-card");
+  };
+
   const openServices = (from: "home" | "clients" = "home") => {
     setServicesReturnTo(from);
     setScreen("services");
@@ -81328,7 +82175,7 @@ export default function CrmModulesHome() {
             overflow: "visible",
           }}
         >
-          {/* Android phone frame is ~420px — hide Firm/Client WA (forced firm). */}
+          {/* Android phone frame is ~420px — hide Firm/Client WA/email/portal (forced firm). */}
           {!androidPreview ? (
             <>
               <Button
@@ -81342,6 +82189,22 @@ export default function CrmModulesHome() {
                 onClick={() => setCanvasSurface("client-wa")}
               >
                 {t(uiLang, "clientWaSurface")}
+              </Button>
+              <Button
+                variant={
+                  canvasSurface === "client-email" ? "primary" : "secondary"
+                }
+                onClick={openClientEmailDemo}
+              >
+                {t(uiLang, "clientEmailSurface")}
+              </Button>
+              <Button
+                variant={
+                  canvasSurface === "client-portal" ? "primary" : "secondary"
+                }
+                onClick={openClientPortalDemo}
+              >
+                {t(uiLang, "clientPortalSurface")}
               </Button>
             </>
           ) : null}
@@ -81379,7 +82242,7 @@ export default function CrmModulesHome() {
             flexWrap: "wrap",
           }}
         >
-          {canvasSurface === "firm" && !androidPreview ? (
+          {canvasSurface !== "client-wa" && !androidPreview ? (
             <>
               <div
                 style={{
@@ -81459,7 +82322,7 @@ export default function CrmModulesHome() {
         </div>
       </div>
 
-      {canvasSurface === "firm" ? (
+      {canvasSurface !== "client-wa" ? (
         <div
           style={{
             display: "flex",
@@ -82643,6 +83506,11 @@ export default function CrmModulesHome() {
         textAlign: uiLang === "he" ? "right" : "left",
         display: "flex",
         flexDirection: "column",
+        // Gmail-like: allow click-drag select + native right-click Copy everywhere
+        // unless a child deliberately sets userSelect: "none" (icon/button chrome).
+        userSelect: "text",
+        WebkitUserSelect: "text",
+        MozUserSelect: "text",
       }}
     >
       {canvasSurface === "client-wa" ? (
