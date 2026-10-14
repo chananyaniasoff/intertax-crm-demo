@@ -33,7 +33,7 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — Clients QA vs Modules section split. */
-const GMAIL_DUAL_NAV_BUILD = "v842-2026-10-14-checklist-crm-brand-icon";
+const GMAIL_DUAL_NAV_BUILD = "v843-2026-10-14-windows-hdd-drive-icon";
 /** Shared folder explorer tree/detail split width (% of row). */
 const CRM_EXPLORER_SPLIT_PCT_KEY = "crmExplorerSplitPct.v1";
 const CRM_EXPLORER_SPLIT_DEFAULT = 46;
@@ -132,9 +132,9 @@ function shortQuickAccessLabel(label: string, max = 22): string {
  * useCanvasState key: `crmWorkDrives.v1`
  * Active drive: `crmWorkActiveDriveId.v1`
  *
- * Each drive is a named Work secondary module (company + cloud work-drive icon).
- * The displayed tab label is `drive.name` (not a fixed "Drive"). Default seed is
- * "My company" with the Companies + firm shared archive tree.
+ * Each drive is a named Work secondary module (Windows-style HDD volume icon,
+ * no OS logo). The displayed tab label is `drive.name` (not a fixed "Drive").
+ * Default seed is "My company" with the Companies + firm shared archive tree.
  */
 const CRM_WORK_DRIVES_KEY = "crmWorkDrives.v1";
 const CRM_WORK_ACTIVE_DRIVE_KEY = "crmWorkActiveDriveId.v1";
@@ -31665,32 +31665,39 @@ function ModuleTileIcon({
       );
     case "drive":
     case "work-drives":
-      /** Modern company + cloud work-drive (not Windows Explorer HDD chrome). */
+      /**
+       * Windows File Explorer / This PC internal volume glyph:
+       * isometric silver top, charcoal front + side, green activity LED.
+       * No Windows four-square logo / badge.
+       */
       return (
         <svg {...box}>
+          {/* Top — light silver (far edge lighter) */}
           <path
-            d="M3.2 19.5V8.4L10.2 4.9l7 3.5V19.5"
-            fill={p}
+            d="M2.6 10.1 L12 5.7 L21.4 10.1 L12 14.5 Z"
+            fill="#C9C9C9"
             stroke="none"
           />
-          <path d="M8.6 19.5v-4.4h3.2v4.4" fill={s} stroke="none" />
-          <rect x="5" y="9.1" width="2.1" height="3.3" rx="0.45" fill={t} />
-          <rect
-            x="7.8"
-            y="9.1"
-            width="2.1"
-            height="3.3"
-            rx="0.45"
-            fill="#FFFFFF"
-            opacity={0.92}
-          />
-          <rect x="10.6" y="9.1" width="2.1" height="3.3" rx="0.45" fill={s} />
           <path
-            d="M14.8 11.1c.3-1.35 1.5-2.3 3-2.3 1.55 0 2.85 1.1 3.05 2.55.9.2 1.55.95 1.55 1.9 0 1.15-.95 2.1-2.1 2.1H15.7c-1.2 0-2.15-.95-2.15-2.15 0-.95.6-1.8 1.25-2.1z"
-            fill={s}
+            d="M2.6 10.1 L12 5.7 L21.4 10.1 L12 9 Z"
+            fill="#E4E4E4"
             stroke="none"
           />
-          <circle cx="17.3" cy="12.35" r="0.9" fill={t} stroke="none" />
+          {/* Front bezel — charcoal */}
+          <path
+            d="M2.6 10.1 L12 14.5 L12 19.1 L2.6 14.7 Z"
+            fill="#2A2A2A"
+            stroke="none"
+          />
+          {/* Right side — slightly lighter charcoal */}
+          <path
+            d="M21.4 10.1 L12 14.5 L12 19.1 L21.4 14.7 Z"
+            fill="#3C3C3C"
+            stroke="none"
+          />
+          {/* Green activity LED — left of front face only */}
+          <circle cx="5.75" cy="13.65" r="1.25" fill="#00E676" />
+          <circle cx="5.75" cy="13.65" r="0.55" fill="#B9F6CA" />
         </svg>
       );
     case "worker-files":
