@@ -32,8 +32,21 @@
   type TableProps,
   type TextProps,
 } from "cursor/canvas";
-/** Bust stale canvas preview — Out=closed day frozen; In=session from 0; contrast. */
-const GMAIL_DUAL_NAV_BUILD = "v752-2026-10-13-admin-fees-screen";
+/** Bust stale canvas preview — App-wide Docs tables → TaxReturnFolderBrowser. */
+const GMAIL_DUAL_NAV_BUILD = "v796-2026-10-14-appwide-docs-explorer";
+/** Shared folder explorer tree/detail split width (% of row). */
+const CRM_EXPLORER_SPLIT_PCT_KEY = "crmExplorerSplitPct.v1";
+const CRM_EXPLORER_SPLIT_DEFAULT = 46;
+const CRM_EXPLORER_SPLIT_MIN = 22;
+const CRM_EXPLORER_SPLIT_MAX = 78;
+
+function clampExplorerSplitPct(raw: number): number {
+  if (!Number.isFinite(raw)) return CRM_EXPLORER_SPLIT_DEFAULT;
+  return Math.min(
+    CRM_EXPLORER_SPLIT_MAX,
+    Math.max(CRM_EXPLORER_SPLIT_MIN, Math.round(raw)),
+  );
+}
 /**
  * Persisted Android phone-preview toggle (useCanvasState key + localStorage).
  * v2 — stale v1 is cleared on hydrate so Home wins; intentional ON persists as "1".
@@ -94,6 +107,7 @@ const SYSTEMADMIN_HELP_HIDE_SCREENS = new Set([
   "trello-import",
   "wave-import",
   "users-rights",
+  "company-modules",
   "files-root",
 ]);
 
@@ -1139,7 +1153,9 @@ type Screen =
   | "tools"
   | "boards"
   | "users-rights"
+  | "company-modules"
   | "files-root"
+  | "client-folders"
   | "help-feedback"
   | "ai-maintenance"
   | "reports"
@@ -1201,7 +1217,9 @@ function secondaryIdentity(
     screen === "whatsapp-settings" ||
     screen === "worker-files" ||
     screen === "users-rights" ||
+    screen === "company-modules" ||
     screen === "files-root" ||
+    screen === "client-folders" ||
     screen === "help-feedback" ||
     screen === "ai-maintenance" ||
     screen === "placeholder"
@@ -2951,11 +2969,20 @@ const CRM_UI = {
     he: "תפקיד הדמו המחובר עודכן להתאים למשתמש זה.",
   },
   usersRightsAddDemo: { en: "Add demo user", he: "הוספת משתמש דמו" },
-  usersRightsInvite: { en: "Invite user (stub)", he: "הזמנת משתמש (דמו)" },
+  usersRightsInvite: { en: "Invite user", he: "הזמנת משתמש" },
   usersRightsInviteFlash: {
-    en: "Invite email would be sent here (demo stub — no email left the canvas).",
-    he: "כאן תישלח הזמנה באימייל (דמו — לא נשלח מייל מהקנבס).",
+    en: "Invite sent (demo) — pending user added to the roster. No email left the canvas.",
+    he: "ההזמנה נשלחה (דמו) — משתמש ממתין נוסף לרשימה. לא נשלח מייל מהקנבס.",
   },
+  usersRightsInviteEmail: { en: "Invite email", he: "אימייל להזמנה" },
+  usersRightsInviteRole: { en: "Invite role", he: "תפקיד בהזמנה" },
+  usersRightsInviteSend: { en: "Send invite", he: "שליחת הזמנה" },
+  usersRightsInviteCancel: { en: "Cancel", he: "ביטול" },
+  usersRightsInviteInvalid: {
+    en: "Enter a valid email before sending the invite.",
+    he: "הזינו אימייל תקין לפני שליחת ההזמנה.",
+  },
+  usersRightsPending: { en: "Pending invite", he: "הזמנה ממתינה" },
   usersRightsAdded: {
     en: "Demo user added to the firm roster.",
     he: "משתמש דמו נוסף לרשימת המשרד.",
@@ -2969,12 +2996,100 @@ const CRM_UI = {
     he: "מנהל מערכת בלבד. ACL מלא מחוץ להיקף — המטריצה היא מצב דמו. שיוך עובדים ופס התפקיד נשארים מסונכרנים בשמירה או החלה לעובד המחובר.",
   },
   usersRightsClose: { en: "Close", he: "סגור" },
+  companyModules: {
+    en: "Company modules",
+    he: "מודולי חברה",
+  },
+  companyModulesHint: {
+    en: "Choose which modules the company includes, then override what each worker can see. Off at company level hides the module from the whole firm product surface.",
+    he: "בחרו אילו מודולים כלולים בחברה, ואז הגדירו מה כל עובד רואה. כיבוי ברמת החברה מסתיר את המודול מכל מוצר המשרד.",
+  },
+  companyModulesTabCompany: {
+    en: "Company modules",
+    he: "מודולי חברה",
+  },
+  companyModulesTabWorkers: { en: "Workers", he: "עובדים" },
+  companyModulesWorkerSelect: {
+    en: "Worker",
+    he: "עובד",
+  },
+  companyModulesRoleStaff: { en: "Staff", he: "עובד" },
+  companyModulesRoleAdmin: { en: "Admin", he: "מנהל" },
+  companyModulesRoleSystemAdmin: { en: "System Admin", he: "מנהל מערכת" },
+  companyModulesNonAdminDemoHint: {
+    en: "Demo staff worker — Clients On by default; Admin / Systemadmin modules Off.",
+    he: "עובד דמו — לקוחות דלוקים כברירת מחדל; מודולי מנהל / מנהל מערכת כבויים.",
+  },
+  companyModulesOn: { en: "Included", he: "כלול" },
+  companyModulesOff: { en: "Not included", he: "לא כלול" },
+  companyModulesWorkerOn: { en: "Visible", he: "גלוי" },
+  companyModulesWorkerOff: { en: "Hidden", he: "מוסתר" },
+  companyModulesAlwaysOn: {
+    en: "Always on — required for Systemadmin",
+    he: "תמיד פעיל — נדרש למנהל מערכת",
+  },
+  companyModulesGroupPrimary: {
+    en: "Primary rail",
+    he: "מסילה ראשית",
+  },
+  companyModulesGroupClient: {
+    en: "Client modules",
+    he: "מודולי לקוחות",
+  },
+  companyModulesGroupWorker: {
+    en: "Worker modules",
+    he: "מודולי עובד",
+  },
+  companyModulesGroupWork: {
+    en: "Work modules",
+    he: "מודולי עבודה",
+  },
+  companyModulesGroupWorkersAdmin: {
+    en: "Workers admin",
+    he: "ניהול עובדים",
+  },
+  companyModulesGroupAdmin: {
+    en: "Admin modules",
+    he: "מודולי ניהול",
+  },
+  companyModulesGroupSystem: {
+    en: "Systemadmin modules",
+    he: "מודולי מנהל מערכת",
+  },
+  companyModulesCompanyLocked: {
+    en: "Off for company — worker cannot enable",
+    he: "כבוי בחברה — העובד לא יכול להפעיל",
+  },
+  hintCompanyModules: {
+    en: "Company module list + per-worker visibility",
+    he: "רשימת מודולי חברה + נראות לפי עובד",
+  },
   companySettings: { en: "Company settings", he: "הגדרות חברה" },
   companyDocsFoldersTile: {
     en: "Company documents folders",
     he: "תיקיות מסמכי חברה",
   },
   filesRoot: { en: "Files root / cloud", he: "שורש קבצים / ענן" },
+  clientFolders: { en: "Client folders", he: "תיקיות לקוחות" },
+  hintClientFolders: {
+    en: "Firm-wide archive of every client and company folder",
+    he: "ארכיון משרדי של כל תיקיות הלקוחות והחברות",
+  },
+  clientFoldersTitle: { en: "Client folders", he: "תיקיות לקוחות" },
+  clientFoldersHint: {
+    en: "Windows Explorer view of all firm document roots — active clients, inactive/old clients, orphan uploads, and companies.",
+    he: "תצוגת סייר Windows לכל שורשי המסמכים במשרד — לקוחות פעילים, לא פעילים/ישנים, העלאות ללא שיוך וחברות.",
+  },
+  clientFoldersRootActive: { en: "Active clients", he: "לקוחות פעילים" },
+  clientFoldersRootInactive: {
+    en: "Inactive / old clients",
+    he: "לקוחות לא פעילים / ישנים",
+  },
+  clientFoldersRootOrphan: {
+    en: "Orphan / unassigned uploads",
+    he: "העלאות ללא שיוך",
+  },
+  clientFoldersRootCompanies: { en: "Companies", he: "חברות" },
   waveImport: { en: "Wave import", he: "ייבוא Wave" },
   apiConnections: { en: "API connections", he: "חיבורי API" },
   hintApiConnections: {
@@ -3794,9 +3909,12 @@ const CRM_UI = {
     he: "לוגו",
   },
   companyLogoPlaceholder: {
-    en: "Logo upload coming later — use a square PNG/SVG for invoices and portal header.",
-    he: "העלאת לוגו בהמשך — מומלץ PNG/SVG ריבועי לחשבוניות ולכותרת הפורטל.",
+    en: "Square PNG/SVG for invoices and portal header (demo upload stays in canvas state).",
+    he: "PNG/SVG ריבועי לחשבוניות ולכותרת הפורטל (העלאת דמו נשמרת במצב הקנבס).",
   },
+  companyLogoUpload: { en: "Upload logo", he: "העלאת לוגו" },
+  companyLogoSample: { en: "Use sample logo", he: "לוגו לדוגמה" },
+  companyLogoClear: { en: "Remove logo", he: "הסרת לוגו" },
   companyDefaultInvoiceLang: {
     en: "Default invoice language",
     he: "שפת חשבונית ברירת מחדל",
@@ -4604,6 +4722,22 @@ const CRM_UI = {
     en: "Close preview",
     he: "סגור תצוגה",
   },
+  taxReturnFolderPreviewDetails: {
+    en: "Details",
+    he: "פרטים",
+  },
+  taxReturnFolderPreviewPage: {
+    en: "Page",
+    he: "עמוד",
+  },
+  taxReturnFolderPropsDate: {
+    en: "Date modified",
+    he: "תאריך שינוי",
+  },
+  taxReturnFolderPropsPath: {
+    en: "Path",
+    he: "נתיב",
+  },
   taxReturnFolderViewList: {
     en: "List",
     he: "רשימה",
@@ -4623,6 +4757,90 @@ const CRM_UI = {
   taxReturnFolderCtxNew: {
     en: "New folder",
     he: "תיקייה חדשה",
+  },
+  taxReturnFolderCtxOpenExpand: {
+    en: "Open / Expand",
+    he: "פתיחה / הרחבה",
+  },
+  taxReturnFolderCtxOpenPreview: {
+    en: "Open / Preview",
+    he: "פתיחה / תצוגה מקדימה",
+  },
+  taxReturnFolderCtxNewMenu: {
+    en: "New",
+    he: "חדש",
+  },
+  taxReturnFolderCtxNewFile: {
+    en: "New file",
+    he: "קובץ חדש",
+  },
+  taxReturnFolderCtxCut: {
+    en: "Cut",
+    he: "גזירה",
+  },
+  taxReturnFolderCtxCopy: {
+    en: "Copy",
+    he: "העתקה",
+  },
+  taxReturnFolderCtxPaste: {
+    en: "Paste",
+    he: "הדבקה",
+  },
+  taxReturnFolderCtxRename: {
+    en: "Rename",
+    he: "שינוי שם",
+  },
+  taxReturnFolderCtxDelete: {
+    en: "Delete",
+    he: "מחיקה",
+  },
+  taxReturnFolderCtxDownload: {
+    en: "Download",
+    he: "הורדה",
+  },
+  taxReturnFolderCtxZipDownload: {
+    en: "Zip and download",
+    he: "Zip והורדה",
+  },
+  taxReturnFolderCtxProperties: {
+    en: "Properties",
+    he: "מאפיינים",
+  },
+  taxReturnFolderPropsType: {
+    en: "Type",
+    he: "סוג",
+  },
+  taxReturnFolderPropsSize: {
+    en: "Size",
+    he: "גודל",
+  },
+  taxReturnFolderPropsName: {
+    en: "Name",
+    he: "שם",
+  },
+  taxReturnFolderTypeFolder: {
+    en: "File folder",
+    he: "תיקיית קבצים",
+  },
+  taxReturnFolderTypeFile: {
+    en: "File",
+    he: "קובץ",
+  },
+  taxReturnFolderDownloadFlash: {
+    en: "Download started (demo) — {name}",
+    he: "ההורדה החלה (דמו) — {name}",
+  },
+  taxReturnFolderZipFlash: {
+    en: "Zip download started (demo) — {name}",
+    he: "הורדת Zip החלה (דמו) — {name}",
+  },
+  taxReturnFolderRenamePh: {
+    en: "New name",
+    he: "שם חדש",
+  },
+  taxReturnFolderNewFileName: {
+    en: "New file.txt",
+    he: "קובץ חדש.txt",
   },
   taxReturnYearCurrent: {
     en: "{year} · current",
@@ -4901,8 +5119,8 @@ const CRM_UI = {
     he: "צ׳ק־ליסט מבנקים ורו״ה עד מוכן לביקורת. סגירת ספרים / חודשי מתמלא לפי ממוצע השנה למעלה.",
   },
   companyDocsHint: {
-    en: "Client document store — folders from the firm default template, plus any custom folders for this client.",
-    he: "מאגר מסמכי לקוח — תיקיות מתבנית ברירת המחדל של המשרד, בתוספת תיקיות מותאמות ללקוח זה.",
+    en: "Client document store — Explorer tree of year folders (opens on the working year), plus General / Other / custom. Upload and new folder apply to the current folder.",
+    he: "מאגר מסמכי לקוח — עץ סייר של תיקיות שנה (נפתח על שנת העבודה), יחד עם כללי / אחר / מותאם. העלאה ותיקייה חדשה חלים על התיקייה הנוכחית.",
   },
   companyDocsNewFolder: {
     en: "New folder",
@@ -6758,12 +6976,12 @@ const CRM_UI = {
     he: "תזכורות אימייל לחשבוניות",
   },
   remindersHint: {
-    en: "Firm defaults for when reminders go out. Demo only — events are logged here; real SMTP comes later.",
-    he: "ברירות מחדל למתי נשלחות תזכורות. דמו בלבד — אירועים נרשמים כאן; SMTP אמיתי יגיע בהמשך.",
+    en: "Firm defaults for when reminders go out. Demo sends (email / WhatsApp / SMS) append to the send log below — real SMTP / providers later.",
+    he: "ברירות מחדל למתי נשלחות תזכורות. שליחות דמו (אימייל / וואטסאפ / SMS) נרשמות ביומן למטה — SMTP / ספקים אמיתיים בהמשך.",
   },
   remindersCallout: {
-    en: "Email delivery is not wired yet. This screen designs schedule, auto-send, recurring, escalation, and a send log for later integration.",
-    he: "שליחת אימייל עדיין לא מחוברת. המסך מעצב לוח זמנים, שליחה אוטומטית, חוזרת, הסלמה ויומן שליחה לאינטגרציה בהמשך.",
+    en: "Demo wired: email, WhatsApp, and SMS append to the reminder send log. Call creates a manual staff task only.",
+    he: "דמו מחובר: אימייל, וואטסאפ ו־SMS נרשמים ביומן התזכורות. שיחה יוצרת משימה ידנית לצוות בלבד.",
   },
   reminderWhen: { en: "When to send", he: "מתי לשלוח" },
   reminderWhenDue: { en: "On due date", he: "בתאריך הפירעון" },
@@ -6812,36 +7030,56 @@ const CRM_UI = {
   reminderChannelCall: { en: "Call (manual)", he: "שיחה (ידני)" },
   reminderChannelSms: { en: "Text / SMS", he: "SMS / הודעת טקסט" },
   reminderEscalationCallout: {
-    en: "WhatsApp and SMS are not wired yet (demo log only). Call always creates a manual staff task — never auto-dial.",
-    he: "וואטסאפ ו־SMS עדיין לא מחוברים (יומן דמו בלבד). שיחה תמיד יוצרת משימה ידנית לצוות — בלי חיוג אוטומטי.",
+    en: "WhatsApp and SMS demo-send to the log below. Call always creates a manual staff task — never auto-dial.",
+    he: "וואטסאפ ו־SMS נשלחים לדמו ביומן למטה. שיחה תמיד יוצרת משימה ידנית לצוות — בלי חיוג אוטומטי.",
   },
   reminderEscalateDemo: {
-    en: "Log escalation (demo)",
-    he: "רישום הסלמה (דמו)",
+    en: "Send escalation (demo log)",
+    he: "שליחת הסלמה (יומן דמו)",
+  },
+  reminderEscalateEmailBtn: {
+    en: "Send email (demo)",
+    he: "שליחת אימייל (דמו)",
   },
   reminderEscalateWhatsAppBtn: {
-    en: "Would send WhatsApp",
-    he: "ישולם וואטסאפ (דמו)",
+    en: "Send WhatsApp (demo)",
+    he: "שליחת וואטסאפ (דמו)",
   },
   reminderEscalateCallBtn: {
     en: "Create call task",
     he: "יצירת משימת שיחה",
   },
   reminderEscalateSmsBtn: {
-    en: "Would send SMS",
-    he: "ישולם SMS (דמו)",
+    en: "Send SMS (demo)",
+    he: "שליחת SMS (דמו)",
   },
   reminderCallTaskNote: {
     en: "Manual staff task: call client about unpaid invoice",
     he: "משימה ידנית לצוות: להתקשר ללקוח לגבי חשבונית שלא שולמה",
   },
+  reminderEmailDemoNote: {
+    en: "Demo email queued to {email}: reminder for invoice {invoice} ({client}).",
+    he: "אימייל דמו לתור אל {email}: תזכורת לחשבונית {invoice} ({client}).",
+  },
+  reminderWhatsAppDemoNote: {
+    en: "Demo WhatsApp queued to {phone}: reminder for invoice {invoice} ({client}).",
+    he: "וואטסאפ דמו לתור אל {phone}: תזכורת לחשבונית {invoice} ({client}).",
+  },
+  reminderSmsDemoNote: {
+    en: "Demo SMS queued to {phone}: reminder for invoice {invoice} ({client}).",
+    he: "SMS דמו לתור אל {phone}: תזכורת לחשבונית {invoice} ({client}).",
+  },
   reminderLogTitle: {
-    en: "Reminder log (scheduled / sent)",
-    he: "יומן תזכורות (מתוזמן / נשלח)",
+    en: "Reminder send log (scheduled / sent)",
+    he: "יומן שליחת תזכורות (מתוזמן / נשלח)",
   },
   reminderSendManual: {
     en: "Send reminder",
     he: "שליחת תזכורת",
+  },
+  reminderSendEmailDemo: {
+    en: "Send email reminder (demo)",
+    he: "שליחת תזכורת אימייל (דמו)",
   },
   reminderColInvoice: { en: "Invoice", he: "חשבונית" },
   reminderColClient: { en: "Client", he: "לקוח" },
@@ -8346,9 +8584,17 @@ const CRM_UI = {
   clockStatusOut: { en: "Out", he: "בחוץ" },
   clockStatusBreak: { en: "On break", he: "בהפסקה" },
   todayElapsed: { en: "Today’s elapsed", he: "זמן היום" },
-  /** In/break face — open session timer from last clock-in. */
-  sessionElapsed: { en: "Session elapsed", he: "זמן משמרת" },
+  /** Legacy key — must never show “Session” on the punch face. */
+  sessionElapsed: { en: "Today’s elapsed", he: "זמן היום" },
   sinceTime: { en: "Since", he: "מאז" },
+  /** In/break tiny — open-session elapsed (after middot). */
+  sessionNow: { en: "now", he: "עכשיו" },
+  /** Out face — duration of the most recently closed in→out session. */
+  totalSession: { en: "Total session", he: "סה״כ משמרת" },
+  /** Punch-face / compact OT hint (under Total session). */
+  overtimeShort: { en: "OT", he: "ש״נ" },
+  /** Day reporting — regular (≤8h) vs overtime. */
+  reportRegularHours: { en: "Regular", he: "רגיל" },
   todaysPunches: { en: "Today’s punches", he: "דיווחים להיום" },
   punchIn: { en: "In", he: "כניסה" },
   punchOut: { en: "Out", he: "יציאה" },
@@ -9950,6 +10196,7 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     "client-form-fields": "clientModuleTabFormFields",
     "list-columns": "clientModuleTabListColumns",
     rights: "usersRights",
+    "company-modules": "companyModules",
     "company-settings": "companySettings",
     "company-docs-folders": "companyDocsFoldersTile",
     "template-settings": "templateSettingsTitle",
@@ -9959,6 +10206,7 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     departments: "departments",
     "whatsapp-settings": "waDeskSettings",
     "files-root": "filesRoot",
+    "client-folders": "clientFolders",
     "help-feedback": "helpFeedback",
     "ai-maintenance": "aiMaintenance",
     wave: "waveImport",
@@ -9969,6 +10217,14 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     tasks: "tasks",
     boards: "myBoards",
     secretariat: "secretariatBoard",
+    "chats-settings": "chatsSettings",
+    "all-workers": "timeClockAllWorkers",
+    "ai-chat": "toolsToolAiChat",
+    signature: "toolsToolSignature",
+    converter: "toolsToolConverter",
+    "sumit-dapi": "toolsToolSumitDapi",
+    section46: "toolsToolSection46",
+    masav: "toolsToolMasav",
   };
   const key = map[tileId];
   return key ? t(lang, key) : fallback;
@@ -10000,6 +10256,7 @@ function tileHint(lang: UiLang, tileId: string, fallback: string): string {
     "client-fields": "hintClientFields",
     "list-columns": "hintListColumns",
     rights: "hintRights",
+    "company-modules": "hintCompanyModules",
     "company-settings": "hintCompanySettings",
     "company-docs-folders": "hintCompanyDocsFolders",
     "template-settings": "hintTemplateSettings",
@@ -10009,6 +10266,7 @@ function tileHint(lang: UiLang, tileId: string, fallback: string): string {
     departments: "hintDepartments",
     "whatsapp-settings": "hintWaDeskSettings",
     "files-root": "hintFilesRoot",
+    "client-folders": "hintClientFolders",
     "help-feedback": "hintHelpFeedback",
     "ai-maintenance": "hintAiMaintenance",
     wave: "hintWave",
@@ -11443,22 +11701,421 @@ function findTaxReturnFolderParentId(
   return null;
 }
 
+/** Explorer-style breadcrumb path for a node (demo). */
+function taxReturnFolderNodePath(
+  tree: TaxReturnFolderNode[],
+  id: string,
+): string {
+  const parts: string[] = [];
+  let cur: string | null = id;
+  const guard = new Set<string>();
+  while (cur && cur.length > 0 && !guard.has(cur)) {
+    guard.add(cur);
+    const node = findTaxReturnFolderNode(tree, cur);
+    if (!node) break;
+    parts.unshift(node.label);
+    const parent = findTaxReturnFolderParentId(tree, cur);
+    cur = parent && parent.length > 0 ? parent : null;
+  }
+  return parts.join(" \\ ");
+}
+
+/** Stable demo "Date modified" stub from label. */
+function folderExplorerDemoModifiedDate(label: string, lang: UiLang): string {
+  let h = 0;
+  for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) >>> 0;
+  const day = 1 + (h % 28);
+  const month = 1 + ((h >> 5) % 12);
+  const hour = 8 + ((h >> 9) % 10);
+  const minute = (h >> 13) % 60;
+  const y = 2024;
+  if (lang === "he") {
+    return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${y} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${day} ${months[month - 1]} ${y} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/** Demo overlay: hide deleted / cut-away nodes from the live tree. */
+function pruneTaxReturnFolderTree(
+  nodes: TaxReturnFolderNode[],
+  removedIds: Set<string>,
+): TaxReturnFolderNode[] {
+  return nodes
+    .filter((n) => !removedIds.has(n.id))
+    .map((n) => ({
+      ...n,
+      children: n.children
+        ? pruneTaxReturnFolderTree(n.children, removedIds)
+        : undefined,
+    }));
+}
+
+/** Demo overlay: renamed labels for built-in or custom nodes. */
+function applyTaxReturnFolderRenames(
+  nodes: TaxReturnFolderNode[],
+  renames: Record<string, string>,
+): TaxReturnFolderNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    label: renames[n.id] ?? n.label,
+    children: n.children
+      ? applyTaxReturnFolderRenames(n.children, renames)
+      : undefined,
+  }));
+}
+
+/** Collect node + descendants as custom folder/upload overlays (paste / copy). */
+function taxReturnSubtreeToOverlays(
+  node: TaxReturnFolderNode,
+  parentId: string,
+  nextId: () => string,
+): { folders: TaxReturnCustomFolder[]; uploads: TaxReturnFolderUpload[] } {
+  const folders: TaxReturnCustomFolder[] = [];
+  const uploads: TaxReturnFolderUpload[] = [];
+  if (node.kind === "folder") {
+    const id = nextId();
+    folders.push({ id, label: node.label, parentId });
+    for (const child of node.children ?? []) {
+      const sub = taxReturnSubtreeToOverlays(child, id, nextId);
+      folders.push(...sub.folders);
+      uploads.push(...sub.uploads);
+    }
+  } else {
+    uploads.push({ id: nextId(), label: node.label, parentId });
+  }
+  return { folders, uploads };
+}
+
+/** Collect id + all descendant ids (for cut/delete pruning). */
+function collectTaxReturnFolderDescendantIds(
+  node: TaxReturnFolderNode,
+): string[] {
+  const ids = [node.id];
+  for (const child of node.children ?? []) {
+    ids.push(...collectTaxReturnFolderDescendantIds(child));
+  }
+  return ids;
+}
+
+type FolderExplorerClipboard = {
+  mode: "cut" | "copy";
+  nodeId: string;
+  kind: "folder" | "file";
+  label: string;
+};
+
+type FolderExplorerCtxTarget = "folder" | "file" | "empty";
+
 function folderExplorerFileExt(label: string): string {
   const i = label.lastIndexOf(".");
   if (i < 0 || i === label.length - 1) return "";
   return label.slice(i + 1).toLowerCase();
 }
 
-function folderExplorerFileGlyph(label: string, kind: "folder" | "file"): string {
-  if (kind === "folder") return "DIR";
+type ExplorerFileIconSize = "sm" | "md" | "lg";
+type ExplorerFileIconKind =
+  | "folder"
+  | "folder-open"
+  | "pdf"
+  | "excel"
+  | "word"
+  | "image"
+  | "generic";
+
+/** Shared tree / list / grid / Icons view glyph kind. */
+function explorerFileIconKind(
+  label: string,
+  kind: "folder" | "file",
+  folderOpen = false,
+): ExplorerFileIconKind {
+  if (kind === "folder") return folderOpen ? "folder-open" : "folder";
   const ext = folderExplorerFileExt(label);
-  if (ext === "pdf") return "PDF";
-  if (ext === "xlsx" || ext === "xls" || ext === "csv") return "XLS";
-  if (ext === "txt" || ext === "eml") return "TXT";
-  if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif") {
-    return "IMG";
+  if (ext === "pdf") return "pdf";
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") return "excel";
+  if (ext === "doc" || ext === "docx" || ext === "rtf") return "word";
+  if (
+    ext === "png" ||
+    ext === "jpg" ||
+    ext === "jpeg" ||
+    ext === "gif" ||
+    ext === "webp" ||
+    ext === "bmp" ||
+    ext === "svg"
+  ) {
+    return "image";
   }
-  return "DOC";
+  return "generic";
+}
+
+/**
+ * Windows Explorer–style file/folder glyph (tree, lists, grid, Icons view).
+ * Use size="sm" in tree/list, size="md" in grid, size="lg" in Icons view.
+ * variant="root" = blue drive/year folder (tree head), distinct from yellow subfolders.
+ */
+function ExplorerFileIcon({
+  label,
+  kind,
+  size = "sm",
+  open = false,
+  variant = "default",
+}: {
+  label: string;
+  kind: "folder" | "file";
+  size?: ExplorerFileIconSize;
+  /** Open-folder state for tree disclosure. */
+  open?: boolean;
+  /** Root / year tree head — blue drive folder vs yellow subfolders. */
+  variant?: "default" | "root";
+}) {
+  const px = size === "lg" ? 48 : size === "md" ? 32 : 16;
+  const iconKind = explorerFileIconKind(label, kind, open);
+  const box = {
+    width: px,
+    height: px,
+    viewBox: "0 0 48 48",
+    style: { display: "block", flexShrink: 0 } as CSSProperties,
+    "aria-hidden": true as const,
+  };
+
+  if (iconKind === "folder" || iconKind === "folder-open") {
+    const isRoot = variant === "root";
+    if (isRoot && iconKind === "folder") {
+      return (
+        <svg {...box}>
+          <path
+            d="M4 14.5c0-2 1.4-3.5 3.4-3.5h9.2l3.2 3.2H40.5c2 0 3.5 1.5 3.5 3.5V36c0 2-1.5 3.5-3.5 3.5H7.4C5.4 39.5 4 38 4 36V14.5z"
+            fill="#2F6FB5"
+          />
+          <path
+            d="M4 19.5h40V36c0 2-1.5 3.5-3.5 3.5H7.4C5.4 39.5 4 38 4 36V19.5z"
+            fill="#4A90D9"
+          />
+          <path
+            d="M4 14.5c0-2 1.4-3.5 3.4-3.5h9.2l3.2 3.2H7.4C5.4 14.2 4 14.5 4 14.5z"
+            fill="#1E4F85"
+            opacity={0.55}
+          />
+          <rect x="28" y="26" width="12" height="9" rx="1.2" fill="#E8F1FB" />
+          <rect x="29.5" y="28" width="9" height="1.4" fill="#2F6FB5" />
+          <rect x="29.5" y="31" width="6" height="1.4" fill="#2F6FB5" />
+        </svg>
+      );
+    }
+    if (isRoot && iconKind === "folder-open") {
+      return (
+        <svg {...box}>
+          <path
+            d="M4 13c0-1.7 1.3-3 3-3h8.5l2.8 2.8H28c1.2 0 2.2.7 2.7 1.7L34 20H8.2L4 34.5V13z"
+            fill="#1E4F85"
+          />
+          <path
+            d="M6.5 20h37L39 37.5c-.3 1.4-1.5 2.5-3 2.5H10.2c-1.5 0-2.7-1-3.1-2.4L6.5 20z"
+            fill="#4A90D9"
+          />
+          <path d="M6.5 20h37l-1.2 5.5H8.2L6.5 20z" fill="#2F6FB5" />
+          <rect x="30" y="27" width="11" height="8" rx="1.1" fill="#E8F1FB" />
+          <rect x="31.4" y="28.8" width="8" height="1.3" fill="#2F6FB5" />
+          <rect x="31.4" y="31.5" width="5.5" height="1.3" fill="#2F6FB5" />
+        </svg>
+      );
+    }
+    if (iconKind === "folder") {
+      return (
+        <svg {...box}>
+          <path
+            d="M4 14.5c0-2 1.4-3.5 3.4-3.5h9.2l3.2 3.2H40.5c2 0 3.5 1.5 3.5 3.5V36c0 2-1.5 3.5-3.5 3.5H7.4C5.4 39.5 4 38 4 36V14.5z"
+            fill="#E8B84A"
+          />
+          <path
+            d="M4 19.5h40V36c0 2-1.5 3.5-3.5 3.5H7.4C5.4 39.5 4 38 4 36V19.5z"
+            fill="#F5D06A"
+          />
+          <path
+            d="M4 14.5c0-2 1.4-3.5 3.4-3.5h9.2l3.2 3.2H7.4C5.4 14.2 4 14.5 4 14.5z"
+            fill="#D4A017"
+            opacity={0.55}
+          />
+        </svg>
+      );
+    }
+    return (
+      <svg {...box}>
+        <path
+          d="M4 13c0-1.7 1.3-3 3-3h8.5l2.8 2.8H28c1.2 0 2.2.7 2.7 1.7L34 20H8.2L4 34.5V13z"
+          fill="#D4A017"
+        />
+        <path
+          d="M6.5 20h37L39 37.5c-.3 1.4-1.5 2.5-3 2.5H10.2c-1.5 0-2.7-1-3.1-2.4L6.5 20z"
+          fill="#F5D06A"
+        />
+        <path d="M6.5 20h37l-1.2 5.5H8.2L6.5 20z" fill="#E8B84A" />
+      </svg>
+    );
+  }
+
+  if (iconKind === "pdf") {
+    return (
+      <svg {...box}>
+        <path
+          d="M10 4.5h18.5L38 14v29.5H10z"
+          fill="#F3F4F6"
+          stroke="#C4C9D1"
+          strokeWidth={1.2}
+        />
+        <path d="M28.5 4.5V14H38" fill="#E5E7EB" stroke="#C4C9D1" strokeWidth={1.2} />
+        <path d="M15 18h12M15 22h9" stroke="#9AA1AB" strokeWidth={1.6} strokeLinecap="round" />
+        <path d="M8 25h32v14H8z" fill="#D1433F" />
+        <text
+          x="24"
+          y="35.2"
+          textAnchor="middle"
+          fill="#FFFFFF"
+          fontSize="9"
+          fontWeight="800"
+          fontFamily="Segoe UI, Arial, sans-serif"
+        >
+          PDF
+        </text>
+      </svg>
+    );
+  }
+
+  if (iconKind === "excel") {
+    return (
+      <svg {...box}>
+        <path
+          d="M10 4.5h18.5L38 14v29.5H10z"
+          fill="#F3F4F6"
+          stroke="#C4C9D1"
+          strokeWidth={1.2}
+        />
+        <path d="M28.5 4.5V14H38" fill="#E5E7EB" stroke="#C4C9D1" strokeWidth={1.2} />
+        <path d="M15 18h12M15 21.5h8" stroke="#9AA1AB" strokeWidth={1.5} strokeLinecap="round" />
+        <rect x="11" y="23" width="20" height="18" rx="2" fill="#217346" />
+        <text
+          x="21"
+          y="36.5"
+          textAnchor="middle"
+          fill="#FFFFFF"
+          fontSize="14"
+          fontWeight="800"
+          fontFamily="Segoe UI, Arial, sans-serif"
+        >
+          X
+        </text>
+      </svg>
+    );
+  }
+
+  if (iconKind === "word") {
+    return (
+      <svg {...box}>
+        <path
+          d="M10 4.5h18.5L38 14v29.5H10z"
+          fill="#F3F4F6"
+          stroke="#C4C9D1"
+          strokeWidth={1.2}
+        />
+        <path d="M28.5 4.5V14H38" fill="#E5E7EB" stroke="#C4C9D1" strokeWidth={1.2} />
+        <path d="M15 18h12M15 21.5h9" stroke="#9AA1AB" strokeWidth={1.6} strokeLinecap="round" />
+        <rect x="11" y="23" width="20" height="18" rx="2" fill="#2B579A" />
+        <text
+          x="21"
+          y="36.5"
+          textAnchor="middle"
+          fill="#FFFFFF"
+          fontSize="13"
+          fontWeight="800"
+          fontFamily="Segoe UI, Arial, sans-serif"
+        >
+          W
+        </text>
+      </svg>
+    );
+  }
+
+  if (iconKind === "image") {
+    return (
+      <svg {...box}>
+        <rect
+          x="6"
+          y="8"
+          width="36"
+          height="32"
+          rx="3"
+          fill="#E8F4FC"
+          stroke="#3B82A8"
+          strokeWidth={1.2}
+        />
+        <circle cx="16.5" cy="18" r="4" fill="#F0C14A" />
+        <path d="M8 34 18 22l7 6 6-8 9 14z" fill="#4CAF70" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...box}>
+      <path
+        d="M10 4.5h18.5L38 14v29.5H10z"
+        fill="#F8FAFC"
+        stroke="#A8B0BB"
+        strokeWidth={1.2}
+      />
+      <path d="M28.5 4.5V14H38" fill="#E8EDF3" stroke="#A8B0BB" strokeWidth={1.2} />
+      <path
+        d="M16 20h16M16 25h16M16 30h12"
+        stroke="#7B8794"
+        strokeWidth={1.7}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** Icon + filename for FirmDataTable / list rows (no separate Type/PDF text badge). */
+function ExplorerFileNameCell({
+  label,
+  kind = "file",
+  size = "sm",
+  open = false,
+  variant = "default",
+  semibold = false,
+}: {
+  label: string;
+  kind?: "folder" | "file";
+  size?: ExplorerFileIconSize;
+  open?: boolean;
+  variant?: "default" | "root";
+  semibold?: boolean;
+}) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        minWidth: 0,
+      }}
+    >
+      <ExplorerFileIcon
+        label={label}
+        kind={kind}
+        size={size}
+        open={open}
+        variant={variant}
+      />
+      <span
+        style={{
+          fontWeight: semibold ? 600 : 500,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {label}
+      </span>
+    </span>
+  );
 }
 
 function folderExplorerPreviewBody(
@@ -11510,6 +12167,577 @@ function folderExplorerPreviewBody(
         : "Demo preview for this file.",
     ],
   };
+}
+
+/** Demo page-preview flavor from filename (canvas cannot load real PDF bytes). */
+function folderExplorerPagePreviewKind(
+  label: string,
+):
+  | "pdf-cc"
+  | "pdf-bank"
+  | "pdf-generic"
+  | "sheet"
+  | "text"
+  | "image"
+  | "word"
+  | "file" {
+  const ext = folderExplorerFileExt(label);
+  const lower = label.toLowerCase();
+  if (ext === "pdf") {
+    if (
+      /כרטיס|אשראי/.test(label) ||
+      /credit\s*card|mastercard|visa/.test(lower)
+    ) {
+      return "pdf-cc";
+    }
+    if (/בנק|דפי\s*בנק/.test(label) || /\bbank\b|statement/.test(lower)) {
+      return "pdf-bank";
+    }
+    return "pdf-generic";
+  }
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") return "sheet";
+  if (ext === "txt" || ext === "eml") return "text";
+  if (ext === "doc" || ext === "docx" || ext === "rtf") return "word";
+  if (
+    ext === "png" ||
+    ext === "jpg" ||
+    ext === "jpeg" ||
+    ext === "gif" ||
+    ext === "webp" ||
+    ext === "bmp" ||
+    ext === "svg"
+  ) {
+    return "image";
+  }
+  return "file";
+}
+
+function folderExplorerDemoLast4(label: string): string {
+  const m = label.match(/(\d{4})/);
+  return m?.[1] ?? "5482";
+}
+
+function folderExplorerDemoPageNum(label: string): {
+  page: number;
+  of: number;
+} {
+  const he = label.match(/צד\s*(\d+)/i);
+  const en = label.match(/(?:side|page)\s*(\d+)/i);
+  const n = Number(he?.[1] ?? en?.[1] ?? "1");
+  const page = Number.isFinite(n) && n > 0 ? Math.min(n, 9) : 1;
+  return { page, of: Math.max(page, 2) };
+}
+
+/**
+ * Windows Explorer–style Details/Page preview surface.
+ * Renders a readable paper page (demo layout) — not a text stub.
+ */
+function FolderExplorerPagePreview({
+  lang,
+  label,
+}: {
+  lang: UiLang;
+  label: string;
+}) {
+  const kind = folderExplorerPagePreviewKind(label);
+  const { page, of } = folderExplorerDemoPageNum(label);
+  const last4 = folderExplorerDemoLast4(label);
+  const pageLabel =
+    lang === "he" ? `עמוד ${page} מתוך ${of}` : `Page ${page} of ${of}`;
+  const paperPad: CSSProperties = {
+    width: "100%",
+    maxWidth: 480,
+    margin: "0 auto",
+    padding: "18px 20px 22px",
+    background: CHROME_WHITE,
+    border: `1px solid ${CHROME_BORDER_BLUE}`,
+    borderRadius: 2,
+    boxSizing: "border-box",
+    minHeight: 440,
+  };
+  const hairline = `1px solid ${CHROME_BORDER_BLUE}`;
+  const rowLine: CSSProperties = {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: "5px 0",
+    borderBottom: `1px solid ${CHROME_SOFT_BLUE}`,
+    fontSize: 11,
+    color: CHROME_INK,
+  };
+
+  let paper: ReturnType<typeof Stack>;
+
+  if (kind === "pdf-cc") {
+    const tx =
+      page >= 2
+        ? [
+            { d: "18/09", m: "סופר פארם", a: "127.90" },
+            { d: "21/09", m: "דלק תל אביב", a: "318.40" },
+            { d: "24/09", m: "רמי לוי", a: "456.20" },
+            { d: "27/09", m: "Apple.com/bill", a: "39.90" },
+            { d: "29/09", m: "כביש 6", a: "24.50" },
+          ]
+        : [
+            { d: "02/09", m: "רמי לוי", a: "312.40" },
+            { d: "05/09", m: "פז תחנת דלק", a: "278.00" },
+            { d: "08/09", m: "בלינק / אינטרנט", a: "89.90" },
+            { d: "12/09", m: "מכבי שירותי בריאות", a: "64.00" },
+            { d: "15/09", m: "קסטרו", a: "219.00" },
+          ];
+    paper = (
+      <div style={{ ...paperPad, direction: "rtl" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            marginBottom: 10,
+            paddingBottom: 8,
+            borderBottom: `2px solid ${CHROME_INK}`,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: CHROME_INK }}>
+            פירוט עסקאות — כרטיס אשראי
+          </span>
+          <span style={{ fontSize: 10, color: CHROME_INK_MUTED }}>
+            {pageLabel}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: CHROME_INK_MUTED, marginBottom: 4 }}>
+          מספר כרטיס
+        </div>
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 700,
+            letterSpacing: 1.5,
+            color: CHROME_INK,
+            marginBottom: 10,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {`•••• •••• •••• ${last4}`}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 8,
+            fontSize: 11,
+            color: CHROME_INK_MUTED,
+            marginBottom: 14,
+          }}
+        >
+          <span>תקופה: 01/09/2024 – 30/09/2024</span>
+          <span>מטבע: ₪</span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 8,
+            padding: "6px 0",
+            borderBottom: hairline,
+            borderTop: hairline,
+            fontSize: 10,
+            fontWeight: 700,
+            color: CHROME_INK_MUTED,
+            background: CHROME_SOFT_BLUE,
+            marginInline: -4,
+            paddingInline: 4,
+          }}
+        >
+          <span style={{ width: 44 }}>תאריך</span>
+          <span style={{ flex: 1 }}>בית עסק</span>
+          <span style={{ width: 64, textAlign: "left" }}>סכום</span>
+        </div>
+        {tx.map((r) => (
+          <div key={`${r.d}-${r.m}`} style={rowLine}>
+            <span style={{ width: 44, color: CHROME_INK_MUTED }}>{r.d}</span>
+            <span style={{ flex: 1 }}>{r.m}</span>
+            <span
+              style={{
+                width: 64,
+                textAlign: "left",
+                fontVariantNumeric: "tabular-nums",
+                direction: "ltr",
+              }}
+            >
+              {r.a}
+            </span>
+          </div>
+        ))}
+        <div
+          style={{
+            marginTop: 14,
+            paddingTop: 10,
+            borderTop: `2px solid ${CHROME_INK}`,
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 12,
+            fontWeight: 700,
+            color: CHROME_INK,
+          }}
+        >
+          <span>{page >= 2 ? "סה״כ לתשלום" : "יתרת ביניים"}</span>
+          <span style={{ direction: "ltr", fontVariantNumeric: "tabular-nums" }}>
+            {page >= 2 ? "₪ 1,930.20" : "₪ 963.30"}
+          </span>
+        </div>
+        <div
+          style={{
+            marginTop: 16,
+            fontSize: 9,
+            color: CHROME_INK_MUTED,
+            textAlign: "center",
+          }}
+        >
+          {label}
+        </div>
+      </div>
+    );
+  } else if (kind === "pdf-bank") {
+    paper = (
+      <div style={{ ...paperPad, direction: "rtl" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 10,
+            paddingBottom: 8,
+            borderBottom: `2px solid ${CHROME_INK}`,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: CHROME_INK }}>
+            דפי בנק — תנועות בחשבון
+          </span>
+          <span style={{ fontSize: 10, color: CHROME_INK_MUTED }}>
+            {pageLabel}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: CHROME_INK_MUTED, marginBottom: 12 }}>
+          חשבון עו״ש · יתרת פתיחה ₪ 24,180.00
+        </div>
+        {[
+          { d: "03/09", desc: "העברה נכנסת", a: "+4,500.00" },
+          { d: "07/09", desc: "הוראת קבע — ביטוח", a: "−312.00" },
+          { d: "11/09", desc: "משיכת כספומט", a: "−500.00" },
+          { d: "18/09", desc: "זיכוי משכורת", a: "+12,400.00" },
+          { d: "22/09", desc: "תשלום ספק", a: "−1,890.50" },
+        ].map((r) => (
+          <div key={`${r.d}-${r.desc}`} style={rowLine}>
+            <span style={{ width: 44, color: CHROME_INK_MUTED }}>{r.d}</span>
+            <span style={{ flex: 1 }}>{r.desc}</span>
+            <span
+              style={{
+                width: 72,
+                textAlign: "left",
+                direction: "ltr",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {r.a}
+            </span>
+          </div>
+        ))}
+        <div
+          style={{
+            marginTop: 14,
+            fontSize: 12,
+            fontWeight: 700,
+            color: CHROME_INK,
+            textAlign: "left",
+            direction: "ltr",
+          }}
+        >
+          Closing · ₪ 38,377.50
+        </div>
+      </div>
+    );
+  } else if (kind === "pdf-generic") {
+    paper = (
+      <div style={paperPad}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 12,
+            paddingBottom: 8,
+            borderBottom: `2px solid ${CHROME_INK}`,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: CHROME_INK }}>
+            {lang === "he" ? "מסמך PDF" : "PDF document"}
+          </span>
+          <span style={{ fontSize: 10, color: CHROME_INK_MUTED }}>
+            {pageLabel}
+          </span>
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: CHROME_INK,
+            marginBottom: 8,
+            wordBreak: "break-word",
+          }}
+        >
+          {label.replace(/\.pdf$/i, "")}
+        </div>
+        {[
+          1, 0.92, 0.88, 0.95, 0.7, 0.9, 0.85, 0.6, 0.93, 0.78, 0.88, 0.55,
+        ].map((w, i) => (
+          <div
+            key={i}
+            style={{
+              height: 8,
+              width: `${Math.round(w * 100)}%`,
+              background: i % 4 === 0 ? CHROME_SOFT_BLUE : CHROME_PANE_BG,
+              borderRadius: 2,
+              marginBottom: 7,
+              border: `1px solid ${CHROME_BORDER_BLUE}`,
+            }}
+          />
+        ))}
+        <div
+          style={{
+            marginTop: 18,
+            paddingTop: 8,
+            borderTop: hairline,
+            fontSize: 10,
+            color: CHROME_INK_MUTED,
+            textAlign: "center",
+          }}
+        >
+          {pageLabel}
+        </div>
+      </div>
+    );
+  } else if (kind === "sheet") {
+    const cells = [
+      ["Client", "Year", "Amount", "Status"],
+      ["Sample Co", "2024", "1,250", "Open"],
+      ["Olive Grove", "2024", "890", "Paid"],
+      ["Yael M.", "2023", "2,100", "Open"],
+    ];
+    paper = (
+      <div style={{ ...paperPad, maxWidth: 460, padding: 12 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: CHROME_INK,
+            marginBottom: 10,
+          }}
+        >
+          {lang === "he" ? "תצוגת גיליון" : "Spreadsheet"}
+        </div>
+        <div
+          style={{
+            border: hairline,
+            borderRadius: 4,
+            overflow: "hidden",
+          }}
+        >
+          {cells.map((row, ri) => (
+            <div
+              key={ri}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1.4fr 0.7fr 0.9fr 0.8fr",
+                background: ri === 0 ? CHROME_TABLE_HEADER : CHROME_WHITE,
+                borderTop: ri === 0 ? undefined : `1px solid ${CHROME_SOFT_BLUE}`,
+              }}
+            >
+              {row.map((cell, ci) => (
+                <div
+                  key={ci}
+                  style={{
+                    padding: "6px 8px",
+                    fontSize: 11,
+                    fontWeight: ri === 0 ? 700 : 400,
+                    color: CHROME_INK,
+                    borderInlineEnd:
+                      ci < row.length - 1
+                        ? `1px solid ${CHROME_SOFT_BLUE}`
+                        : undefined,
+                  }}
+                >
+                  {cell}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  } else if (kind === "text") {
+    paper = (
+      <div
+        style={{
+          ...paperPad,
+          direction: lang === "he" ? "rtl" : "ltr",
+          fontFamily: "ui-monospace, Consolas, monospace",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 10,
+            color: CHROME_INK_MUTED,
+            marginBottom: 12,
+            paddingBottom: 6,
+            borderBottom: hairline,
+          }}
+        >
+          {label}
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            lineHeight: 1.55,
+            color: CHROME_INK,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {lang === "he"
+            ? "שלום,\n\nמצורפים מסמכים לבדיקה עבור תיק הלקוח.\nנא לאשר קבלה ולהשלים את הפריטים החסרים.\n\nבברכה,\nצוות המשרד"
+            : "Hello,\n\nAttached are documents for review on this client file.\nPlease confirm receipt and complete any missing items.\n\nRegards,\nFirm team"}
+        </div>
+      </div>
+    );
+  } else if (kind === "image") {
+    paper = (
+      <div
+        style={{
+          ...paperPad,
+          minHeight: 360,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          background: CHROME_PANE_BG,
+        }}
+      >
+        <div
+          style={{
+            width: "78%",
+            aspectRatio: "4 / 3",
+            border: `1px solid ${CHROME_BORDER_BLUE}`,
+            background: CHROME_WHITE,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ExplorerFileIcon label={label} kind="file" size="lg" />
+        </div>
+        <span style={{ fontSize: 11, color: CHROME_INK_MUTED }}>{label}</span>
+      </div>
+    );
+  } else if (kind === "word") {
+    paper = (
+      <div style={{ ...paperPad, direction: lang === "he" ? "rtl" : "ltr" }}>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 700,
+            color: CHROME_INK,
+            marginBottom: 12,
+            paddingBottom: 8,
+            borderBottom: hairline,
+          }}
+        >
+          {label.replace(/\.(docx?|rtf)$/i, "")}
+        </div>
+        {[0.98, 0.94, 0.9, 0.72, 0.96, 0.88, 0.93, 0.65, 0.9, 0.85].map(
+          (w, i) => (
+            <div
+              key={i}
+              style={{
+                height: 7,
+                width: `${Math.round(w * 100)}%`,
+                background: CHROME_PANE_BG,
+                border: `1px solid ${CHROME_SOFT_BLUE}`,
+                borderRadius: 2,
+                marginBottom: 8,
+              }}
+            />
+          ),
+        )}
+      </div>
+    );
+  } else {
+    paper = (
+      <div style={paperPad}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 12,
+          }}
+        >
+          <ExplorerFileIcon label={label} kind="file" size="md" />
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: CHROME_INK,
+              wordBreak: "break-word",
+            }}
+          >
+            {label}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: CHROME_INK_MUTED, lineHeight: 1.5 }}>
+          {lang === "he"
+            ? "תצוגה מקדימה לדוגמה — אין תוכן עמוד מובנה לסוג קובץ זה."
+            : "Demo preview — no structured page layout for this file type."}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: "12px 10px 16px",
+        borderRadius: 8,
+        border: `1px solid ${CHROME_BORDER_BLUE}`,
+        background: CHROME_PANE_BG,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          padding: "0 4px 4px",
+        }}
+      >
+        <span style={{ fontSize: 10, color: CHROME_INK_MUTED }}>
+          {kind.startsWith("pdf")
+            ? lang === "he"
+              ? "תצוגת עמוד"
+              : "Page preview"
+            : lang === "he"
+              ? "תצוגה מקדימה"
+              : "Preview"}
+        </span>
+        <span style={{ fontSize: 10, color: CHROME_INK_MUTED }}>{pageLabel}</span>
+      </div>
+      {paper}
+    </div>
+  );
 }
 
 const TAX_RETURN_YEARS = ["2025", "2024", "2023", "2022", "2021"] as const;
@@ -12709,6 +13937,139 @@ function demoAuditFiles(client: DemoRow, year: string): WorkspaceFileRow[] {
   ];
 }
 
+/**
+ * Flat WorkspaceFileRow lists → TaxReturnFolderBrowser tree (group by kind).
+ * Used for Billing / custom-service file panels that are not year archives.
+ */
+function buildWorkspaceFilesFolderTree(
+  rootId: string,
+  rootLabel: string,
+  files: WorkspaceFileRow[],
+): TaxReturnFolderNode[] {
+  const byKind = new Map<string, WorkspaceFileRow[]>();
+  for (const f of files) {
+    const list = byKind.get(f.kind) ?? [];
+    list.push(f);
+    byKind.set(f.kind, list);
+  }
+  const children: TaxReturnFolderNode[] = [...byKind.entries()].map(
+    ([kind, rows]) => {
+      const slug = kind.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase() || "misc";
+      return {
+        id: `${rootId}-kind-${slug}`,
+        label: kind,
+        kind: "folder" as const,
+        children: rows.map((r) => ({
+          id: r.id,
+          label: /\.[a-z0-9]{2,5}$/i.test(r.name) ? r.name : `${r.name}.pdf`,
+          kind: "file" as const,
+        })),
+      };
+    },
+  );
+  return [
+    {
+      id: rootId,
+      label: rootLabel,
+      kind: "folder",
+      children:
+        children.length > 0
+          ? children
+          : [
+              {
+                id: `${rootId}-empty`,
+                label: "(empty)",
+                kind: "file",
+              },
+            ],
+    },
+  ];
+}
+
+/** Year folder tree for Audit (mirrors Bookkeeping TaxReturnFolderBrowser layout). */
+function buildAuditWorkingFolder(
+  lang: UiLang,
+  client: DemoRow,
+  year: string,
+  uploaded: PortalDocRequest[],
+): TaxReturnFolderNode[] {
+  const short = client.name.split(" ")[0] ?? client.name;
+  const safe = client.name.replace(/[\\/:*?"<>|]/g, "_");
+  const portalUploads: TaxReturnFolderNode[] = uploaded.map((r) => ({
+    id: `au-file-upload-${r.id}`,
+    label: r.uploadedFileName ?? `${r.docName}.pdf`,
+    kind: "file",
+  }));
+  const emptyPortal: TaxReturnFolderNode = {
+    id: "au-file-portal-empty",
+    label: lang === "he" ? "(אין העלאות עדיין)" : "(no uploads yet)",
+    kind: "file",
+  };
+  return [
+    {
+      id: `au-root-${client.id}-${year}`,
+      label: `${safe} · ${year}`,
+      kind: "folder",
+      children: [
+        {
+          id: "au-sumit",
+          label: lang === "he" ? "סאמיט / פ.נ." : "Sumit / Trial balance",
+          kind: "folder",
+          children: [
+            {
+              id: "au-file-tb",
+              label: `Sumit_TB_${short}_${year}.pdf`,
+              kind: "file",
+            },
+          ],
+        },
+        {
+          id: "au-workpapers",
+          label: lang === "he" ? "ניירות עבודה" : "Workpapers",
+          kind: "folder",
+          children: [
+            {
+              id: "au-file-wp",
+              label: `Workpapers_${short}_${year}.pdf`,
+              kind: "file",
+            },
+          ],
+        },
+        {
+          id: "au-1214",
+          label: lang === "he" ? "טופס 1214" : "Form 1214",
+          kind: "folder",
+          children: [
+            {
+              id: "au-file-1214",
+              label: `Form_1214_${short}_${year}.pdf`,
+              kind: "file",
+            },
+          ],
+        },
+        {
+          id: "au-report",
+          label: lang === "he" ? "דוח מבוקר" : "Audited report",
+          kind: "folder",
+          children: [
+            {
+              id: "au-file-report",
+              label: `Audited_report_${short}_${year}.pdf`,
+              kind: "file",
+            },
+          ],
+        },
+        {
+          id: "au-portal",
+          label: lang === "he" ? "העלאות פורטל" : "Portal uploads",
+          kind: "folder",
+          children: portalUploads.length > 0 ? portalUploads : [emptyPortal],
+        },
+      ],
+    },
+  ];
+}
+
 /** Firm-wide default folder kinds for Company documents. */
 type CompanyDocsFolderKind = "year" | "general" | "other" | "custom";
 
@@ -13018,6 +14379,135 @@ function seedCompanyDocsFolders(
       files: demoFiles,
     };
   });
+}
+
+/** Stable id for a company-docs calendar-year folder in the Explorer tree. */
+function companyDocsYearFolderId(year: string): string {
+  return `cd-year-${year}`;
+}
+
+function companyDocsClientRootId(clientId: string): string {
+  return `cd-root-${clientId}`;
+}
+
+/** Demo archive years around the working year (newest first), always includes `year`. */
+function companyDocsArchiveYears(year: string): string[] {
+  const y = Number.parseInt(year, 10);
+  const base = Number.isFinite(y) ? y : new Date().getFullYear();
+  return [String(base), String(base - 1), String(base - 2)];
+}
+
+function companyDocsFilesToNodes(
+  files: CompanyDocsFile[],
+): TaxReturnFolderNode[] {
+  return files.map((f) => ({
+    id: f.id,
+    label: f.name,
+    kind: "file" as const,
+  }));
+}
+
+/**
+ * Firm/client Company documents as a TaxReturnFolderBrowser tree:
+ * client root → year folders (archive) + General / Other / custom.
+ */
+function buildCompanyDocsFolderTree(
+  lang: UiLang,
+  client: { id: string; name: string },
+  year: string,
+  store: CompanyDocsClientStore,
+): TaxReturnFolderNode[] {
+  const safe = client.name.replace(/[\\/:*?"<>|]/g, "_");
+  const short = client.name.split(" ")[0] ?? client.name;
+  const rootId = companyDocsClientRootId(client.id);
+  const archiveYears = companyDocsArchiveYears(year);
+
+  const yearSource =
+    store.folders.find((f) => inferCompanyDocsSystemKind(f) === "year") ?? null;
+  const yearNodes: TaxReturnFolderNode[] = archiveYears.map((y) => {
+    const isWorking = y === year;
+    let children: TaxReturnFolderNode[] = isWorking
+      ? companyDocsFilesToNodes(yearSource?.files ?? [])
+      : [
+          {
+            id: `seed-archive-corp-${client.id}-${y}`,
+            label: `Company_registry_${y}.pdf`,
+            kind: "file",
+          },
+          {
+            id: `seed-archive-note-${client.id}-${y}`,
+            label:
+              lang === "he"
+                ? `סיכום_שנה_${short}_${y}.txt`
+                : `Year_summary_${short}_${y}.txt`,
+            kind: "file",
+          },
+        ];
+    if (isWorking && children.length === 0) {
+      children = [
+        {
+          id: `seed-year-corp-${year}`,
+          label: `Company_registry_${year}.pdf`,
+          kind: "file",
+        },
+        {
+          id: `seed-year-articles-${year}`,
+          label: `Articles_${short}.pdf`,
+          kind: "file",
+        },
+      ];
+    }
+    return {
+      id: companyDocsYearFolderId(y),
+      label: y,
+      kind: "folder" as const,
+      children,
+    };
+  });
+
+  const otherNodes: TaxReturnFolderNode[] = store.folders
+    .filter((f) => inferCompanyDocsSystemKind(f) !== "year")
+    .map((folder) => ({
+      id: folder.id,
+      label: companyDocsFolderDisplayName(lang, folder, year),
+      kind: "folder" as const,
+      children: companyDocsFilesToNodes(folder.files),
+    }));
+
+  if (otherNodes.length === 0) {
+    otherNodes.push(
+      {
+        id: "general",
+        label: companyDocsSystemKindLabel(lang, "general"),
+        kind: "folder",
+        children: [
+          {
+            id: "seed-gen-id",
+            label: `Company_ID_${short}.pdf`,
+            kind: "file",
+          },
+        ],
+      },
+      {
+        id: "other",
+        label: companyDocsSystemKindLabel(lang, "other"),
+        kind: "folder",
+        children: [],
+      },
+    );
+  }
+
+  return [
+    {
+      id: rootId,
+      label:
+        lang === "he"
+          ? `${safe} · מסמכי חברה`
+          : `${safe} · Company docs`,
+      kind: "folder",
+      children: [...yearNodes, ...otherNodes],
+    },
+  ];
 }
 
 /**
@@ -16617,10 +18107,13 @@ type ModuleTile = {
     | "tasks"
     | "boards"
     | "users-rights"
+    | "company-modules"
     | "files-root"
+    | "client-folders"
     | "help-feedback"
     | "ai-maintenance"
     | "reports"
+    | "fees"
     | "placeholder";
   filter?: ClientFilter;
   chatId?: string;
@@ -16745,6 +18238,74 @@ type FirmDepartment = {
   nameEn: string;
   nameHe: string;
 };
+
+/** Admin Fees — firm default fee schedules (amount + frequency + terms EN/HE). */
+type FirmFeeSchedule = {
+  id: string;
+  nameEn: string;
+  nameHe: string;
+  amountIls: number;
+  frequency: FeeLineFrequency;
+  termsEn: string;
+  termsHe: string;
+};
+
+const DEFAULT_FIRM_FEE_SCHEDULES: FirmFeeSchedule[] = [
+  {
+    id: "fee-bookkeeping",
+    nameEn: "Bookkeeping",
+    nameHe: "הנהלת חשבונות",
+    amountIls: 1200,
+    frequency: "monthly",
+    termsEn: "Monthly bookkeeping package",
+    termsHe: "חבילת הנה״ח חודשית",
+  },
+  {
+    id: "fee-audit",
+    nameEn: "Annual accounts / audit",
+    nameHe: "דוחות כספיים / ביקורת",
+    amountIls: 18000,
+    frequency: "yearly",
+    termsEn: "Annual audit engagement",
+    termsHe: "התקשרות ביקורת שנתית",
+  },
+  {
+    id: "fee-vat",
+    nameEn: "VAT",
+    nameHe: "מע״מ",
+    amountIls: 450,
+    frequency: "monthly",
+    termsEn: "Monthly VAT filing",
+    termsHe: "דיווח מע״מ חודשי",
+  },
+  {
+    id: "fee-payroll",
+    nameEn: "Payroll",
+    nameHe: "משכורות",
+    amountIls: 800,
+    frequency: "monthly",
+    termsEn: "Monthly payroll processing",
+    termsHe: "עיבוד משכורות חודשי",
+  },
+  {
+    id: "fee-tax-return",
+    nameEn: "Tax return (individual)",
+    nameHe: "דוח שנתי (פרטי)",
+    amountIls: 2200,
+    frequency: "one-off",
+    termsEn: "Per annual return",
+    termsHe: "לדוח שנתי",
+  },
+  {
+    id: "fee-consulting",
+    nameEn: "Consulting",
+    nameHe: "ייעוץ",
+    amountIls: 500,
+    frequency: "when_necessary",
+    termsEn: "As needed — hourly or scoped",
+    termsHe: "לפי הצורך — שעתי או מוגדר",
+  },
+];
 
 const DEFAULT_FIRM_DEPARTMENTS: FirmDepartment[] = [
   {
@@ -16905,30 +18466,20 @@ const DEMO_WORKER_EMAIL_SEED: Record<
  * Job department → extra primary-rail module(s).
  * Belonging to the dept ADDS that icon (Client/Worker/Tasks/WA/Chats stay for everyone).
  * Multi-membership workers get the union of extras from every deptIds entry.
+ * Rail-promoted modules also stay on Clients home grid (duplicate access intentional).
  */
 type DepartmentPrimaryExtra = {
   /** Primary rail category id */
   id: string;
-  /** Client secondary tile to hide when this module is on the primary rail */
-  hideClientTileId?: string;
 };
 
 const DEPARTMENT_PRIMARY_EXTRAS: Record<string, DepartmentPrimaryExtra[]> = {
   /** Accounting / bookkeeping dept — Bookkeeping list shortcut on primary rail. */
-  reportDeptAccounting: [
-    { id: "bookkeeping", hideClientTileId: "bookkeeping" },
-  ],
-  /**
-   * Billing primary-rail icon for Billing dept.
-   * Hide Billing from Clients home tiles — Billing is its own primary (not a
-   * Clients filter). Non-billing workers still see Billing on Clients home.
-   */
-  reportDeptBilling: [{ id: "billing", hideClientTileId: "billing" }],
-  reportDeptAuditCompanies: [
-    { id: "audit-companies", hideClientTileId: "companies" },
-  ],
-  /** Individual tax return (דוח אישי) — individuals client list on primary rail.
-   * No hideClientTileId: Tax return stays on Client Modules home (unlike Companies/Bookkeeping). */
+  reportDeptAccounting: [{ id: "bookkeeping" }],
+  /** Billing primary-rail icon for Billing dept (also on Clients home tiles). */
+  reportDeptBilling: [{ id: "billing" }],
+  reportDeptAuditCompanies: [{ id: "audit-companies" }],
+  /** Individual tax return (דוח אישי) — individuals client list on primary rail. */
   reportDeptIndividualTaxReturn: [{ id: "tax-return" }],
   /**
    * Secretariat / Office board no longer gets a primary-rail icon.
@@ -16960,18 +18511,6 @@ function preferredPrimaryCategoryForDepts(deptIds: string | string[]): string {
   const extras = departmentExtraPrimaryIds(deptIds);
   if (extras.includes("billing")) return "billing";
   return DEFAULT_PRIMARY_CATEGORY;
-}
-
-/** Union of client tiles to hide when those modules sit on the primary rail. */
-function hiddenClientTileIdsForDept(deptIds: string | string[]): Set<string> {
-  const list = Array.isArray(deptIds) ? deptIds : [deptIds];
-  const hide = new Set<string>();
-  for (const deptId of list) {
-    for (const extra of DEPARTMENT_PRIMARY_EXTRAS[deptId] ?? []) {
-      if (extra.hideClientTileId) hide.add(extra.hideClientTileId);
-    }
-  }
-  return hide;
 }
 
 /** Migrate legacy single-dept rows and keep deptId === deptIds[0]. */
@@ -17115,8 +18654,8 @@ const DEMO_STAFF: FirmWorker[] = normalizeFirmWorkers([
   },
   {
     id: "staff-noa",
-    name: "Noa Mizrahi",
-    nameHe: "נועה מזרחי",
+    name: "Noa Mizrahi (staff)",
+    nameHe: "נועה מזרחי (עובדת)",
     deptId: "reportDeptTax",
     employeeTag: "13",
     email: "noa.mizrahi@intertax.example",
@@ -17448,6 +18987,8 @@ type StaffRightsEntry = {
   workerId: string;
   role: Role;
   active: boolean;
+  /** Demo invite awaiting acceptance. */
+  invitePending?: boolean;
   moduleAccess: Record<StaffRightsModuleKey, boolean>;
 };
 
@@ -17495,9 +19036,15 @@ function defaultModuleAccessForRole(
  * Demo System Admins who staff Help & feedback (can reply).
  * Same role gate as Systemadmin → Help & feedback inbox.
  */
+/**
+ * Canonical non-admin demo worker for Company modules → Workers defaults.
+ * Not in DEMO_HELP_SYSADMIN_IDS; defaultRoleForWorker → "worker".
+ */
+const DEMO_NON_ADMIN_WORKER_ID = "staff-noa" as const;
+
 const DEMO_HELP_SYSADMIN_IDS = [
   "staff-dana",
-  "staff-noa",
+  /** staff-noa is the non-admin demo worker — keep her out of this list. */
   "staff-secretariat",
   "staff-audit",
   "staff-billing",
@@ -17611,6 +19158,7 @@ function normalizeStaffRightsEntry(
     workerId,
     role,
     active: entry?.active !== false,
+    invitePending: entry?.invitePending === true,
     moduleAccess,
   };
 }
@@ -19266,9 +20814,9 @@ const WORKERS_TILES: ModuleTile[] = [
 
 /**
  * Client Modules home grid — same destinations as Clients secondary rows
- * (SIDEBAR filters + Services action). Billing is a peer primary module
- * (not a Clients filter); shown here only for workers who do not already
- * have Billing on the primary rail (hidden via hideClientTileId).
+ * (SIDEBAR filters + Services action). Modules promoted onto the primary
+ * rail (Bookkeeping, Billing, Audit Companies, Tax return) still appear
+ * here so workers can open them from Clients home too.
  * Order matches SIDEBAR, then Services, then Billing.
  */
 const CLIENT_TILES: ModuleTile[] = [
@@ -19329,6 +20877,12 @@ const CLIENT_TILES: ModuleTile[] = [
     filter: "one-time",
   },
   {
+    id: "client-folders",
+    label: "Client folders",
+    hint: "Firm-wide archive of every client and company folder",
+    opens: "client-folders",
+  },
+  {
     id: "services",
     label: "Services",
     hint: "Clients sidebar · Services catalog",
@@ -19386,7 +20940,7 @@ const ADMIN_TILES: ModuleTile[] = [
     opens: "secretariat",
   },
   /** WhatsApp settings live inside the WhatsApp module (header / secondary), not Admin. */
-  { id: "fees", label: "Fees", hint: "Agreed fee schedules", opens: "placeholder" },
+  { id: "fees", label: "Fees", hint: "Agreed fee schedules", opens: "fees" },
   {
     id: "reports",
     label: "Reports",
@@ -19415,6 +20969,12 @@ const SYSTEM_TILES: ModuleTile[] = [
     opens: "client-fields",
   },
   { id: "rights", label: "Users & rights", hint: "Roles and access", opens: "users-rights" },
+  {
+    id: "company-modules",
+    label: "Company modules",
+    hint: "Company module list + per-worker visibility",
+    opens: "company-modules",
+  },
   {
     id: "company-settings",
     label: "Company settings",
@@ -19448,6 +21008,375 @@ const SYSTEM_TILES: ModuleTile[] = [
   { id: "files-root", label: "Files root / cloud", hint: "Share now, cloud later", opens: "files-root" },
   { id: "wave", label: "Wave import", hint: "Read-only history", opens: "wave-import" },
 ];
+
+
+/** Always-visible modules — never hide Systemadmin shell or this settings screen. */
+const ALWAYS_ON_COMPANY_MODULE_IDS = new Set(["systemadmin", "company-modules"]);
+
+type CompanyModuleGroup = "primary" | "admin" | "systemadmin";
+
+type CompanyModuleDef = {
+  id: string;
+  iconId: string;
+  group: CompanyModuleGroup;
+  alwaysOn?: boolean;
+  /** When set, row nests under this parent in Company modules (e.g. CLIENT_TILES → client). */
+  parentId?: string;
+};
+
+/** Tools secondary / home destinations — ids match TOOLS_MODULES (defined later). */
+const COMPANY_TOOLS_MODULE_IDS = [
+  "ai-chat",
+  "signature",
+  "converter",
+  "sumit-dapi",
+  "section46",
+  "masav",
+] as const;
+
+/**
+ * Flat catalog of every toggleable product module — primary rail + tile registries.
+ * Duplicate logical ids across dual-homed tiles collapse to one row (first parent wins).
+ * Every primary-rail / Admin / Systemadmin parent nests its secondary tiles via parentId.
+ */
+function buildCompanyModulesCatalog(): CompanyModuleDef[] {
+  const seen = new Set<string>();
+  const out: CompanyModuleDef[] = [];
+  const add = (
+    id: string,
+    iconId: string,
+    group: CompanyModuleGroup,
+    alwaysOn = false,
+    parentId?: string,
+  ) => {
+    if (seen.has(id)) {
+      if (parentId) {
+        const existing = out.find((m) => m.id === id);
+        if (existing && !existing.parentId) existing.parentId = parentId;
+      }
+      return;
+    }
+    seen.add(id);
+    out.push({
+      id,
+      iconId,
+      group,
+      alwaysOn: alwaysOn || ALWAYS_ON_COMPANY_MODULE_IDS.has(id),
+      parentId,
+    });
+  };
+
+  /** Primary rail parents (Admin / Systemadmin have their own section headers). */
+  for (const id of [
+    "client",
+    "worker",
+    "tools",
+    "work",
+    "chats",
+    "whatsapp",
+    "workers",
+  ]) {
+    add(id, id, "primary");
+  }
+  /**
+   * Dept-extra rail shortcuts that are NOT already CLIENT_TILES ids.
+   * bookkeeping / billing / tax-return share CLIENT_TILES ids → nest under Clients.
+   * audit-companies is the rail id; Clients tile uses `companies`.
+   */
+  add("audit-companies", "audit-companies", "primary", false, "client");
+
+  /** Clients → sidebar / home tiles (+ rail-promoted dept modules sharing those ids). */
+  for (const tile of CLIENT_TILES) {
+    add(tile.id, tile.id, "primary", false, "client");
+  }
+
+  /** Systemadmin tiles before Worker so dual-homed template-settings nests under Systemadmin. */
+  add("systemadmin", "systemadmin", "systemadmin", true);
+  for (const tile of SYSTEM_TILES) {
+    add(tile.id, tile.id, "systemadmin", false, "systemadmin");
+  }
+
+  /** Worker → home tiles + Team (secondary-only for admin-like). */
+  for (const tile of WORKER_TILES) {
+    add(tile.id, tile.id, "primary", false, "worker");
+  }
+  add("all-workers", "workers", "primary", false, "worker");
+
+  /** Tools → tool secondary destinations. */
+  for (const id of COMPANY_TOOLS_MODULE_IDS) {
+    add(id, id, "primary", false, "tools");
+  }
+
+  /** Work → Tasks + My Boards. */
+  for (const tile of WORK_TILES) {
+    add(tile.id, tile.id, "primary", false, "work");
+  }
+
+  /** Chats / WhatsApp → firm settings (secondary-sidebar-only). */
+  add("chats-settings", "chats-settings", "primary", false, "chats");
+  add("whatsapp-settings", "whatsapp-settings", "primary", false, "whatsapp");
+
+  /** Workers (admin directory) → directory + assign. */
+  for (const tile of WORKERS_TILES) {
+    add(tile.id, tile.id, "primary", false, "workers");
+  }
+
+  /** Admin section. */
+  add("admin", "admin", "admin");
+  for (const tile of ADMIN_TILES) {
+    add(tile.id, tile.id, "admin", false, "admin");
+  }
+
+  return out;
+}
+
+const COMPANY_MODULE_CATALOG: CompanyModuleDef[] = buildCompanyModulesCatalog();
+
+function companyModuleParentId(moduleId: string): string | undefined {
+  return COMPANY_MODULE_CATALOG.find((m) => m.id === moduleId)?.parentId;
+}
+
+function orderCompanyModuleChildren(
+  parentId: string,
+  kids: CompanyModuleDef[],
+  preferredIds: string[],
+): CompanyModuleDef[] {
+  const byId = new Map(kids.map((m) => [m.id, m]));
+  const ordered: CompanyModuleDef[] = [];
+  for (const id of preferredIds) {
+    const mod = byId.get(id);
+    if (mod) {
+      ordered.push(mod);
+      byId.delete(id);
+    }
+  }
+  for (const mod of kids) {
+    if (byId.has(mod.id)) ordered.push(mod);
+  }
+  return ordered;
+}
+
+function companyModuleChildren(parentId: string): CompanyModuleDef[] {
+  const kids = COMPANY_MODULE_CATALOG.filter((m) => m.parentId === parentId);
+  switch (parentId) {
+    case "client":
+      return orderCompanyModuleChildren(parentId, kids, [
+        ...CLIENT_TILES.map((t) => t.id),
+        "audit-companies",
+      ]);
+    case "worker":
+      return orderCompanyModuleChildren(parentId, kids, [
+        ...WORKER_TILES.map((t) => t.id),
+        "all-workers",
+      ]);
+    case "tools":
+      return orderCompanyModuleChildren(parentId, kids, [
+        ...COMPANY_TOOLS_MODULE_IDS,
+      ]);
+    case "work":
+      return orderCompanyModuleChildren(
+        parentId,
+        kids,
+        WORK_TILES.map((t) => t.id),
+      );
+    case "workers":
+      return orderCompanyModuleChildren(
+        parentId,
+        kids,
+        WORKERS_TILES.map((t) => t.id),
+      );
+    case "admin":
+      return orderCompanyModuleChildren(
+        parentId,
+        kids,
+        ADMIN_TILES.map((t) => t.id),
+      );
+    case "systemadmin":
+      return orderCompanyModuleChildren(
+        parentId,
+        kids,
+        SYSTEM_TILES.map((t) => t.id),
+      );
+    case "chats":
+      return orderCompanyModuleChildren(parentId, kids, ["chats-settings"]);
+    case "whatsapp":
+      return orderCompanyModuleChildren(parentId, kids, ["whatsapp-settings"]);
+    default:
+      return kids;
+  }
+}
+
+const COMPANY_MODULE_GROUP_ORDER: CompanyModuleGroup[] = [
+  "primary",
+  "admin",
+  "systemadmin",
+];
+
+function companyModuleGroupLabel(
+  lang: UiLang,
+  group: CompanyModuleGroup,
+): string {
+  switch (group) {
+    case "primary":
+      return t(lang, "companyModulesGroupPrimary");
+    case "admin":
+      return t(lang, "companyModulesGroupAdmin");
+    case "systemadmin":
+      return t(lang, "companyModulesGroupSystem");
+  }
+}
+
+function normalizeModuleEnabledMap(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k === "string" && typeof v === "boolean") out[k] = v;
+  }
+  return out;
+}
+
+function normalizeWorkerModuleEnabledMap(
+  raw: unknown,
+): Record<string, Record<string, boolean>> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, Record<string, boolean>> = {};
+  for (const [workerId, map] of Object.entries(
+    raw as Record<string, unknown>,
+  )) {
+    if (typeof workerId !== "string") continue;
+    out[workerId] = normalizeModuleEnabledMap(map);
+  }
+  return out;
+}
+
+function isCompanyModuleIncluded(
+  moduleId: string,
+  companyEnabled: Record<string, boolean>,
+): boolean {
+  if (ALWAYS_ON_COMPANY_MODULE_IDS.has(moduleId)) return true;
+  if (companyEnabled[moduleId] === false) return false;
+  const parentId = companyModuleParentId(moduleId);
+  if (parentId && !isCompanyModuleIncluded(parentId, companyEnabled)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Company off → hidden (parent off hides whole group).
+ * Worker off further restricts when company includes; parent worker-off hides children.
+ */
+function isModuleVisibleForViewer(
+  moduleId: string,
+  companyEnabled: Record<string, boolean>,
+  workerEnabled: Record<string, boolean>,
+): boolean {
+  if (ALWAYS_ON_COMPANY_MODULE_IDS.has(moduleId)) return true;
+  if (!isCompanyModuleIncluded(moduleId, companyEnabled)) return false;
+  if (workerEnabled[moduleId] === false) return false;
+  const parentId = companyModuleParentId(moduleId);
+  if (
+    parentId &&
+    !isModuleVisibleForViewer(parentId, companyEnabled, workerEnabled)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+
+/**
+ * Dual-homed under Systemadmin in COMPANY_MODULE_CATALOG, but workers open them
+ * from Worker — keep Visible by default for non-admins.
+ */
+const NON_ADMIN_WORKER_KEEP_ON_MODULE_IDS = new Set([
+  "template-settings",
+  "template-merge-fields",
+]);
+
+/**
+ * Module ids that non-admin workers default to Visible=false when the per-worker
+ * map has no explicit override yet. Admin / Systemadmin (and Workers rail /
+ * admin-only chat settings) stay Off. Clients parent + all CLIENT_TILES /
+ * client children stay On via missing-key = on (same as Worker, Time clock,
+ * Work, Tools, Chats, WhatsApp).
+ */
+function defaultNonAdminWorkerModuleOffIds(
+  _deptIds: string | string[],
+): string[] {
+  const off: string[] = [];
+  for (const mod of COMPANY_MODULE_CATALOG) {
+    if (ALWAYS_ON_COMPANY_MODULE_IDS.has(mod.id)) continue;
+    if (NON_ADMIN_WORKER_KEEP_ON_MODULE_IDS.has(mod.id)) continue;
+
+    if (mod.group === "admin" || mod.id === "admin" || mod.parentId === "admin") {
+      off.push(mod.id);
+      continue;
+    }
+    if (
+      mod.group === "systemadmin" ||
+      mod.id === "systemadmin" ||
+      mod.parentId === "systemadmin"
+    ) {
+      off.push(mod.id);
+      continue;
+    }
+    if (mod.id === "workers" || mod.parentId === "workers") {
+      off.push(mod.id);
+      continue;
+    }
+    if (
+      mod.id === "all-workers" ||
+      mod.id === "chats-settings" ||
+      mod.id === "whatsapp-settings"
+    ) {
+      off.push(mod.id);
+    }
+  }
+  return off;
+}
+
+/**
+ * Fill missing per-worker keys with non-admin role defaults.
+ * Explicit true/false always wins. Admin / System Admin: no fill (missing = on).
+ */
+function withWorkerModuleRoleDefaults(
+  workerEnabled: Record<string, boolean>,
+  role: Role,
+  deptIds: string | string[],
+): Record<string, boolean> {
+  if (isAdminLike(role)) return workerEnabled;
+  const out = { ...workerEnabled };
+  for (const id of defaultNonAdminWorkerModuleOffIds(deptIds)) {
+    if (!Object.prototype.hasOwnProperty.call(out, id)) {
+      out[id] = false;
+    }
+  }
+  return out;
+}
+
+function clientFilterModuleId(filter: ClientFilter): string {
+  switch (filter) {
+    case "all":
+      return "clients";
+    case "potential":
+      return "potential";
+    case "bookkeeping":
+      return "bookkeeping";
+    case "company":
+      return "companies";
+    case "individuals":
+      return "tax-return";
+    case "trust":
+      return "trusts";
+    case "osek":
+      return "osek";
+    case "one-time":
+      return "one-time";
+    default:
+      return filter;
+  }
+}
 
 const ALL_ENGAGEMENT_TYPES: EngagementType[] = [
   "company",
@@ -21647,11 +23576,14 @@ function collectBankCheckMonthKeys(
 
 function downloadBlobFile(
   filename: string,
-  content: string,
+  content: string | Blob | Uint8Array,
   mime: string,
 ): void {
   if (typeof document === "undefined") return;
-  const blob = new Blob([content], { type: mime });
+  const blob =
+    content instanceof Blob
+      ? content
+      : new Blob([content as BlobPart], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -21661,6 +23593,152 @@ function downloadBlobFile(
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/** CRC-32 (IEEE) for store-method ZIP local/central headers. */
+function zipCrc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) {
+    c ^= bytes[i]!;
+    for (let k = 0; k < 8; k++) {
+      c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+    }
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function zipU16(n: number): Uint8Array {
+  return new Uint8Array([n & 0xff, (n >>> 8) & 0xff]);
+}
+
+function zipU32(n: number): Uint8Array {
+  return new Uint8Array([
+    n & 0xff,
+    (n >>> 8) & 0xff,
+    (n >>> 16) & 0xff,
+    (n >>> 24) & 0xff,
+  ]);
+}
+
+function zipConcat(parts: Uint8Array[]): Uint8Array {
+  let len = 0;
+  for (const p of parts) len += p.length;
+  const out = new Uint8Array(len);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
+
+/**
+ * Minimal PKZIP (store / no compression) for demo folder downloads.
+ * Canvas cannot import JSZip — this writer only needs TextEncoder + Blob.
+ */
+function buildStoreZipBlob(
+  files: { path: string; content: string }[],
+): Blob {
+  const encoder =
+    typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+  const enc = (s: string): Uint8Array => {
+    if (encoder) return encoder.encode(s);
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+    return out;
+  };
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc(f.path.replace(/\\/g, "/"));
+    const data = enc(f.content);
+    const crc = zipCrc32(data);
+    const local = zipConcat([
+      zipU32(0x04034b50),
+      zipU16(20),
+      zipU16(0),
+      zipU16(0),
+      zipU16(0),
+      zipU16(0),
+      zipU32(crc),
+      zipU32(data.length),
+      zipU32(data.length),
+      zipU16(name.length),
+      zipU16(0),
+      name,
+      data,
+    ]);
+    localParts.push(local);
+    centralParts.push(
+      zipConcat([
+        zipU32(0x02014b50),
+        zipU16(20),
+        zipU16(20),
+        zipU16(0),
+        zipU16(0),
+        zipU16(0),
+        zipU16(0),
+        zipU32(crc),
+        zipU32(data.length),
+        zipU32(data.length),
+        zipU16(name.length),
+        zipU16(0),
+        zipU16(0),
+        zipU16(0),
+        zipU16(0),
+        zipU32(0),
+        zipU32(offset),
+        name,
+      ]),
+    );
+    offset += local.length;
+  }
+  const localBlob = zipConcat(localParts);
+  const centralBlob = zipConcat(centralParts);
+  const end = zipConcat([
+    zipU32(0x06054b50),
+    zipU16(0),
+    zipU16(0),
+    zipU16(files.length),
+    zipU16(files.length),
+    zipU32(centralBlob.length),
+    zipU32(localBlob.length),
+    zipU16(0),
+  ]);
+  return new Blob([localBlob, centralBlob, end], {
+    type: "application/zip",
+  });
+}
+
+/** Nested file stubs under a folder (paths relative to the zip root). */
+function collectTaxReturnFolderZipEntries(
+  root: TaxReturnFolderNode,
+): { path: string; content: string }[] {
+  const entries: { path: string; content: string }[] = [];
+  const walk = (node: TaxReturnFolderNode, dirPath: string) => {
+    if (node.kind === "file") {
+      const path = dirPath ? `${dirPath}/${node.label}` : node.label;
+      entries.push({
+        path,
+        content: `Demo stub for ${node.label}\n`,
+      });
+      return;
+    }
+    const next = dirPath ? `${dirPath}/${node.label}` : node.label;
+    const kids = node.children ?? [];
+    if (kids.length === 0) return;
+    for (const child of kids) walk(child, next);
+  };
+  walk(root, "");
+  if (entries.length === 0) {
+    const folderName = root.label || "folder";
+    entries.push({
+      path: `${folderName}/README-demo.txt`,
+      content: `Demo zip — folder "${folderName}" has no files yet.\n`,
+    });
+  }
+  return entries;
 }
 
 function buildPaymentMatchingWordHtml(args: {
@@ -22031,7 +24109,7 @@ const DEFAULT_REMINDER_DEFAULTS: BillingReminderDefaults = {
   escalateAfterEmailCount: 2,
   escalateWhatsApp: true,
   escalateCall: true,
-  escalateSms: false,
+  escalateSms: true,
 };
 
 const DEFAULT_REMINDER_LOG: BillingReminderLogEntry[] = [
@@ -22064,7 +24142,7 @@ const DEFAULT_REMINDER_LOG: BillingReminderLogEntry[] = [
     channel: "whatsapp",
     status: "sent",
     at: "2026-08-26 10:05",
-    note: "Would send WhatsApp (demo)",
+    note: "Demo WhatsApp queued (seed)",
   },
 ];
 
@@ -26470,13 +28548,18 @@ function createAiIntakeThread(opts: {
 }
 
 /** Side categories visible for the demo role + all signed-in department extras. */
-function categoryIdsForUser(role: Role, deptIds: string | string[]): string[] {
+function categoryIdsForUser(
+  role: Role,
+  deptIds: string | string[],
+  moduleVisible?: (id: string) => boolean,
+): string[] {
   const ids = ["client", "worker"];
   ids.push(...departmentExtraPrimaryIds(deptIds));
   ids.push("work", "tools", "chats", "whatsapp");
   if (isAdminLike(role)) ids.push("workers", "admin");
   if (isSystemAdmin(role)) ids.push("systemadmin");
-  return ids;
+  if (!moduleVisible) return ids;
+  return ids.filter((id) => moduleVisible(id));
 }
 
 type DailyTaskStatus = "open" | "in-process" | "closed" | "done";
@@ -26986,6 +29069,61 @@ function demoDocsForClient(client: DemoRow): ClientDocRow[] {
   return docs;
 }
 
+/**
+ * Client-card Docs tab tree — same TaxReturnFolderBrowser Explorer as
+ * Bookkeeping working folder (tree + list/grid/icons + preview + split).
+ * Scoped to this client’s demo docs only; not the firm Client folders module.
+ */
+function buildClientCardDocsFolder(
+  lang: UiLang,
+  client: DemoRow,
+): TaxReturnFolderNode[] {
+  const docs = demoDocsForClient(client);
+  const safe = client.name.replace(/[\\/:*?"<>|]/g, "_");
+  const rootId = `ccd-root-${client.id}`;
+  const kindOrder = [
+    "Tax return",
+    "Form 106",
+    "Tax annex",
+    "VAT",
+    "Bank",
+    "Payroll",
+  ];
+  const byKind = new Map<string, ClientDocRow[]>();
+  for (const doc of docs) {
+    const list = byKind.get(doc.kind) ?? [];
+    list.push(doc);
+    byKind.set(doc.kind, list);
+  }
+  const orderedKinds = [
+    ...kindOrder.filter((k) => byKind.has(k)),
+    ...[...byKind.keys()].filter((k) => !kindOrder.includes(k)),
+  ];
+  const children: TaxReturnFolderNode[] = orderedKinds.map((kind) => {
+    const rows = byKind.get(kind) ?? [];
+    const slug = kind.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+    return {
+      id: `ccd-kind-${client.id}-${slug}`,
+      label: kind,
+      kind: "folder" as const,
+      children: rows.map((doc) => ({
+        id: doc.id,
+        label: `${doc.name} (${doc.yearOrType}).pdf`,
+        kind: "file" as const,
+      })),
+    };
+  });
+  return [
+    {
+      id: rootId,
+      label:
+        lang === "he" ? `${safe} · מסמכי תיק` : `${safe} · File docs`,
+      kind: "folder",
+      children,
+    },
+  ];
+}
+
 /** Sample invoices for this client only (new CRM + optional Wave history). */
 function demoInvoicesForClient(client: DemoRow): ClientInvoiceRow[] {
   const feeHint = client.fees ?? "ILS 1,200";
@@ -27260,6 +29398,278 @@ function buildBookkeepingWorkingFolder(
                   ? `הערות_הנה״ח_${year}.txt`
                   : `BK_notes_${year}.txt`,
               kind: "file",
+            },
+          ],
+        },
+      ],
+    },
+  ];
+}
+
+/** Nested year / category demo folders for one client or company under Client folders. */
+function buildClientFoldersEntityTree(
+  lang: UiLang,
+  entity: { id: string; name: string; kind?: DemoRow["kind"] },
+  opts?: { inactive?: boolean },
+): TaxReturnFolderNode {
+  const short = entity.name.split(" ")[0] ?? entity.name;
+  const safe = entity.name.replace(/[\\/:*?"<>|]/g, "_");
+  const prefix = `cf-${entity.id}`;
+  const years = opts?.inactive ? ["2021", "2022"] : ["2024", "2025"];
+  const yearNodes: TaxReturnFolderNode[] = years.map((year) => ({
+    id: `${prefix}-y-${year}`,
+    label: year,
+    kind: "folder" as const,
+    children: [
+      {
+        id: `${prefix}-${year}-bk`,
+        label: lang === "he" ? "הנהלת חשבונות" : "Bookkeeping",
+        kind: "folder" as const,
+        children: [
+          {
+            id: `${prefix}-${year}-bk-bank`,
+            label: `Bank_statements_${short}_${year}.pdf`,
+            kind: "file" as const,
+          },
+          {
+            id: `${prefix}-${year}-bk-tb`,
+            label: `TB_${short}_${year}.xlsx`,
+            kind: "file" as const,
+          },
+        ],
+      },
+      {
+        id: `${prefix}-${year}-tax`,
+        label: lang === "he" ? "דוח מס" : "Tax return",
+        kind: "folder" as const,
+        children: [
+          {
+            id: `${prefix}-${year}-tax-pack`,
+            label: `Tax_return_${short}_${year}.pdf`,
+            kind: "file" as const,
+          },
+          {
+            id: `${prefix}-${year}-tax-106`,
+            label: `Form_106_${short}_${year}.pdf`,
+            kind: "file" as const,
+          },
+        ],
+      },
+      {
+        id: `${prefix}-${year}-vat`,
+        label: lang === "he" ? "מע״מ" : "VAT",
+        kind: "folder" as const,
+        children: [
+          {
+            id: `${prefix}-${year}-vat-file`,
+            label: `VAT_${short}_${year}.pdf`,
+            kind: "file" as const,
+          },
+        ],
+      },
+    ],
+  }));
+  const generalChildren: TaxReturnFolderNode[] = [
+    {
+      id: `${prefix}-gen-id`,
+      label:
+        entity.kind === "company"
+          ? `Company_registry_${short}.pdf`
+          : `Client_ID_${short}.pdf`,
+      kind: "file",
+    },
+    {
+      id: `${prefix}-gen-eng`,
+      label: `Engagement_letter_${short}.pdf`,
+      kind: "file",
+    },
+  ];
+  if (opts?.inactive) {
+    generalChildren.push({
+      id: `${prefix}-gen-close`,
+      label:
+        lang === "he"
+          ? `סגירת_תיק_${short}.pdf`
+          : `File_closure_${short}.pdf`,
+      kind: "file",
+    });
+  }
+  return {
+    id: `${prefix}-root`,
+    label: safe,
+    kind: "folder",
+    children: [
+      ...yearNodes,
+      {
+        id: `${prefix}-general`,
+        label: lang === "he" ? "כללי" : "General",
+        kind: "folder",
+        children: generalChildren,
+      },
+      {
+        id: `${prefix}-portal`,
+        label: lang === "he" ? "העלאות פורטל" : "Portal uploads",
+        kind: "folder",
+        children: [
+          {
+            id: `${prefix}-portal-scan`,
+            label: `Portal_scan_${short}.pdf`,
+            kind: "file",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Firm-wide Client folders archive — Active / Inactive / Orphan / Companies.
+ * Consumed by TaxReturnFolderBrowser (same Explorer UI as Bookkeeping docs).
+ */
+function buildClientFoldersArchiveTree(lang: UiLang): TaxReturnFolderNode[] {
+  const rows = DEFAULT_DEMO_ROWS;
+  const activeNonCompany = rows.filter(
+    (r) =>
+      r.status === "Active" &&
+      r.kind !== "company" &&
+      !r.isPotential,
+  );
+  const activeCompanies = rows.filter(
+    (r) => r.status === "Active" && r.kind === "company",
+  );
+  const inactiveDemo: Array<{
+    id: string;
+    name: string;
+    kind: DemoRow["kind"];
+  }> = [
+    { id: "c-archived-rivka", name: "Rivka Legacy Books", kind: "bookkeeping" },
+    { id: "c-archived-ben", name: "Ben Ezra Consulting", kind: "individuals" },
+    { id: "c-archived-oldco", name: "Old Coast Trading Ltd", kind: "company" },
+  ];
+
+  return [
+    {
+      id: "client-folders-root",
+      label: t(lang, "clientFoldersTitle"),
+      kind: "folder",
+      children: [
+        {
+          id: "cf-root-active",
+          label: t(lang, "clientFoldersRootActive"),
+          kind: "folder",
+          children: activeNonCompany.map((c) =>
+            buildClientFoldersEntityTree(lang, c),
+          ),
+        },
+        {
+          id: "cf-root-inactive",
+          label: t(lang, "clientFoldersRootInactive"),
+          kind: "folder",
+          children: inactiveDemo.map((c) =>
+            buildClientFoldersEntityTree(lang, c, { inactive: true }),
+          ),
+        },
+        {
+          id: "cf-root-orphan",
+          label: t(lang, "clientFoldersRootOrphan"),
+          kind: "folder",
+          children: [
+            {
+              id: "cf-orphan-inbox",
+              label: lang === "he" ? "תיבת סריקות" : "Scan inbox",
+              kind: "folder",
+              children: [
+                {
+                  id: "cf-orphan-scan-1",
+                  label: "Unassigned_scan_2026-03-12.pdf",
+                  kind: "file",
+                },
+                {
+                  id: "cf-orphan-scan-2",
+                  label: "WhatsApp_Image_2026-02-28.jpg",
+                  kind: "file",
+                },
+                {
+                  id: "cf-orphan-scan-3",
+                  label: "Bank_CSV_unknown_sender.csv",
+                  kind: "file",
+                },
+              ],
+            },
+            {
+              id: "cf-orphan-email",
+              label: lang === "he" ? "מצורפי מייל" : "Email attachments",
+              kind: "folder",
+              children: [
+                {
+                  id: "cf-orphan-email-1",
+                  label: "Fwd_documents_no_client.pdf",
+                  kind: "file",
+                },
+                {
+                  id: "cf-orphan-email-2",
+                  label: "Invoice_pack_unmatched.xlsx",
+                  kind: "file",
+                },
+              ],
+            },
+            {
+              id: "cf-orphan-drop",
+              label: lang === "he" ? "העלאות מזדמנות" : "Drop zone uploads",
+              kind: "folder",
+              children: [
+                {
+                  id: "cf-orphan-drop-1",
+                  label: "Upload_demo_orphan_8841.pdf",
+                  kind: "file",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "cf-root-companies",
+          label: t(lang, "clientFoldersRootCompanies"),
+          kind: "folder",
+          children: [
+            ...activeCompanies.map((c) =>
+              buildClientFoldersEntityTree(lang, c),
+            ),
+            {
+              id: "cf-firm-other",
+              label: lang === "he" ? "תיקיות משרד אחרות" : "Other firm folders",
+              kind: "folder",
+              children: [
+                {
+                  id: "cf-firm-templates",
+                  label: lang === "he" ? "תבניות משרד" : "Firm templates",
+                  kind: "folder",
+                  children: [
+                    {
+                      id: "cf-firm-tpl-eng",
+                      label: "Engagement_letter_template.docx",
+                      kind: "file",
+                    },
+                    {
+                      id: "cf-firm-tpl-fee",
+                      label: "Fee_schedule_2026.xlsx",
+                      kind: "file",
+                    },
+                  ],
+                },
+                {
+                  id: "cf-firm-shared",
+                  label: lang === "he" ? "משותף" : "Shared",
+                  kind: "folder",
+                  children: [
+                    {
+                      id: "cf-firm-shared-policy",
+                      label: "Document_retention_policy.pdf",
+                      kind: "file",
+                    },
+                  ],
+                },
+              ],
             },
           ],
         },
@@ -27725,6 +30135,23 @@ function ModuleTileIcon({
           />
         </svg>
       );
+    case "client-folders":
+      return (
+        <svg {...box}>
+          <path
+            d="M3.5 8.5h6.2l1.4 1.8H20A1.5 1.5 0 0 1 21.5 11.8v6.2A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V10A1.5 1.5 0 0 1 4 8.5z"
+            fill={p}
+            stroke="none"
+          />
+          <circle cx="9" cy="14.2" r="1.7" fill={s} stroke="none" />
+          <path
+            d="M6.2 17.6c.35-1.4 1.35-2.1 2.8-2.1s2.45.7 2.8 2.1"
+            fill={t}
+            stroke="none"
+          />
+          <path d="M14.2 13.2h4.5M14.2 15.8h3.2" {...stroke(s, 1.6)} />
+        </svg>
+      );
     case "address-book":
       return (
         <svg {...box}>
@@ -27936,6 +30363,16 @@ function ModuleTileIcon({
             stroke="none"
           />
           <path d="M9.5 12.2l1.7 1.7 3.5-3.8" {...stroke("#FFFFFF", 2.1)} />
+        </svg>
+      );
+    case "company-modules":
+      return (
+        <svg {...box}>
+          <rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.6" fill={p} />
+          <rect x="13" y="3.5" width="7.5" height="7.5" rx="1.6" fill={s} />
+          <rect x="3.5" y="13" width="7.5" height="7.5" rx="1.6" fill={t} />
+          <rect x="13" y="13" width="7.5" height="7.5" rx="1.6" fill={p} />
+          <path d="M15 16.2l1.4 1.4 2.6-2.8" {...stroke("#FFFFFF", 1.7)} />
         </svg>
       );
     case "company-settings":
@@ -28627,6 +31064,7 @@ function chromeRailPillBorder(
 const TILE_ICON_COLORS: Record<string, string> = {
   clients: "#3B82C4",
   client: "#3B82C4",
+  "client-folders": "#C4783A",
   "address-book": "#3B82C4",
   potential: "#5B8DEF",
   companies: "#2A9A8A",
@@ -28669,6 +31107,7 @@ const TILE_ICON_COLORS: Record<string, string> = {
   "client-fields": "#3B82C4",
   "list-columns": "#5B8DEF",
   rights: "#7B64B8",
+  "company-modules": "#2E79B5",
   "company-settings": "#6B8FBF",
   "company-docs-folders": "#C4783A",
   "template-settings": "#0891B2",
@@ -28700,6 +31139,7 @@ const TILE_ICON_COLORS: Record<string, string> = {
 const TILE_ICON_SECONDARY: Record<string, string> = {
   clients: "#F0B429",
   client: "#F0B429",
+  "client-folders": "#3B82C4",
   "address-book": "#F0B429",
   potential: "#22A06B",
   companies: "#D4A84B",
@@ -28742,6 +31182,7 @@ const TILE_ICON_SECONDARY: Record<string, string> = {
   "client-fields": "#D4A84B",
   "list-columns": "#D4784A",
   rights: "#22A06B",
+  "company-modules": "#D4A84B",
   "company-settings": "#D4A84B",
   "company-docs-folders": "#D4A84B",
   "template-settings": "#0891B2",
@@ -28771,6 +31212,7 @@ const TILE_ICON_SECONDARY: Record<string, string> = {
 
 const TILE_ICON_TERTIARY: Record<string, string> = {
   clients: "#22A06B",
+  "client-folders": "#22A06B",
   "address-book": "#22A06B",
   potential: "#F0B429",
   companies: "#E07A3A",
@@ -29109,7 +31551,8 @@ function chromeWhereKind(
   if (
     screen === "clients" ||
     screen === "new-client" ||
-    screen === "client-card"
+    screen === "client-card" ||
+    screen === "client-folders"
   ) {
     return "client";
   }
@@ -29365,50 +31808,66 @@ function primaryCategoriesForUser(
     systemadmin?: number;
   },
   deptIds: string | string[],
+  moduleVisible?: (id: string) => boolean,
 ): { id: string; title: string; badge?: number }[] {
-  const categories: { id: string; title: string; badge?: number }[] = [
-    { id: "client", title: primaryRailLabel(uiLang, "client") },
-    { id: "worker", title: primaryRailLabel(uiLang, "worker") },
-  ];
+  const allow = (id: string) => !moduleVisible || moduleVisible(id);
+  const categories: { id: string; title: string; badge?: number }[] = [];
+  if (allow("client")) {
+    categories.push({ id: "client", title: primaryRailLabel(uiLang, "client") });
+  }
+  if (allow("worker")) {
+    categories.push({ id: "worker", title: primaryRailLabel(uiLang, "worker") });
+  }
   for (const extraId of departmentExtraPrimaryIds(deptIds)) {
+    if (!allow(extraId)) continue;
     categories.push({
       id: extraId,
       title: primaryRailLabel(uiLang, extraId),
     });
   }
-  categories.push(
-    {
+  if (allow("tools")) {
+    categories.push({
       id: "tools",
       title: primaryRailLabel(uiLang, "tools"),
       badge: badges.tools,
-    },
-    {
+    });
+  }
+  if (allow("work")) {
+    categories.push({
       id: "work",
       title: primaryRailLabel(uiLang, "work"),
       badge: badges.work,
-    },
-    {
+    });
+  }
+  if (allow("chats")) {
+    categories.push({
       id: "chats",
       title: primaryRailLabel(uiLang, "chats"),
       badge: badges.chats,
-    },
-    {
+    });
+  }
+  if (allow("whatsapp")) {
+    categories.push({
       id: "whatsapp",
       title: primaryRailLabel(uiLang, "whatsapp"),
       badge: badges.whatsapp,
-    },
-  );
-  if (isAdminLike(role)) {
-    categories.push({
-      id: "workers",
-      title: primaryRailLabel(uiLang, "workers"),
-    });
-    categories.push({
-      id: "admin",
-      title: primaryRailLabel(uiLang, "admin"),
     });
   }
-  if (isSystemAdmin(role)) {
+  if (isAdminLike(role)) {
+    if (allow("workers")) {
+      categories.push({
+        id: "workers",
+        title: primaryRailLabel(uiLang, "workers"),
+      });
+    }
+    if (allow("admin")) {
+      categories.push({
+        id: "admin",
+        title: primaryRailLabel(uiLang, "admin"),
+      });
+    }
+  }
+  if (isSystemAdmin(role) && allow("systemadmin")) {
     categories.push({
       id: "systemadmin",
       title: primaryRailLabel(uiLang, "systemadmin"),
@@ -29420,7 +31879,8 @@ function primaryCategoriesForUser(
 
 function tilesForCategory(
   categoryId: string,
-  deptIds?: string | string[],
+  _deptIds?: string | string[],
+  moduleVisible?: (id: string) => boolean,
 ): ModuleTile[] {
   const tileMap: Record<string, ModuleTile[]> = {
     client: CLIENT_TILES,
@@ -29430,10 +31890,10 @@ function tilesForCategory(
     admin: ADMIN_TILES,
     systemadmin: SYSTEM_TILES,
   };
-  const tiles = tileMap[categoryId] ?? [];
-  if (categoryId === "client" && deptIds != null) {
-    const hide = hiddenClientTileIdsForDept(deptIds);
-    if (hide.size > 0) return tiles.filter((tile) => !hide.has(tile.id));
+  let tiles = tileMap[categoryId] ?? [];
+  /* Rail-promoted dept extras stay on Clients grid too (no hideClientTileId). */
+  if (moduleVisible) {
+    tiles = tiles.filter((tile) => moduleVisible(tile.id));
   }
   return tiles;
 }
@@ -29502,6 +31962,25 @@ function AppPrimaryRail({
     "signedInWorkerId.v1",
     DEMO_WORKER.id,
   );
+  const [companyModulesEnabledRaw] = useCanvasState<Record<string, boolean>>(
+    "crmCompanyModulesEnabled.v1",
+    {},
+  );
+  const [workerModulesEnabledRaw] = useCanvasState<
+    Record<string, Record<string, boolean>>
+  >("crmWorkerModulesEnabled.v792", {});
+  const railModuleVisible = (moduleId: string) =>
+    isModuleVisibleForViewer(
+      moduleId,
+      normalizeModuleEnabledMap(companyModulesEnabledRaw),
+      withWorkerModuleRoleDefaults(
+        normalizeWorkerModuleEnabledMap(workerModulesEnabledRaw)[
+          signedInWorkerId
+        ] ?? {},
+        role,
+        deptIds,
+      ),
+    );
   const [helpFeedbackRaw] = useCanvasState<HelpFeedbackItem[]>(
     "crmHelpFeedback.v1",
     DEFAULT_HELP_FEEDBACK_ITEMS,
@@ -29525,7 +32004,7 @@ function AppPrimaryRail({
     work: workBadge,
     tools: toolsBadge,
     systemadmin: systemadminBadge,
-  }, deptIds);
+  }, deptIds, railModuleVisible);
   const normalizedSelected = normalizePrimaryCategory(selectedCategory);
   const activeId = categories.some((c) => c.id === normalizedSelected)
     ? normalizedSelected
@@ -34060,11 +36539,30 @@ function HomeScreen({
   onOpenWhatsApp: (chatId: string) => void;
 }) {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
-  const allowed = categoryIdsForUser(role, deptIds);
+  const [companyModulesEnabledHome] = useCanvasState<Record<string, boolean>>(
+    "crmCompanyModulesEnabled.v1",
+    {},
+  );
+  const [workerModulesEnabledHome] = useCanvasState<
+    Record<string, Record<string, boolean>>
+  >("crmWorkerModulesEnabled.v792", {});
+  const homeModuleVisible = (moduleId: string) =>
+    isModuleVisibleForViewer(
+      moduleId,
+      normalizeModuleEnabledMap(companyModulesEnabledHome),
+      withWorkerModuleRoleDefaults(
+        normalizeWorkerModuleEnabledMap(workerModulesEnabledHome)[
+          signedInWorkerId
+        ] ?? {},
+        role,
+        deptIds,
+      ),
+    );
+  const allowed = categoryIdsForUser(role, deptIds, homeModuleVisible);
 
   const activeId = allowed.includes(normalizePrimaryCategory(selectedCategory))
     ? normalizePrimaryCategory(selectedCategory)
-    : DEFAULT_PRIMARY_CATEGORY;
+    : allowed[0] ?? DEFAULT_PRIMARY_CATEGORY;
   const isChats = activeId === "chats";
   const isWhatsApp = activeId === "whatsapp";
   const [workModuleHome] = useCanvasState<WorkModuleId>("workModule.v1", "tasks");
@@ -34089,7 +36587,7 @@ function HomeScreen({
   const helpFeedbackHomeBadge = helpFeedbackBadgeCount(
     normalizeHelpFeedbackItems(helpFeedbackHomeRaw),
   );
-  const tiles = tilesForCategory(activeId, deptIds).map((tile) => {
+  const tiles = tilesForCategory(activeId, deptIds, homeModuleVisible).map((tile) => {
     if (tile.id === "tasks") {
       return { ...tile, badgeCount: tasksInWorkHome || undefined };
     }
@@ -35228,6 +37726,20 @@ function GenericServiceWorkspace({
       kind: "Notes",
     },
   ];
+  const safe = client.name.replace(/[\\/:*?"<>|]/g, "_");
+  const folderRootId = `svc-root-${client.id}-${panel}`;
+  const folderTree = buildWorkspaceFilesFolderTree(
+    folderRootId,
+    `${safe} · ${serviceLabel}`,
+    files,
+  );
+  const [folderExpanded, setFolderExpanded] = useCanvasState<
+    Record<string, boolean>
+  >(`svcFolderExpanded.v1:${client.id}:${panel}`, { [folderRootId]: true });
+  const [folderSelected, setFolderSelected] = useCanvasState<string | null>(
+    `svcFolderSelected.v1:${client.id}:${panel}`,
+    folderRootId,
+  );
   const notes: WorkspaceNote[] = [
     {
       id: `${client.id}-${panel}-n1`,
@@ -35284,10 +37796,12 @@ function GenericServiceWorkspace({
         <ChromeText size="small" weight="semibold" tone="secondary">
           {t(uiLang, "filesLabel")}
         </ChromeText>
-        <FirmDataTable
-          headers={[t(uiLang, "colDocument"), t(uiLang, "colPeriod"), t(uiLang, "colKind")]}
-          rows={files.map((f) => [f.name, f.period, f.kind])}
-          stickyHeader={false}
+        <TaxReturnFolderBrowser
+          tree={folderTree}
+          expandedIds={folderExpanded}
+          setExpandedIds={setFolderExpanded}
+          selectedId={folderSelected}
+          setSelectedId={setFolderSelected}
         />
       </Stack>
       <Divider />
@@ -35419,7 +37933,6 @@ function BookkeepingWorkspace({
     "stream-payroll",
     workStatusOverrides,
   );
-  const files = demoBookkeepingFiles(client);
   const monthCustom = bkCustomChecklist.filter((c) => c.monthKey === activeMonth);
   const checklist = applyChecklistLabelOverrides(
     [
@@ -35613,12 +38126,26 @@ function BookkeepingWorkspace({
     `bkReqFlash.v1:${yearScope}`,
     "",
   );
+  const [reqPreviewOpen, setReqPreviewOpen] = useCanvasState(
+    `bkReqPreviewOpen.v1:${yearScope}`,
+    false,
+  );
+  const [reqRecipientEmail, setReqRecipientEmail] = useCanvasState(
+    `bkReqRecipientEmail.v1:${yearScope}`,
+    client.email || "",
+  );
+  const [reqWhatsAppPhone, setReqWhatsAppPhone] = useCanvasState(
+    `bkReqWhatsAppPhone.v1:${yearScope}`,
+    client.phone || "",
+  );
   const [viewDocId, setViewDocId] = useCanvasState<string | null>(
     `bkViewDoc.v1:${yearScope}`,
     null,
   );
   const pendingReqs = docRequests.filter((r) => r.status === "pending").length;
   const viewing = docRequests.find((r) => r.id === viewDocId) ?? null;
+  const bkContactEmails = clientEmailsForTools(client);
+  const bkContactPhones = clientPhonesForDemo(client, uiLang);
 
   const bkDocTypeLabel = (typeId: string): string => {
     if (typeId === "bank") return t(uiLang, "bkDocTypeBank");
@@ -35933,13 +38460,15 @@ function BookkeepingWorkspace({
           <ChromeText size="small" weight="semibold" tone="secondary">
             {t(uiLang, "relevantFiles")}
           </ChromeText>
-          <FirmDataTable
-            headers={[
-              t(uiLang, "colDocument"),
-              t(uiLang, "colPeriod"),
-              t(uiLang, "colKind"),
-            ]}
-            rows={files.map((f) => [f.name, f.period, f.kind])}
+          <ChromeText size="small" tone="secondary">
+            {t(uiLang, "bkWorkingFolderHint")}
+          </ChromeText>
+          <TaxReturnFolderBrowser
+            tree={folderTree}
+            expandedIds={folderExpanded}
+            setExpandedIds={setFolderExpanded}
+            selectedId={folderSelected}
+            setSelectedId={setFolderSelected}
           />
         </Stack>
       );
@@ -36093,27 +38622,25 @@ function BookkeepingWorkspace({
                   <ChromeText size="small" tone="secondary">
                     {t(uiLang, "bkRequestPreviewWhatsApp")}
                   </ChromeText>
-                  <Select
-                    value={
-                      bkContactPhones.some((p) => p.value === reqWhatsAppPhone)
-                        ? reqWhatsAppPhone
-                        : bkContactPhones[0]?.value || reqWhatsAppPhone
-                    }
+                  <ChromeTextInput
+                    value={reqWhatsAppPhone}
                     onChange={setReqWhatsAppPhone}
-                    options={
-                      bkContactPhones.length > 0
-                        ? bkContactPhones.map((p) => ({
-                            value: p.value,
-                            label: p.label,
-                          }))
-                        : [
-                            {
-                              value: reqWhatsAppPhone || client.phone || "�",
-                              label: reqWhatsAppPhone || client.phone || "�",
-                            },
-                          ]
-                    }
+                    placeholder={client.phone || "+972..."}
                   />
+                  {bkContactPhones.length > 1 ? (
+                    <Select
+                      value={
+                        bkContactPhones.some((p) => p.value === reqWhatsAppPhone)
+                          ? reqWhatsAppPhone
+                          : bkContactPhones[0]?.value || reqWhatsAppPhone
+                      }
+                      onChange={setReqWhatsAppPhone}
+                      options={bkContactPhones.map((p) => ({
+                        value: p.value,
+                        label: p.label,
+                      }))}
+                    />
+                  ) : null}
                 </Stack>
               ) : null}
               <Row gap={8} wrap>
@@ -36188,18 +38715,29 @@ function BookkeepingWorkspace({
                           }}
                         />
                         <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-                          <ChromeText
-                            size="small"
-                            tone={done ? "secondary" : "primary"}
-                            weight="semibold"
-                            style={
-                              done
-                                ? { textDecoration: "line-through" }
-                                : undefined
-                            }
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              textDecoration: done ? "line-through" : undefined,
+                            }}
                           >
-                            {r.docName}
-                          </ChromeText>
+                            <ExplorerFileIcon
+                              label={
+                                r.uploadedFileName ?? `${r.docName}.pdf`
+                              }
+                              kind="file"
+                              size="sm"
+                            />
+                            <ChromeText
+                              size="small"
+                              tone={done ? "secondary" : "primary"}
+                              weight="semibold"
+                            >
+                              {r.docName}
+                            </ChromeText>
+                          </span>
                           <ChromeText size="small" tone="tertiary">
                             {r.docType} · {r.createdAt}
                             {r.sendPortal || r.sendEmail || r.sendWhatsApp
@@ -36242,9 +38780,18 @@ function BookkeepingWorkspace({
           {viewing ? (
             <Callout tone="info" title={t(uiLang, "taxReturnDocPreviewTitle")}>
               <Stack gap={6}>
-                <ChromeText size="small">
-                  {viewing.previewText ?? viewing.uploadedFileName}
-                </ChromeText>
+                <ExplorerFileNameCell
+                  label={
+                    viewing.uploadedFileName ?? `${viewing.docName}.pdf`
+                  }
+                  kind="file"
+                  semibold
+                />
+                {viewing.previewText ? (
+                  <ChromeText size="small" tone="secondary">
+                    {viewing.previewText}
+                  </ChromeText>
+                ) : null}
                 <Button variant="ghost" onClick={() => setViewDocId(null)}>
                   {t(uiLang, "taxReturnClosePreview")}
                 </Button>
@@ -36536,6 +39083,236 @@ function BookkeepingWorkspace({
   );
 }
 
+/**
+ * Attached dual-pane shell for TaxReturnFolderBrowser: one outer frame,
+ * thin drag grip between tree and detail/preview. Used by every explorer
+ * caller (tax returns, BK docs, company docs, etc.).
+ */
+function FolderExplorerResizableSplit({
+  height,
+  stacked,
+  splitPct,
+  onSplitPctChange,
+  borderColor,
+  softFill,
+  left,
+  right,
+}: {
+  height: number;
+  stacked: boolean;
+  splitPct: number;
+  onSplitPctChange: (pct: number) => void;
+  borderColor: string;
+  softFill: string;
+  left: any;
+  right: any;
+}) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+  const pct = clampExplorerSplitPct(splitPct);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onMove = (e: { clientX: number }) => {
+      if (!draggingRef.current || !rowRef.current) return;
+      const rect = rowRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      onSplitPctChange(
+        clampExplorerSplitPct(((e.clientX - rect.left) / rect.width) * 100),
+      );
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      if (typeof document !== "undefined") {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [onSplitPctChange]);
+
+  if (stacked) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          border: `1px solid ${borderColor}`,
+          borderRadius: 10,
+          background: softFill,
+          overflow: "hidden",
+          minHeight: height,
+        }}
+      >
+        <div
+          style={{
+            padding: 10,
+            maxHeight: Math.round(height * 0.48),
+            overflowY: "auto",
+            borderBottom: `1px solid ${borderColor}`,
+          }}
+        >
+          {left}
+        </div>
+        <div
+          style={{
+            padding: 12,
+            minHeight: Math.round(height * 0.52),
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          {right}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={rowRef}
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "stretch",
+        border: `1px solid ${borderColor}`,
+        borderRadius: 10,
+        background: softFill,
+        overflow: "hidden",
+        height,
+        maxHeight: height,
+        minHeight: height,
+      }}
+    >
+      <div
+        style={{
+          width: `${pct}%`,
+          minWidth: 140,
+          padding: 10,
+          overflowY: "auto",
+          boxSizing: "border-box",
+        }}
+      >
+        {left}
+      </div>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuenow={pct}
+        aria-valuemin={CRM_EXPLORER_SPLIT_MIN}
+        aria-valuemax={CRM_EXPLORER_SPLIT_MAX}
+        title="Drag to resize"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          draggingRef.current = true;
+          if (typeof document !== "undefined") {
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+          }
+          try {
+            (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          } catch {
+            /* ignore */
+          }
+        }}
+        style={{
+          flex: "0 0 6px",
+          width: 6,
+          cursor: "col-resize",
+          background: borderColor,
+          position: "relative",
+          zIndex: 1,
+          touchAction: "none",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: 2,
+            height: 28,
+            borderRadius: 1,
+            background: "rgba(15, 23, 42, 0.22)",
+            pointerEvents: "none",
+          }}
+        />
+      </div>
+      <div
+        style={{
+          flex: 1,
+          minWidth: 160,
+          padding: 12,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          boxSizing: "border-box",
+        }}
+      >
+        {right}
+      </div>
+    </div>
+  );
+}
+
+/** Keep TaxReturnFolderBrowser ctx menu inside the viewport (flip + clamp). */
+function clampFolderExplorerCtxMenuPos(
+  clientX: number,
+  clientY: number,
+  opts?: { estH?: number; estW?: number },
+): { x: number; y: number; maxHeight: number } {
+  const margin = 8;
+  const estW = opts?.estW ?? 196;
+  const estH = opts?.estH ?? 340;
+  const vw =
+    typeof window !== "undefined" && window.innerWidth > 0
+      ? window.innerWidth
+      : 1280;
+  const vh =
+    typeof window !== "undefined" && window.innerHeight > 0
+      ? window.innerHeight
+      : 800;
+  const maxMenuH = Math.max(160, vh - margin * 2);
+  const useH = Math.min(estH, maxMenuH);
+
+  let x = clientX;
+  let y = clientY;
+
+  // Prefer flip-above when the menu would run past the bottom edge.
+  if (y + useH > vh - margin) {
+    y = clientY - useH;
+  }
+  if (y < margin) y = margin;
+  if (y + useH > vh - margin) {
+    y = Math.max(margin, vh - useH - margin);
+  }
+
+  // Flip left when past the right edge, then clamp.
+  if (x + estW > vw - margin) {
+    x = clientX - estW;
+  }
+  if (x < margin) x = margin;
+  if (x + estW > vw - margin) {
+    x = Math.max(margin, vw - estW - margin);
+  }
+
+  return {
+    x,
+    y,
+    maxHeight: Math.max(120, vh - y - margin),
+  };
+}
+
 function TaxReturnFolderBrowser({
   tree,
   expandedIds,
@@ -36562,27 +39339,55 @@ function TaxReturnFolderBrowser({
   const [extraUploads, setExtraUploads] = useCanvasState<
     TaxReturnFolderUpload[]
   >(`folderExplorer.uploads.v1:${persistScope}`, []);
+  const [removedIds, setRemovedIds] = useCanvasState<string[]>(
+    `folderExplorer.removed.v1:${persistScope}`,
+    [],
+  );
+  const [renames, setRenames] = useCanvasState<Record<string, string>>(
+    `folderExplorer.renames.v1:${persistScope}`,
+    {},
+  );
   const [viewMode, setViewMode] = useCanvasState<FolderExplorerViewMode>(
     "folderExplorer.viewMode.v1",
     "list",
   );
+  const [explorerSplitPct, setExplorerSplitPct] = useCanvasState<number>(
+    CRM_EXPLORER_SPLIT_PCT_KEY,
+    CRM_EXPLORER_SPLIT_DEFAULT,
+  );
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewPaneTab, setPreviewPaneTab] = useState<"details" | "page">(
+    "page",
+  );
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
     parentId: string;
+    targetId: string | null;
+    targetKind: FolderExplorerCtxTarget;
   } | null>(null);
+  const [ctxNewOpen, setCtxNewOpen] = useState(false);
+  const [clipboard, setClipboard] = useState<FolderExplorerClipboard | null>(
+    null,
+  );
   const [addingFolder, setAddingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParentId, setNewFolderParentId] = useState<string | null>(
     null,
   );
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [propsId, setPropsId] = useState<string | null>(null);
+  const [actionFlash, setActionFlash] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const overlayIdSeq = useRef(0);
 
-  const liveTree = applyFolderExplorerOverlays(
-    tree,
-    extraFolders,
-    extraUploads,
+  const liveTree = applyTaxReturnFolderRenames(
+    pruneTaxReturnFolderTree(
+      applyFolderExplorerOverlays(tree, extraFolders, extraUploads),
+      new Set(removedIds),
+    ),
+    renames,
   );
 
   const selected = selectedId
@@ -36600,19 +39405,71 @@ function TaxReturnFolderBrowser({
   const detailItems = currentFolder?.children ?? [];
   const previewNode = previewId
     ? findTaxReturnFolderNode(liveTree, previewId)
-    : selected?.kind === "file"
-      ? selected
-      : null;
-  const previewBody =
-    previewNode?.kind === "file"
-      ? folderExplorerPreviewBody(uiLang, previewNode.label)
-      : null;
+    : null;
+  const previewActive =
+    previewNode?.kind === "file" ? previewNode : null;
+  /** Taller panes when a file Page preview is open (Explorer Details/Page). */
+  const explorerPaneHeight = previewActive ? 560 : 360;
+  const previewBody = previewActive
+    ? folderExplorerPreviewBody(uiLang, previewActive.label)
+    : null;
+  const previewSizeStub = previewActive
+    ? `${Math.max(1, previewActive.label.length * 37)} KB`
+    : null;
+  const previewExt = previewActive
+    ? folderExplorerFileExt(previewActive.label)
+    : "";
+  const previewPath = previewActive
+    ? taxReturnFolderNodePath(liveTree, previewActive.id)
+    : "";
+  const previewModified = previewActive
+    ? folderExplorerDemoModifiedDate(previewActive.label, uiLang)
+    : "";
+  const propsNode = propsId
+    ? findTaxReturnFolderNode(liveTree, propsId)
+    : null;
+
+  const nextOverlayId = (prefix: string) => {
+    overlayIdSeq.current += 1;
+    return `${prefix}-${Date.now()}-${overlayIdSeq.current}`;
+  };
+
+  const openCtxMenu = (
+    e: { clientX: number; clientY: number; preventDefault: () => void; stopPropagation?: () => void },
+    opts: {
+      parentId: string;
+      targetId: string | null;
+      targetKind: FolderExplorerCtxTarget;
+    },
+  ) => {
+    e.preventDefault();
+    e.stopPropagation?.();
+    setCtxNewOpen(false);
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      parentId: opts.parentId || rootId,
+      targetId: opts.targetId,
+      targetKind: opts.targetKind,
+    });
+  };
+
+  const closeCtxMenu = () => {
+    setCtxMenu(null);
+    setCtxNewOpen(false);
+  };
+
+  const flash = (msg: string) => {
+    setActionFlash(msg);
+    setTimeout(() => setActionFlash(""), 2200);
+  };
 
   const openNewFolderUi = (parentId: string) => {
     setNewFolderParentId(parentId);
     setNewFolderName("");
     setAddingFolder(true);
-    setCtxMenu(null);
+    setRenamingId(null);
+    closeCtxMenu();
     setExpandedIds({ ...expandedIds, [parentId]: true });
   };
 
@@ -36620,13 +39477,196 @@ function TaxReturnFolderBrowser({
     const name = newFolderName.trim();
     const parentId = newFolderParentId ?? currentFolderId;
     if (!name || !parentId) return;
-    const id = `folder-custom-${Date.now()}`;
+    const id = nextOverlayId("folder-custom");
     setExtraFolders((prev) => [...prev, { id, label: name, parentId }]);
     setExpandedIds({ ...expandedIds, [parentId]: true });
     setSelectedId(id);
     setNewFolderName("");
     setAddingFolder(false);
     setNewFolderParentId(null);
+  };
+
+  const createNewFileStub = (parentId: string) => {
+    const id = nextOverlayId("file-local");
+    const label = t(uiLang, "taxReturnFolderNewFileName");
+    setExtraUploads((prev) => [{ id, label, parentId }, ...prev]);
+    setExpandedIds({ ...expandedIds, [parentId]: true });
+    setSelectedId(id);
+    setPreviewId(id);
+    setPreviewPaneTab("page");
+    closeCtxMenu();
+  };
+
+  const openRenameUi = (nodeId: string) => {
+    const node = findTaxReturnFolderNode(liveTree, nodeId);
+    if (!node) return;
+    setRenamingId(nodeId);
+    setRenameValue(node.label);
+    setAddingFolder(false);
+    closeCtxMenu();
+  };
+
+  const commitRename = () => {
+    const name = renameValue.trim();
+    if (!renamingId || !name) return;
+    setRenames((prev) => ({ ...prev, [renamingId]: name }));
+    setExtraFolders((prev) =>
+      prev.map((f) => (f.id === renamingId ? { ...f, label: name } : f)),
+    );
+    setExtraUploads((prev) =>
+      prev.map((u) => (u.id === renamingId ? { ...u, label: name } : u)),
+    );
+    setRenamingId(null);
+    setRenameValue("");
+  };
+
+  const deleteNode = (nodeId: string) => {
+    if (!nodeId || nodeId === rootId) {
+      closeCtxMenu();
+      return;
+    }
+    const node = findTaxReturnFolderNode(liveTree, nodeId);
+    const ids = node
+      ? collectTaxReturnFolderDescendantIds(node)
+      : [nodeId];
+    setRemovedIds((prev) => Array.from(new Set([...prev, ...ids])));
+    setExtraFolders((prev) => prev.filter((f) => !ids.includes(f.id)));
+    setExtraUploads((prev) => prev.filter((u) => !ids.includes(u.id)));
+    if (selectedId && ids.includes(selectedId)) {
+      const parent = findTaxReturnFolderParentId(liveTree, nodeId);
+      setSelectedId(parent && parent.length > 0 ? parent : rootId);
+    }
+    if (previewId && ids.includes(previewId)) setPreviewId(null);
+    if (propsId && ids.includes(propsId)) setPropsId(null);
+    closeCtxMenu();
+  };
+
+  const cutOrCopy = (mode: "cut" | "copy", nodeId: string) => {
+    const node = findTaxReturnFolderNode(liveTree, nodeId);
+    if (!node || node.id === rootId) {
+      closeCtxMenu();
+      return;
+    }
+    setClipboard({
+      mode,
+      nodeId: node.id,
+      kind: node.kind,
+      label: node.label,
+    });
+    closeCtxMenu();
+  };
+
+  const pasteInto = (parentId: string) => {
+    if (!clipboard || !parentId) {
+      closeCtxMenu();
+      return;
+    }
+    const source = findTaxReturnFolderNode(liveTree, clipboard.nodeId);
+    if (!source) {
+      setClipboard(null);
+      closeCtxMenu();
+      return;
+    }
+    // Prevent pasting a folder into itself / descendant.
+    if (source.kind === "folder") {
+      const dest = findTaxReturnFolderNode(liveTree, parentId);
+      if (dest) {
+        const under = collectTaxReturnFolderDescendantIds(source);
+        if (under.includes(parentId)) {
+          closeCtxMenu();
+          return;
+        }
+      }
+    }
+    let seq = 0;
+    const mkId = () => {
+      seq += 1;
+      return nextOverlayId(source.kind === "folder" ? "folder-paste" : "file-paste") + `-${seq}`;
+    };
+    const overlays = taxReturnSubtreeToOverlays(source, parentId, mkId);
+    setExtraFolders((prev) => [...prev, ...overlays.folders]);
+    setExtraUploads((prev) => [...overlays.uploads, ...prev]);
+    if (clipboard.mode === "cut") {
+      const ids = collectTaxReturnFolderDescendantIds(source);
+      setRemovedIds((prev) => Array.from(new Set([...prev, ...ids])));
+      setExtraFolders((prev) => prev.filter((f) => !ids.includes(f.id)));
+      setExtraUploads((prev) => prev.filter((u) => !ids.includes(u.id)));
+      setClipboard(null);
+    }
+    setExpandedIds({ ...expandedIds, [parentId]: true });
+    const focusId =
+      overlays.folders[0]?.id ?? overlays.uploads[0]?.id ?? parentId;
+    setSelectedId(focusId);
+    closeCtxMenu();
+  };
+
+  const openTarget = (targetId: string | null, targetKind: FolderExplorerCtxTarget) => {
+    const id =
+      targetKind === "empty" ? currentFolderId : targetId ?? currentFolderId;
+    const node = findTaxReturnFolderNode(liveTree, id);
+    if (!node) {
+      closeCtxMenu();
+      return;
+    }
+    setSelectedId(node.id);
+    if (node.kind === "folder") {
+      setPreviewId(null);
+      setExpandedIds({ ...expandedIds, [node.id]: true });
+    } else {
+      setPreviewId(node.id);
+      setPreviewPaneTab("page");
+    }
+    closeCtxMenu();
+  };
+
+  const downloadStub = (nodeId: string) => {
+    const node = findTaxReturnFolderNode(liveTree, nodeId);
+    if (!node || node.kind !== "file") {
+      closeCtxMenu();
+      return;
+    }
+    const fileName = folderExplorerFileExt(node.label)
+      ? node.label
+      : `${node.label}.txt`;
+    flash(
+      t(uiLang, "taxReturnFolderDownloadFlash").replace("{name}", fileName),
+    );
+    try {
+      downloadBlobFile(
+        fileName,
+        `Demo stub for ${node.label}\n`,
+        "text/plain",
+      );
+    } catch {
+      /* canvas host may block downloads — flash is enough */
+    }
+    closeCtxMenu();
+  };
+
+  /** Zip entire selected folder (nested file stubs) — year roots included. */
+  const zipDownloadFolder = (nodeId: string) => {
+    const node = findTaxReturnFolderNode(liveTree, nodeId);
+    if (!node || node.kind !== "folder") {
+      closeCtxMenu();
+      return;
+    }
+    const safeBase = node.label.replace(/[\\/:*?"<>|]+/g, "_").trim() || "folder";
+    const zipName = `${safeBase}.zip`;
+    flash(t(uiLang, "taxReturnFolderZipFlash").replace("{name}", zipName));
+    try {
+      const entries = collectTaxReturnFolderZipEntries(node);
+      const zipBlob = buildStoreZipBlob(entries);
+      downloadBlobFile(zipName, zipBlob, "application/zip");
+    } catch {
+      /* canvas host may block downloads — flash is enough */
+    }
+    closeCtxMenu();
+  };
+
+  const showProperties = (nodeId: string | null) => {
+    const id = nodeId ?? currentFolderId;
+    setPropsId(id);
+    closeCtxMenu();
   };
 
   const uploadIntoCurrent = (files: FileList | null) => {
@@ -36637,7 +39677,7 @@ function TaxReturnFolderBrowser({
       const f = files.item(i);
       if (!f) continue;
       stamped.push({
-        id: `file-local-${Date.now()}-${i}`,
+        id: nextOverlayId("file-local"),
         label: f.name,
         parentId,
       });
@@ -36647,7 +39687,283 @@ function TaxReturnFolderBrowser({
     setExpandedIds({ ...expandedIds, [parentId]: true });
     setSelectedId(stamped[0]!.id);
     setPreviewId(stamped[0]!.id);
+    setPreviewPaneTab("page");
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const ctxItemStyle = (disabled?: boolean): CSSProperties => ({
+    padding: "7px 10px",
+    borderRadius: 6,
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.42 : 1,
+    userSelect: "none",
+  });
+
+  const renderCtxItem = (
+    key: string,
+    label: string,
+    onClick: () => void,
+    opts?: { disabled?: boolean },
+  ) => (
+    <div
+      key={key}
+      role="menuitem"
+      tabIndex={opts?.disabled ? -1 : 0}
+      aria-disabled={opts?.disabled ? true : undefined}
+      onClick={() => {
+        if (!opts?.disabled) onClick();
+      }}
+      onKeyDown={(e) => {
+        if (opts?.disabled) return;
+        if (e.key === "Enter" || e.key === " ") onClick();
+      }}
+      style={ctxItemStyle(opts?.disabled)}
+    >
+      <ChromeText size="small" weight="semibold">
+        {label}
+      </ChromeText>
+    </div>
+  );
+
+  const renderContextMenu = () => {
+    if (!ctxMenu) return null;
+    const isFile = ctxMenu.targetKind === "file";
+    const isFolderish =
+      ctxMenu.targetKind === "folder" || ctxMenu.targetKind === "empty";
+    const actionId =
+      ctxMenu.targetKind === "empty"
+        ? currentFolderId
+        : ctxMenu.targetId ?? currentFolderId;
+    const pasteParent = isFile ? ctxMenu.parentId : actionId;
+    const canPaste = Boolean(clipboard);
+    const canMutate = Boolean(actionId && actionId !== rootId);
+    const pasteDisabled = !canPaste;
+
+    const items: any[] = [];
+    items.push(
+      renderCtxItem(
+        "open",
+        t(
+          uiLang,
+          isFile
+            ? "taxReturnFolderCtxOpenPreview"
+            : "taxReturnFolderCtxOpenExpand",
+        ),
+        () => openTarget(ctxMenu.targetId, ctxMenu.targetKind),
+      ),
+    );
+    items.push(
+      <div
+        key="sep-open"
+        style={{
+          height: 1,
+          margin: "4px 6px",
+          background: chromeBorder(theme),
+        }}
+      />,
+    );
+
+    if (isFolderish) {
+      items.push(
+        <div key="new-group">
+          <div
+            role="menuitem"
+            tabIndex={0}
+            onClick={() => setCtxNewOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                setCtxNewOpen((v) => !v);
+              }
+            }}
+            style={{
+              ...ctxItemStyle(false),
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <ChromeText size="small" weight="semibold">
+              {t(uiLang, "taxReturnFolderCtxNewMenu")}
+            </ChromeText>
+            <ChromeText size="small" tone="tertiary">
+              {ctxNewOpen ? "▾" : "▸"}
+            </ChromeText>
+          </div>
+          {ctxNewOpen ? (
+            <div style={{ paddingInlineStart: 10 }}>
+              {renderCtxItem("new-folder", t(uiLang, "taxReturnFolderCtxNew"), () =>
+                openNewFolderUi(actionId),
+              )}
+              {renderCtxItem(
+                "new-file",
+                t(uiLang, "taxReturnFolderCtxNewFile"),
+                () => createNewFileStub(actionId),
+              )}
+            </div>
+          ) : null}
+        </div>,
+      );
+      items.push(
+        <div
+          key="sep-new"
+          style={{
+            height: 1,
+            margin: "4px 6px",
+            background: chromeBorder(theme),
+          }}
+        />,
+      );
+      items.push(
+        renderCtxItem(
+          "zip-download",
+          t(uiLang, "taxReturnFolderCtxZipDownload"),
+          () => zipDownloadFolder(actionId),
+        ),
+      );
+      items.push(
+        <div
+          key="sep-zip"
+          style={{
+            height: 1,
+            margin: "4px 6px",
+            background: chromeBorder(theme),
+          }}
+        />,
+      );
+    }
+
+    if (isFile) {
+      items.push(
+        renderCtxItem(
+          "download",
+          t(uiLang, "taxReturnFolderCtxDownload"),
+          () => downloadStub(actionId),
+        ),
+      );
+      items.push(
+        <div
+          key="sep-dl"
+          style={{
+            height: 1,
+            margin: "4px 6px",
+            background: chromeBorder(theme),
+          }}
+        />,
+      );
+    }
+
+    if (isFile || ctxMenu.targetKind === "folder") {
+      items.push(
+        renderCtxItem("cut", t(uiLang, "taxReturnFolderCtxCut"), () =>
+          cutOrCopy("cut", actionId),
+          { disabled: !canMutate },
+        ),
+      );
+      items.push(
+        renderCtxItem("copy", t(uiLang, "taxReturnFolderCtxCopy"), () =>
+          cutOrCopy("copy", actionId),
+          { disabled: !canMutate },
+        ),
+      );
+    }
+
+    items.push(
+      renderCtxItem(
+        "paste",
+        t(uiLang, "taxReturnFolderCtxPaste"),
+        () => pasteInto(pasteParent),
+        { disabled: pasteDisabled },
+      ),
+    );
+    items.push(
+      <div
+        key="sep-clip"
+        style={{
+          height: 1,
+          margin: "4px 6px",
+          background: chromeBorder(theme),
+        }}
+      />,
+    );
+    items.push(
+      renderCtxItem(
+        "rename",
+        t(uiLang, "taxReturnFolderCtxRename"),
+        () => openRenameUi(actionId),
+        { disabled: !canMutate },
+      ),
+    );
+    items.push(
+      renderCtxItem(
+        "delete",
+        t(uiLang, "taxReturnFolderCtxDelete"),
+        () => deleteNode(actionId),
+        { disabled: !canMutate },
+      ),
+    );
+
+    items.push(
+      <div
+        key="sep-props"
+        style={{
+          height: 1,
+          margin: "4px 6px",
+          background: chromeBorder(theme),
+        }}
+      />,
+    );
+    items.push(
+      renderCtxItem(
+        "props",
+        t(uiLang, "taxReturnFolderCtxProperties"),
+        () => showProperties(actionId),
+      ),
+    );
+
+    // x/y are click client coords; clamp at render so New-submenu growth re-fits.
+    const menuPos = clampFolderExplorerCtxMenuPos(ctxMenu.x, ctxMenu.y, {
+      estW: 196,
+      // +1 row for Download / Zip and download near Open / after New.
+      estH: ctxNewOpen ? 448 : isFolderish ? 388 : 348,
+    });
+
+    return (
+      <>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 39,
+          }}
+          onClick={closeCtxMenu}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            closeCtxMenu();
+          }}
+        />
+        <div
+          role="menu"
+          style={{
+            position: "fixed",
+            top: menuPos.y,
+            left: menuPos.x,
+            zIndex: 40,
+            minWidth: 168,
+            maxWidth: 240,
+            maxHeight: menuPos.maxHeight,
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+            padding: 4,
+            borderRadius: 8,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+          }}
+        >
+          {items}
+        </div>
+      </>
+    );
   };
 
   const renderNode = (node: TaxReturnFolderNode, depth: number) => {
@@ -36658,6 +39974,8 @@ function TaxReturnFolderBrowser({
       (expandedIds[node.id] === true ||
         (expandedIds[node.id] !== false && depth <= 1));
     const isSelected = selectedId === node.id;
+    const isCutGhost =
+      clipboard?.mode === "cut" && clipboard.nodeId === node.id;
     return (
       <Stack key={node.id} gap={2}>
         <div
@@ -36665,39 +39983,41 @@ function TaxReturnFolderBrowser({
           tabIndex={0}
           onClick={() => {
             setSelectedId(node.id);
-            setCtxMenu(null);
+            closeCtxMenu();
             if (isFolder) {
+              setPreviewId(null);
               setExpandedIds({
                 ...expandedIds,
                 [node.id]: !isOpen,
               });
             } else {
               setPreviewId(node.id);
+              setPreviewPaneTab("page");
             }
           }}
           onContextMenu={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
             setSelectedId(node.id);
             const parentId = isFolder
               ? node.id
               : findTaxReturnFolderParentId(liveTree, node.id) || rootId;
-            setCtxMenu({
-              x: e.clientX,
-              y: e.clientY,
+            openCtxMenu(e, {
               parentId: parentId || rootId,
+              targetId: node.id,
+              targetKind: isFolder ? "folder" : "file",
             });
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               setSelectedId(node.id);
               if (isFolder) {
+                setPreviewId(null);
                 setExpandedIds({
                   ...expandedIds,
                   [node.id]: !isOpen,
                 });
               } else {
                 setPreviewId(node.id);
+                setPreviewPaneTab("page");
               }
             }
           }}
@@ -36706,6 +40026,7 @@ function TaxReturnFolderBrowser({
             paddingInlineStart: 8 + depth * 14,
             borderRadius: 6,
             cursor: "pointer",
+            opacity: isCutGhost ? 0.45 : 1,
             background: isSelected
               ? chromeSelectedFill(theme)
               : "transparent",
@@ -36719,8 +40040,15 @@ function TaxReturnFolderBrowser({
           }}
         >
           <ChromeText size="small" tone="tertiary" style={{ width: 14 }}>
-            {isFolder ? (isOpen ? "▾" : "▸") : "·"}
+            {isFolder ? (isOpen ? "▾" : "▸") : ""}
           </ChromeText>
+          <ExplorerFileIcon
+            label={node.label}
+            kind={node.kind}
+            size="sm"
+            open={isOpen}
+            variant={node.id === rootId ? "root" : "default"}
+          />
           <ChromeText
             size="small"
             weight={isFolder ? "semibold" : "normal"}
@@ -36738,15 +40066,32 @@ function TaxReturnFolderBrowser({
 
   const renderDetailItem = (item: TaxReturnFolderNode) => {
     const isSelected = selectedId === item.id;
-    const glyph = folderExplorerFileGlyph(item.label, item.kind);
+    const isCutGhost =
+      clipboard?.mode === "cut" && clipboard.nodeId === item.id;
     const openItem = () => {
       setSelectedId(item.id);
-      setCtxMenu(null);
+      closeCtxMenu();
       if (item.kind === "folder") {
+        setPreviewId(null);
         setExpandedIds({ ...expandedIds, [item.id]: true });
       } else {
         setPreviewId(item.id);
+        setPreviewPaneTab("page");
       }
+    };
+    const onCtx = (e: {
+      clientX: number;
+      clientY: number;
+      preventDefault: () => void;
+      stopPropagation: () => void;
+    }) => {
+      setSelectedId(item.id);
+      openCtxMenu(e, {
+        parentId:
+          item.kind === "folder" ? item.id : currentFolderId,
+        targetId: item.id,
+        targetKind: item.kind === "folder" ? "folder" : "file",
+      });
     };
     if (viewMode === "list") {
       return (
@@ -36756,19 +40101,7 @@ function TaxReturnFolderBrowser({
           tabIndex={0}
           onClick={openItem}
           onDoubleClick={openItem}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setSelectedId(item.id);
-            setCtxMenu({
-              x: e.clientX,
-              y: e.clientY,
-              parentId:
-                item.kind === "folder"
-                  ? item.id
-                  : currentFolderId,
-            });
-          }}
+          onContextMenu={onCtx}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") openItem();
           }}
@@ -36780,6 +40113,7 @@ function TaxReturnFolderBrowser({
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
+            opacity: isCutGhost ? 0.45 : 1,
             background: isSelected
               ? chromeSelectedFill(theme)
               : "transparent",
@@ -36788,13 +40122,11 @@ function TaxReturnFolderBrowser({
               : `1px solid transparent`,
           }}
         >
-          <ChromeText
-            size="small"
-            tone="tertiary"
-            style={{ width: 28, fontVariantNumeric: "tabular-nums" }}
-          >
-            {glyph}
-          </ChromeText>
+          <ExplorerFileIcon
+            label={item.label}
+            kind={item.kind}
+            size="sm"
+          />
           <ChromeText
             size="small"
             weight={item.kind === "folder" ? "semibold" : "normal"}
@@ -36805,8 +40137,66 @@ function TaxReturnFolderBrowser({
         </div>
       );
     }
-    const iconPad = viewMode === "icons" ? 16 : 10;
-    const minW = viewMode === "icons" ? 88 : 72;
+    if (viewMode === "icons") {
+      return (
+        <div
+          key={item.id}
+          role="button"
+          tabIndex={0}
+          title={item.label}
+          onClick={openItem}
+          onDoubleClick={openItem}
+          onContextMenu={onCtx}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") openItem();
+          }}
+          style={{
+            width: 96,
+            minHeight: 104,
+            padding: "10px 6px 8px",
+            borderRadius: 4,
+            cursor: "pointer",
+            textAlign: "center",
+            opacity: isCutGhost ? 0.45 : 1,
+            background: isSelected
+              ? chromeSelectedFill(theme)
+              : "transparent",
+            border: isSelected
+              ? `1px solid ${theme.accent.primary}`
+              : "1px solid transparent",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            gap: 8,
+          }}
+        >
+          <ExplorerFileIcon
+            label={item.label}
+            kind={item.kind}
+            size="lg"
+          />
+          <ChromeText
+            size="small"
+            weight={item.kind === "folder" ? "semibold" : "normal"}
+            tone="primary"
+            style={{
+              width: "100%",
+              maxHeight: 36,
+              lineHeight: "18px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              wordBreak: "break-word",
+            }}
+          >
+            {item.label}
+          </ChromeText>
+        </div>
+      );
+    }
     return (
       <div
         key={item.id}
@@ -36814,27 +40204,18 @@ function TaxReturnFolderBrowser({
         tabIndex={0}
         onClick={openItem}
         onDoubleClick={openItem}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setSelectedId(item.id);
-          setCtxMenu({
-            x: e.clientX,
-            y: e.clientY,
-            parentId:
-              item.kind === "folder" ? item.id : currentFolderId,
-          });
-        }}
+        onContextMenu={onCtx}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") openItem();
         }}
         style={{
-          padding: iconPad,
+          padding: 10,
           borderRadius: 8,
           cursor: "pointer",
-          minWidth: minW,
-          maxWidth: viewMode === "icons" ? 110 : 140,
+          minWidth: 72,
+          maxWidth: 140,
           textAlign: "center",
+          opacity: isCutGhost ? 0.45 : 1,
           background: isSelected
             ? chromeSelectedFill(theme)
             : chromeSoftFill(theme),
@@ -36847,13 +40228,11 @@ function TaxReturnFolderBrowser({
           gap: 6,
         }}
       >
-        <ChromeText
-          size={viewMode === "icons" ? "large" : "small"}
-          weight="semibold"
-          tone="secondary"
-        >
-          {glyph}
-        </ChromeText>
+        <ExplorerFileIcon
+          label={item.label}
+          kind={item.kind}
+          size="md"
+        />
         <ChromeText
           size="small"
           weight={item.kind === "folder" ? "semibold" : "normal"}
@@ -36878,6 +40257,19 @@ function TaxReturnFolderBrowser({
     { id: "grid", labelKey: "taxReturnFolderViewGrid" },
     { id: "icons", labelKey: "taxReturnFolderViewIcons" },
   ];
+
+  const propsSizeStub =
+    propsNode && propsNode.kind === "file"
+      ? `${Math.max(1, propsNode.label.length * 37)} KB`
+      : null;
+  const propsItemsCount =
+    propsNode && propsNode.kind === "folder"
+      ? propsNode.children?.length ?? 0
+      : null;
+  const propsExt =
+    propsNode && propsNode.kind === "file"
+      ? folderExplorerFileExt(propsNode.label)
+      : "";
 
   return (
     <Stack gap={10} style={{ position: "relative" }}>
@@ -36944,178 +40336,305 @@ function TaxReturnFolderBrowser({
               setNewFolderParentId(null);
             }}
           >
-            {t(uiLang, "taxReturnFolderPreviewClose")}
+            {t(uiLang, "cancel")}
           </Button>
           <ChromeText size="small" tone="tertiary">
             {t(uiLang, "taxReturnFolderAddUnder")}
           </ChromeText>
         </Row>
       ) : null}
-      <Grid
-        columns={
-          androidPreview ? 1 : "minmax(0, 1.1fr) minmax(0, 0.9fr)"
-        }
-        gap={12}
-      >
-        <div
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setCtxMenu({
-              x: e.clientX,
-              y: e.clientY,
-              parentId: currentFolderId,
-            });
-          }}
-          style={{
-            padding: 10,
-            borderRadius: 10,
-            background: chromeSoftFill(theme),
-            border: `1px solid ${chromeBorder(theme)}`,
-            maxHeight: 360,
-            overflowY: "auto",
-          }}
-        >
-          <Stack gap={2}>{liveTree.map((n) => renderNode(n, 0))}</Stack>
-        </div>
-        <div
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setCtxMenu({
-              x: e.clientX,
-              y: e.clientY,
-              parentId: currentFolderId,
-            });
-          }}
-          style={{
-            padding: 12,
-            borderRadius: 10,
-            background: chromeSoftFill(theme),
-            border: `1px solid ${chromeBorder(theme)}`,
-            minHeight: 120,
-          }}
-        >
-          {!currentFolder ? (
-            <ChromeText size="small" tone="tertiary">
-              {t(uiLang, "taxReturnFolderEmpty")}
-            </ChromeText>
-          ) : (
-            <Stack gap={10}>
-              <Row align="center" gap={8} wrap>
-                <ChromeText size="small" weight="semibold">
-                  {currentFolder.label}
-                </ChromeText>
-                <Pill size="sm" tone="neutral">
-                  {`${detailItems.length} ${t(uiLang, "taxReturnFolderItems")}`}
-                </Pill>
-              </Row>
-              {detailItems.length === 0 ? (
-                <ChromeText size="small" tone="tertiary">
-                  {t(uiLang, "taxReturnFolderEmpty")}
-                </ChromeText>
-              ) : viewMode === "list" ? (
-                <Stack gap={2}>
-                  {detailItems.map((item) => renderDetailItem(item))}
-                </Stack>
-              ) : (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "row",
-                    flexWrap: "wrap",
-                    gap: viewMode === "icons" ? 12 : 8,
-                  }}
-                >
-                  {detailItems.map((item) => renderDetailItem(item))}
-                </div>
-              )}
-              {previewBody && previewNode ? (
-                <Stack
-                  gap={6}
-                  style={{
-                    padding: 10,
-                    borderRadius: 8,
-                    border: `1px solid ${chromeBorder(theme)}`,
-                    background: CHROME_WHITE,
-                  }}
-                >
-                  <Row align="center" gap={8} wrap>
-                    <ChromeText size="small" weight="semibold">
-                      {t(uiLang, "taxReturnFolderPreview")}
-                    </ChromeText>
-                    <ChromeText size="small" tone="secondary">
-                      {previewNode.label}
-                    </ChromeText>
-                    <Spacer />
-                    <Button
-                      variant="ghost"
-                      onClick={() => setPreviewId(null)}
-                    >
-                      {t(uiLang, "taxReturnFolderPreviewClose")}
-                    </Button>
-                  </Row>
-                  <ChromeText size="small" tone="tertiary">
-                    {previewBody.title}
-                  </ChromeText>
-                  {previewBody.lines.map((line, i) => (
-                    <ChromeText key={i} size="small" tone="secondary">
-                      {line}
-                    </ChromeText>
-                  ))}
-                </Stack>
-              ) : null}
-            </Stack>
-          )}
-        </div>
-      </Grid>
-      {ctxMenu ? (
-        <div
-          role="menu"
-          style={{
-            position: "fixed",
-            top: ctxMenu.y,
-            left: ctxMenu.x,
-            zIndex: 40,
-            minWidth: 140,
-            padding: 4,
-            borderRadius: 8,
-            border: `1px solid ${chromeBorder(theme)}`,
-            background: CHROME_WHITE,
-          }}
-        >
-          <div
-            role="menuitem"
-            tabIndex={0}
-            onClick={() => openNewFolderUi(ctxMenu.parentId)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                openNewFolderUi(ctxMenu.parentId);
-              }
-            }}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 6,
-              cursor: "pointer",
+      {renamingId ? (
+        <Row gap={8} wrap align="center">
+          <ChromeTextInput
+            value={renameValue}
+            onChange={setRenameValue}
+            placeholder={t(uiLang, "taxReturnFolderRenamePh")}
+            style={{ flex: 1, minWidth: 160 }}
+          />
+          <Button variant="primary" onClick={commitRename}>
+            {t(uiLang, "taxReturnFolderCtxRename")}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setRenamingId(null);
+              setRenameValue("");
             }}
           >
-            <ChromeText size="small" weight="semibold">
-              {t(uiLang, "taxReturnFolderCtxNew")}
-            </ChromeText>
-          </div>
-        </div>
+            {t(uiLang, "cancel")}
+          </Button>
+        </Row>
       ) : null}
-      {ctxMenu ? (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 39,
-          }}
-          onClick={() => setCtxMenu(null)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setCtxMenu(null);
-          }}
-        />
+      {actionFlash ? (
+        <ChromeText size="small" tone="secondary">
+          {actionFlash}
+        </ChromeText>
+      ) : null}
+      <FolderExplorerResizableSplit
+        height={explorerPaneHeight}
+        stacked={androidPreview}
+        splitPct={explorerSplitPct}
+        onSplitPctChange={setExplorerSplitPct}
+        borderColor={chromeBorder(theme)}
+        softFill={chromeSoftFill(theme)}
+        left={
+          <div
+            onContextMenu={(e) => {
+              openCtxMenu(e, {
+                parentId: currentFolderId,
+                targetId: null,
+                targetKind: "empty",
+              });
+            }}
+          >
+            <Stack gap={2}>{liveTree.map((n) => renderNode(n, 0))}</Stack>
+          </div>
+        }
+        right={
+          <div
+            onContextMenu={(e) => {
+              if (previewActive) return;
+              openCtxMenu(e, {
+                parentId: currentFolderId,
+                targetId: null,
+                targetKind: "empty",
+              });
+            }}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {previewActive && previewBody ? (
+              <Stack gap={10} style={{ flex: 1, minHeight: 0 }}>
+                <Row align="center" gap={8} wrap>
+                  <ExplorerFileIcon
+                    label={previewActive.label}
+                    kind="file"
+                    size="sm"
+                  />
+                  <ChromeText size="small" weight="semibold">
+                    {t(uiLang, "taxReturnFolderPreview")}
+                  </ChromeText>
+                  <ChromeText
+                    size="small"
+                    tone="secondary"
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      maxWidth: 160,
+                    }}
+                  >
+                    {previewActive.label}
+                  </ChromeText>
+                  <Spacer />
+                  <Row gap={4} align="center">
+                    <Button
+                      variant={
+                        previewPaneTab === "details" ? "primary" : "ghost"
+                      }
+                      onClick={() => setPreviewPaneTab("details")}
+                    >
+                      {t(uiLang, "taxReturnFolderPreviewDetails")}
+                    </Button>
+                    <Button
+                      variant={previewPaneTab === "page" ? "primary" : "ghost"}
+                      onClick={() => setPreviewPaneTab("page")}
+                    >
+                      {t(uiLang, "taxReturnFolderPreviewPage")}
+                    </Button>
+                  </Row>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setPreviewId(null)}
+                  >
+                    {t(uiLang, "taxReturnFolderPreviewClose")}
+                  </Button>
+                </Row>
+                {previewPaneTab === "details" ? (
+                  <Stack
+                    gap={8}
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflowY: "auto",
+                      padding: 14,
+                      borderRadius: 8,
+                      border: `1px solid ${chromeBorder(theme)}`,
+                      background: CHROME_WHITE,
+                    }}
+                  >
+                    <Row align="center" gap={10}>
+                      <ExplorerFileIcon
+                        label={previewActive.label}
+                        kind="file"
+                        size="md"
+                      />
+                      <Stack gap={2}>
+                        <ChromeText size="small" weight="semibold">
+                          {previewActive.label}
+                        </ChromeText>
+                        <ChromeText size="small" tone="tertiary">
+                          {previewBody.title}
+                        </ChromeText>
+                      </Stack>
+                    </Row>
+                    <Divider />
+                    <ChromeText size="small" tone="secondary">
+                      {`${t(uiLang, "taxReturnFolderPropsName")}: ${previewActive.label}`}
+                    </ChromeText>
+                    <ChromeText size="small" tone="secondary">
+                      {`${t(uiLang, "taxReturnFolderPropsType")}: ${
+                        previewExt
+                          ? `${t(uiLang, "taxReturnFolderTypeFile")} (.${previewExt})`
+                          : t(uiLang, "taxReturnFolderTypeFile")
+                      }`}
+                    </ChromeText>
+                    {previewSizeStub ? (
+                      <ChromeText size="small" tone="secondary">
+                        {`${t(uiLang, "taxReturnFolderPropsSize")}: ${previewSizeStub}`}
+                      </ChromeText>
+                    ) : null}
+                    <ChromeText size="small" tone="secondary">
+                      {`${t(uiLang, "taxReturnFolderPropsDate")}: ${previewModified}`}
+                    </ChromeText>
+                    <ChromeText size="small" tone="secondary">
+                      {`${t(uiLang, "taxReturnFolderPropsPath")}: ${previewPath}`}
+                    </ChromeText>
+                  </Stack>
+                ) : (
+                  <FolderExplorerPagePreview
+                    lang={uiLang}
+                    label={previewActive.label}
+                  />
+                )}
+              </Stack>
+            ) : !currentFolder ? (
+              <ChromeText size="small" tone="tertiary">
+                {t(uiLang, "taxReturnFolderEmpty")}
+              </ChromeText>
+            ) : (
+              <Stack
+                gap={10}
+                style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+              >
+                <Row align="center" gap={8} wrap>
+                  <ExplorerFileIcon
+                    label={currentFolder.label}
+                    kind="folder"
+                    size="sm"
+                    open
+                    variant={
+                      currentFolder.id === rootId ? "root" : "default"
+                    }
+                  />
+                  <ChromeText size="small" weight="semibold">
+                    {currentFolder.label}
+                  </ChromeText>
+                  <Pill size="sm" tone="neutral">
+                    {`${detailItems.length} ${t(uiLang, "taxReturnFolderItems")}`}
+                  </Pill>
+                </Row>
+                {detailItems.length === 0 ? (
+                  <ChromeText size="small" tone="tertiary">
+                    {t(uiLang, "taxReturnFolderEmpty")}
+                  </ChromeText>
+                ) : viewMode === "list" ? (
+                  <Stack gap={2}>
+                    {detailItems.map((item) => renderDetailItem(item))}
+                  </Stack>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: viewMode === "icons" ? 18 : 8,
+                    }}
+                  >
+                    {detailItems.map((item) => renderDetailItem(item))}
+                  </div>
+                )}
+              </Stack>
+            )}
+          </div>
+        }
+      />
+      {renderContextMenu()}
+      {propsNode ? (
+        <>
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 41,
+              background: "rgba(15, 23, 42, 0.25)",
+            }}
+            onClick={() => setPropsId(null)}
+          />
+          <div
+            role="dialog"
+            aria-label={t(uiLang, "taxReturnFolderCtxProperties")}
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              zIndex: 42,
+              minWidth: 280,
+              maxWidth: 360,
+              padding: 16,
+              borderRadius: 10,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: CHROME_WHITE,
+              boxShadow: "0 12px 32px rgba(15, 23, 42, 0.18)",
+            }}
+          >
+            <Stack gap={10}>
+              <Row align="center" gap={8}>
+                <ExplorerFileIcon
+                  label={propsNode.label}
+                  kind={propsNode.kind}
+                  size="md"
+                  variant={propsNode.id === rootId ? "root" : "default"}
+                />
+                <ChromeText size="small" weight="semibold">
+                  {t(uiLang, "taxReturnFolderCtxProperties")}
+                </ChromeText>
+                <Spacer />
+                <Button variant="ghost" onClick={() => setPropsId(null)}>
+                  {t(uiLang, "cancel")}
+                </Button>
+              </Row>
+              <ChromeText size="small" tone="secondary">
+                {`${t(uiLang, "taxReturnFolderPropsName")}: ${propsNode.label}`}
+              </ChromeText>
+              <ChromeText size="small" tone="secondary">
+                {`${t(uiLang, "taxReturnFolderPropsType")}: ${
+                  propsNode.kind === "folder"
+                    ? t(uiLang, "taxReturnFolderTypeFolder")
+                    : propsExt
+                      ? `${t(uiLang, "taxReturnFolderTypeFile")} (.${propsExt})`
+                      : t(uiLang, "taxReturnFolderTypeFile")
+                }`}
+              </ChromeText>
+              {propsItemsCount !== null ? (
+                <ChromeText size="small" tone="secondary">
+                  {`${t(uiLang, "taxReturnFolderItems")}: ${propsItemsCount}`}
+                </ChromeText>
+              ) : null}
+              {propsSizeStub ? (
+                <ChromeText size="small" tone="secondary">
+                  {`${t(uiLang, "taxReturnFolderPropsSize")}: ${propsSizeStub}`}
+                </ChromeText>
+              ) : null}
+            </Stack>
+          </div>
+        </>
       ) : null}
     </Stack>
   );
@@ -37281,7 +40800,6 @@ function TaxReturnWorkspace({
     taxYear,
     processStages,
   );
-  const files = demoTaxReturnFiles(client, taxYear);
   const allRequestedDocsUploaded =
     docRequests.length > 0 &&
     docRequests.every((r) => r.status === "uploaded");
@@ -37741,9 +41259,24 @@ function TaxReturnWorkspace({
                           }}
                         />
                         <Stack gap={2} style={{ flex: 1, minWidth: 140 }}>
-                          <ChromeText size="small" weight="semibold">
-                            {req.docName}
-                          </ChromeText>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <ExplorerFileIcon
+                              label={
+                                req.uploadedFileName ?? `${req.docName}.pdf`
+                              }
+                              kind="file"
+                              size="sm"
+                            />
+                            <ChromeText size="small" weight="semibold">
+                              {req.docName}
+                            </ChromeText>
+                          </span>
                           <ChromeText size="small" tone="tertiary">
                             {req.docType} · {req.createdAt}
                             {channelBits.length > 0
@@ -37795,6 +41328,13 @@ function TaxReturnWorkspace({
               title={t(uiLang, "taxReturnDocPreviewTitle")}
             >
               <Stack gap={8}>
+                <ExplorerFileNameCell
+                  label={
+                    viewing.uploadedFileName ?? `${viewing.docName}.pdf`
+                  }
+                  kind="file"
+                  semibold
+                />
                 <ChromeText size="small">
                   {t(uiLang, "taxReturnDocPreviewBody")
                     .replace(
@@ -37846,17 +41386,12 @@ function TaxReturnWorkspace({
           <ChromeText size="small" tone="tertiary">
             {t(uiLang, taxReturnStageDocsHintKey(highlightStage))}
           </ChromeText>
-          <FirmDataTable
-            headers={[
-              t(uiLang, "colDocument"),
-              t(uiLang, "colDate"),
-              t(uiLang, "type"),
-            ]}
-            rows={files.map((f) => [
-              f.name,
-              f.period,
-              serviceLabel(uiLang, f.kind),
-            ])}
+          <TaxReturnFolderBrowser
+            tree={folderTree}
+            expandedIds={folderExpanded}
+            setExpandedIds={setFolderExpanded}
+            selectedId={folderSelected}
+            setSelectedId={setFolderSelected}
           />
         </Stack>
       );
@@ -38224,7 +41759,6 @@ function AuditProcessWorkspace({
       : undefined,
     customChecklist.map((item) => item.id),
   );
-  const files = demoAuditFiles(client, auditYear);
   const checklist: WorkspaceChecklistItem[] = applyChecklistLabelOverrides(
     [
       ...demoAuditChecklist(
@@ -38244,6 +41778,21 @@ function AuditProcessWorkspace({
   const highlightStage = focusStage ?? processStage;
   const pendingReqs = docRequests.filter((r) => r.status === "pending").length;
   const viewing = docRequests.find((r) => r.id === viewDocId) ?? null;
+  const uploadedReqs = docRequests.filter((r) => r.status === "uploaded");
+  const folderTree = buildAuditWorkingFolder(
+    uiLang,
+    client,
+    auditYear,
+    uploadedReqs,
+  );
+  const auditFolderRootId = `au-root-${client.id}-${auditYear}`;
+  const [folderExpanded, setFolderExpanded] = useCanvasState<
+    Record<string, boolean>
+  >(`auditFolderExpanded.v1:${scopeKey}`, { [auditFolderRootId]: true });
+  const [folderSelected, setFolderSelected] = useCanvasState<string | null>(
+    `auditFolderSelected.v1:${scopeKey}`,
+    auditFolderRootId,
+  );
 
   /** When all BK months finish: auto-check prep stages through Ready for audit, advance to Konto. */
   useEffect(() => {
@@ -38990,9 +42539,22 @@ function AuditProcessWorkspace({
                   }}
                 >
                   <Stack gap={2} style={{ flex: 1, minWidth: 140 }}>
-                    <ChromeText size="small" weight="semibold">
-                      {r.docName}
-                    </ChromeText>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <ExplorerFileIcon
+                        label={r.uploadedFileName ?? `${r.docName}.pdf`}
+                        kind="file"
+                        size="sm"
+                      />
+                      <ChromeText size="small" weight="semibold">
+                        {r.docName}
+                      </ChromeText>
+                    </span>
                     <ChromeText size="small" tone="tertiary">
                       {r.docType} · {r.createdAt}
                     </ChromeText>
@@ -39034,9 +42596,18 @@ function AuditProcessWorkspace({
           {viewing ? (
             <Callout tone="info" title={t(uiLang, "taxReturnDocPreviewTitle")}>
               <Stack gap={6}>
-                <ChromeText size="small">
-                  {viewing.previewText ?? viewing.uploadedFileName}
-                </ChromeText>
+                <ExplorerFileNameCell
+                  label={
+                    viewing.uploadedFileName ?? `${viewing.docName}.pdf`
+                  }
+                  kind="file"
+                  semibold
+                />
+                {viewing.previewText ? (
+                  <ChromeText size="small" tone="secondary">
+                    {viewing.previewText}
+                  </ChromeText>
+                ) : null}
                 <Button variant="ghost" onClick={() => setViewDocId(null)}>
                   {t(uiLang, "taxReturnClosePreview")}
                 </Button>
@@ -39250,13 +42821,12 @@ function AuditProcessWorkspace({
           <ChromeText size="small" tone="secondary">
             {t(uiLang, "auditFolderHint").replace("{year}", auditYear)}
           </ChromeText>
-          <FirmDataTable
-            headers={[
-              t(uiLang, "colDocument"),
-              t(uiLang, "colPeriod"),
-              t(uiLang, "colKind"),
-            ]}
-            rows={files.map((f) => [f.name, f.period, f.kind])}
+          <TaxReturnFolderBrowser
+            tree={folderTree}
+            expandedIds={folderExpanded}
+            setExpandedIds={setFolderExpanded}
+            selectedId={folderSelected}
+            setSelectedId={setFolderSelected}
           />
         </Stack>
       );
@@ -39636,6 +43206,20 @@ function BillingWorkspace({
   const status = demoWorkStatus(client.id, "stream-billing");
   const invoices = firmInvoices.filter((inv) => inv.clientId === client.id);
   const files = demoBillingFiles(client);
+  const safe = client.name.replace(/[\\/:*?"<>|]/g, "_");
+  const folderRootId = `bill-root-${client.id}`;
+  const folderTree = buildWorkspaceFilesFolderTree(
+    folderRootId,
+    uiLang === "he" ? `${safe} · חיוב` : `${safe} · Billing`,
+    files,
+  );
+  const [folderExpanded, setFolderExpanded] = useCanvasState<
+    Record<string, boolean>
+  >(`billingFolderExpanded.v1:${client.id}`, { [folderRootId]: true });
+  const [folderSelected, setFolderSelected] = useCanvasState<string | null>(
+    `billingFolderSelected.v1:${client.id}`,
+    folderRootId,
+  );
 
   return (
     <Stack gap={14}>
@@ -39694,13 +43278,12 @@ function BillingWorkspace({
         <ChromeText size="small" weight="semibold" tone="secondary">
           {t(uiLang, "relatedBillingFiles")}
         </ChromeText>
-        <FirmDataTable
-          headers={[
-            t(uiLang, "colDocument"),
-            t(uiLang, "colDate"),
-            t(uiLang, "type"),
-          ]}
-          rows={files.map((f) => [f.name, f.period, f.kind])}
+        <TaxReturnFolderBrowser
+          tree={folderTree}
+          expandedIds={folderExpanded}
+          setExpandedIds={setFolderExpanded}
+          selectedId={folderSelected}
+          setSelectedId={setFolderSelected}
         />
       </Stack>
       <Divider />
@@ -40481,7 +44064,16 @@ function ClientCardScreen({
     client.kind,
   );
   const fileTodos = demoFileTodos(client);
-  const clientDocs = demoDocsForClient(client);
+  const docsRootId = `ccd-root-${client.id}`;
+  const docsFolderTree = buildClientCardDocsFolder(uiLang, client);
+  const [docsFolderExpanded, setDocsFolderExpanded] = useCanvasState<
+    Record<string, boolean>
+  >(`clientCardDocs.folderExpanded.v1:${client.id}`, {
+    [docsRootId]: true,
+  });
+  const [docsFolderSelected, setDocsFolderSelected] = useCanvasState<
+    string | null
+  >(`clientCardDocs.folderSelected.v1:${client.id}`, docsRootId);
   const [firmInvoices, setFirmInvoices] = useCanvasState<FirmInvoice[]>(
     "firmInvoices.v1",
     DEFAULT_FIRM_INVOICES,
@@ -41759,13 +45351,12 @@ function ClientCardScreen({
               {clientPanelSubtitle(uiLang, "docs", client.name)}
             </ChromeText>
           </Stack>
-          <FirmDataTable
-            headers={[t(uiLang, "colDocument"), t(uiLang, "colYearType"), t(uiLang, "colKind")]}
-            rows={clientDocs.map((doc) => [
-              doc.name,
-              doc.yearOrType,
-              doc.kind,
-            ])}
+          <TaxReturnFolderBrowser
+            tree={docsFolderTree}
+            expandedIds={docsFolderExpanded}
+            setExpandedIds={setDocsFolderExpanded}
+            selectedId={docsFolderSelected}
+            setSelectedId={setDocsFolderSelected}
           />
         </Stack>
       );
@@ -42967,17 +46558,26 @@ function ProspectSettingsScreen({
                 {PROSPECT_FORM_FIELD_DEFS.map((f) => {
                   const required = isProspectFieldRequired(requiredFields, f.id);
                   return (
-                    <Row
+                    <div
                       key={f.id}
-                      align="center"
-                      gap={10}
-                      style={{ width: "100%" }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        width: "100%",
+                        gap: 10,
+                      }}
                     >
-                      <ChromeToggle
-                        checked={required}
-                        onChange={() => toggleRequired(f.id)}
-                      />
-                      <ChromeText size="small" style={{ flex: 1, minWidth: 0 }}>
+                      <ChromeText
+                        size="small"
+                        truncate
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {t(uiLang, f.labelKey)}
                       </ChromeText>
                       <ChromeText
@@ -42994,7 +46594,13 @@ function ProspectSettingsScreen({
                           ? t(uiLang, "required")
                           : t(uiLang, "optionalLabel")}
                       </ChromeText>
-                    </Row>
+                      <div style={{ flexShrink: 0 }}>
+                        <ChromeToggle
+                          checked={required}
+                          onChange={() => toggleRequired(f.id)}
+                        />
+                      </div>
+                    </div>
                   );
                 })}
               </Stack>
@@ -43681,6 +47287,10 @@ type CompanySettings = {
   phone: string;
   email: string;
   website: string;
+  /** Demo firm logo (data URL or external URL). */
+  logoDataUrl: string;
+  /** Original filename from demo file upload (optional). */
+  logoFileName: string;
   defaultInvoiceLang: PreferredLang;
   defaultCurrency: "ILS";
   vatFileNumber: string;
@@ -43698,6 +47308,8 @@ const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   phone: "03-555-1200",
   email: "office@intertax.example",
   website: "https://intertax.example",
+  logoDataUrl: "",
+  logoFileName: "",
   defaultInvoiceLang: "he",
   defaultCurrency: "ILS",
   vatFileNumber: "514123456",
@@ -43716,10 +47328,19 @@ function firmAiIntegrationEnabled(
 function normalizeCompanySettings(
   raw: CompanySettings | Partial<CompanySettings> | null | undefined,
 ): CompanySettings {
-  return {
+  const merged = {
     ...DEFAULT_COMPANY_SETTINGS,
     ...(raw ?? {}),
     aiIntegrationEnabled: firmAiIntegrationEnabled(raw),
+  };
+  return {
+    ...merged,
+    logoDataUrl:
+      typeof raw?.logoDataUrl === "string" ? raw.logoDataUrl : merged.logoDataUrl,
+    logoFileName:
+      typeof raw?.logoFileName === "string"
+        ? raw.logoFileName
+        : merged.logoFileName,
   };
 }
 
@@ -43937,7 +47558,7 @@ function CompanyDocsFolderTemplateScreen() {
   );
 }
 
-/** Per-client Company documents store (seeded from firm defaults). */
+/** Per-client Company documents — same Explorer as Bookkeeping / TaxReturnFolderBrowser. */
 function CompanyDocsPanel({
   client,
   year,
@@ -43954,12 +47575,25 @@ function CompanyDocsPanel({
     `companyDocs.v1:${client.id}`,
     { seeded: false, folders: [] },
   );
-  const [selectedFolderId, setSelectedFolderId] = useCanvasState<string | null>(
-    `companyDocs.selectedFolder.v1:${client.id}`,
-    null,
+
+  const rootId = companyDocsClientRootId(client.id);
+  const yearFolderId = companyDocsYearFolderId(year);
+
+  const [folderExpanded, setFolderExpanded] = useCanvasState<
+    Record<string, boolean>
+  >(`companyDocs.folderExpanded.v2:${client.id}`, {
+    [rootId]: true,
+    [yearFolderId]: true,
+  });
+  const [folderSelected, setFolderSelected] = useCanvasState<string | null>(
+    `companyDocs.folderSelected.v2:${client.id}`,
+    yearFolderId,
   );
-  const [newFolderName, setNewFolderName] = useState("");
-  const [addingFolder, setAddingFolder] = useState(false);
+
+  /** Same persist scope TaxReturnFolderBrowser uses for demo uploads. */
+  const [explorerUploads, setExplorerUploads] = useCanvasState<
+    TaxReturnFolderUpload[]
+  >(`folderExplorer.uploads.v1:${rootId}`, []);
 
   useEffect(() => {
     if (store.seeded) return;
@@ -43970,77 +47604,52 @@ function CompanyDocsPanel({
       client.name,
     );
     setStore({ seeded: true, folders });
-    if (folders[0]) setSelectedFolderId(folders[0].id);
   }, [store.seeded, defaults, year, uiLang, client.name]);
 
   useEffect(() => {
     if (!store.seeded) return;
-    const { store: next, changed, idMap } = normalizeCompanyDocsClientStore(
+    const { store: next, changed } = normalizeCompanyDocsClientStore(
       store,
       year,
     );
     if (!changed) return;
     setStore(next);
-    if (selectedFolderId && idMap[selectedFolderId]) {
-      setSelectedFolderId(idMap[selectedFolderId]);
-    }
-  }, [store, year, selectedFolderId]);
+  }, [store, year]);
 
-  const folders = store.folders;
-  const selected =
-    folders.find((f) => f.id === selectedFolderId) ?? folders[0] ?? null;
-  const selectedLabel = selected
-    ? companyDocsFolderDisplayName(uiLang, selected, year)
-    : "";
-
-  const addCustomFolder = () => {
-    const name = newFolderName.trim();
-    if (!name) return;
-    const id = `folder-custom-${Date.now()}`;
-    setStore((prev) => ({
+  /** Open on the working year; keep siblings (other years / General / Other) navigable. */
+  useEffect(() => {
+    setFolderSelected(yearFolderId);
+    setFolderExpanded((prev) => ({
       ...prev,
-      seeded: true,
-      folders: [
-        ...prev.folders,
-        {
-          id,
-          name,
-          kind: "custom",
-          fromTemplate: false,
-          files: [],
-        },
-      ],
+      [rootId]: true,
+      [yearFolderId]: true,
     }));
-    setSelectedFolderId(id);
-    setNewFolderName("");
-    setAddingFolder(false);
+  }, [year, client.id, yearFolderId, rootId]);
+
+  const folderTree = buildCompanyDocsFolderTree(uiLang, client, year, store);
+
+  const resolveUploadParentId = (): string => {
+    if (!folderSelected) return yearFolderId;
+    const inTree = findTaxReturnFolderNode(folderTree, folderSelected);
+    if (inTree) {
+      if (inTree.kind === "folder") return inTree.id;
+      const parent = findTaxReturnFolderParentId(folderTree, folderSelected);
+      return parent && parent.length > 0 ? parent : yearFolderId;
+    }
+    const overlay = explorerUploads.find((u) => u.id === folderSelected);
+    if (overlay?.parentId) return overlay.parentId;
+    return yearFolderId;
   };
 
   const uploadDemoFile = () => {
-    if (!selected) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const labelForFile = companyDocsFolderDisplayName(uiLang, selected, year);
-    const file: CompanyDocsFile = {
-      id: `file-${Date.now()}`,
-      name: `Upload_${labelForFile.replace(/\s+/g, "_")}_${Date.now()
-        .toString()
-        .slice(-4)}.pdf`,
-      type: "PDF",
-      date: today,
-    };
-    setStore((prev) => ({
-      ...prev,
-      folders: prev.folders.map((f) =>
-        f.id === selected.id ? { ...f, files: [file, ...f.files] } : f,
-      ),
-    }));
+    const parentId = resolveUploadParentId();
+    const stamp = Date.now().toString().slice(-4);
+    const id = `file-cd-demo-${Date.now()}`;
+    const label = `Upload_demo_${stamp}.pdf`;
+    setExplorerUploads((prev) => [{ id, label, parentId }, ...prev]);
+    setFolderExpanded((prev) => ({ ...prev, [parentId]: true }));
+    setFolderSelected(id);
   };
-
-  const folderTabs: RaisedTabItem[] = folders.map((folder) => ({
-    id: folder.id,
-    label: companyDocsFolderDisplayName(uiLang, folder, year),
-    badgeCount: folder.files.length,
-  }));
 
   return (
     <Stack gap={12} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
@@ -44048,85 +47657,26 @@ function CompanyDocsPanel({
         {t(uiLang, "companyDocsHint")}
       </ChromeText>
       <Row gap={8} wrap align="center">
-        <Button
-          variant="secondary"
-          onClick={() => setAddingFolder((v) => !v)}
-        >
-          {t(uiLang, "companyDocsNewFolder")}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={uploadDemoFile}
-          disabled={!selected}
-        >
+        <Button variant="secondary" onClick={uploadDemoFile}>
           {t(uiLang, "companyDocsUploadDemo")}
         </Button>
-      </Row>
-      {addingFolder ? (
-        <Row gap={8} wrap align="center">
-          <ChromeTextInput
-            value={newFolderName}
-            onChange={setNewFolderName}
-            placeholder={t(uiLang, "companyDocsFolderNamePh")}
-            style={{ flex: 1, minWidth: 160 }}
-          />
-          <Button variant="primary" onClick={addCustomFolder}>
-            {t(uiLang, "companyDocsNewFolder")}
-          </Button>
-        </Row>
-      ) : null}
-      {folders.length > 0 ? (
-        <RaisedTabBar
-          tabs={folderTabs}
-          activeId={selected?.id ?? folderTabs[0]?.id ?? ""}
-          onSelect={(id) => setSelectedFolderId(id)}
-          ariaLabel={t(uiLang, "companyDocsFoldersTitle")}
-          variant="gmail"
-          compact
-        />
-      ) : null}
-      {!selected ? (
         <ChromeText size="small" tone="tertiary">
-          {t(uiLang, "companyDocsNoFolder")}
+          {t(uiLang, "taxReturnFolderUploadHint")}
         </ChromeText>
-      ) : (
-        <Stack gap={10}>
-          <Row align="center" gap={8} wrap>
-            <ChromeText size="small" weight="semibold">
-              {t(uiLang, "companyDocsFilesTitle")} — {selectedLabel}
-            </ChromeText>
-            {selected.fromTemplate ? (
-              <Pill size="sm" tone="neutral">
-                {t(uiLang, "companyDocsKind")}
-              </Pill>
-            ) : (
-              <Pill size="sm" tone="info">
-                {t(uiLang, "companyDocsKindCustom")}
-              </Pill>
-            )}
-          </Row>
-          {selected.files.length === 0 ? (
-            <ChromeText size="small" tone="tertiary">
-              {t(uiLang, "companyDocsEmptyFiles")}
-            </ChromeText>
-          ) : (
-            <FirmDataTable
-              headers={[
-                t(uiLang, "colName"),
-                t(uiLang, "colType"),
-                t(uiLang, "colDate"),
-              ]}
-              rows={selected.files.map((f) => [f.name, f.type, f.date])}
-              stickyHeader={false}
-            />
-          )}
-        </Stack>
-      )}
+      </Row>
+      <TaxReturnFolderBrowser
+        tree={folderTree}
+        expandedIds={folderExpanded}
+        setExpandedIds={setFolderExpanded}
+        selectedId={folderSelected}
+        setSelectedId={setFolderSelected}
+      />
     </Stack>
   );
 }
 
 function CompanySettingsScreen() {
+  const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [settingsRaw, setSettings] = useCanvasState<CompanySettings>(
     "crmCompanySettings.v1",
@@ -44137,12 +47687,25 @@ function CompanySettingsScreen() {
     "crmCompanySettingsFlash.v1",
     "",
   );
+  const logoFileRef = useRef<HTMLInputElement | null>(null);
 
   const patch = (partial: Partial<CompanySettings>) => {
     setSettings((prev) => ({
       ...normalizeCompanySettings(prev),
       ...partial,
     }));
+  };
+
+  const onLogoFile = (file: File | null | undefined) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (result) {
+        patch({ logoDataUrl: result, logoFileName: file.name || "logo" });
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const onSave = () => {
@@ -44222,13 +47785,77 @@ function CompanySettingsScreen() {
             />
           </Stack>
         </Grid>
-        <Stack gap={4}>
+        <Stack gap={8}>
           <ChromeText size="small" weight="semibold" tone="secondary">
             {t(uiLang, "companyLogoNote")}
           </ChromeText>
           <ChromeText size="small" tone="tertiary">
             {t(uiLang, "companyLogoPlaceholder")}
           </ChromeText>
+          <input
+            ref={logoFileRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              onLogoFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <Row gap={8} wrap>
+            <Button
+              variant="secondary"
+              onClick={() => logoFileRef.current?.click()}
+            >
+              {t(uiLang, "companyLogoUpload")}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                patch({
+                  logoDataUrl: SAMPLE_BILLING_EMAIL_LOGO,
+                  logoFileName: "intertax-sample.svg",
+                })
+              }
+            >
+              {t(uiLang, "companyLogoSample")}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={!settings.logoDataUrl}
+              onClick={() => patch({ logoDataUrl: "", logoFileName: "" })}
+            >
+              {t(uiLang, "companyLogoClear")}
+            </Button>
+          </Row>
+          {settings.logoFileName ? (
+            <ExplorerFileNameCell
+              label={settings.logoFileName}
+              kind="file"
+            />
+          ) : null}
+          {settings.logoDataUrl ? (
+            <div
+              style={{
+                display: "inline-flex",
+                padding: 8,
+                borderRadius: 8,
+                border: `1px solid ${chromeBorder(theme)}`,
+                background: CHROME_WHITE,
+                maxWidth: 240,
+              }}
+            >
+              <img
+                src={settings.logoDataUrl}
+                alt=""
+                style={{
+                  maxHeight: 48,
+                  maxWidth: "100%",
+                  objectFit: "contain",
+                }}
+              />
+            </div>
+          ) : null}
         </Stack>
       </FormSection>
 
@@ -46125,6 +49752,406 @@ function staffRightsModuleLabel(
   }
 }
 
+
+type CompanyModulesTab = "company" | "workers";
+
+/** Systemadmin → Company modules — firm include list + per-worker visibility. */
+function CompanyModulesVisibilityScreen() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [tab, setTab] = useCanvasState<CompanyModulesTab>(
+    "crmCompanyModulesTab.v1",
+    "company",
+  );
+  const [companyEnabledRaw, setCompanyEnabled] = useCanvasState<
+    Record<string, boolean>
+  >("crmCompanyModulesEnabled.v1", {});
+  const [workerEnabledRaw, setWorkerEnabled] = useCanvasState<
+    Record<string, Record<string, boolean>>
+  >("crmWorkerModulesEnabled.v792", {});
+  const [selectedWorkerId, setSelectedWorkerId] = useCanvasState(
+    "crmCompanyModulesSelectedWorker.v1",
+    "",
+  );
+  const [firmWorkers] = useCanvasState<FirmWorker[]>(
+    "firmWorkers.v3",
+    DEMO_STAFF,
+  );
+  const [rightsMap, setRightsMap] = useCanvasState<StaffRightsMap>(
+    "crmStaffRights.v1",
+    {},
+  );
+  const roster = normalizeFirmWorkers(
+    Array.isArray(firmWorkers) && firmWorkers.length > 0
+      ? firmWorkers
+      : DEMO_STAFF,
+  );
+  const companyEnabled = normalizeModuleEnabledMap(companyEnabledRaw);
+  const workerEnabledMap = normalizeWorkerModuleEnabledMap(workerEnabledRaw);
+  const demoNonAdminInRoster = roster.some(
+    (w) => w.id === DEMO_NON_ADMIN_WORKER_ID,
+  );
+  const effectiveWorkerId =
+    selectedWorkerId && roster.some((w) => w.id === selectedWorkerId)
+      ? selectedWorkerId
+      : demoNonAdminInRoster
+        ? DEMO_NON_ADMIN_WORKER_ID
+        : roster[0]?.id ?? "";
+  const selectedRights = resolveStaffRightsEntry(
+    effectiveWorkerId,
+    rightsMap,
+    roster,
+  );
+  const selectedWorkerRow =
+    roster.find((w) => w.id === effectiveWorkerId) ??
+    DEMO_STAFF.find((w) => w.id === effectiveWorkerId);
+  const selectedDeptIds = selectedWorkerRow
+    ? normalizeFirmWorker(selectedWorkerRow).deptIds
+    : [];
+  /** Non-admin: missing keys default Off for admin-only / non-surface modules. */
+  const workerEnabled = withWorkerModuleRoleDefaults(
+    workerEnabledMap[effectiveWorkerId] ?? {},
+    selectedRights.role,
+    selectedDeptIds,
+  );
+
+  /**
+   * One-time (per build seed): open Workers on the non-admin demo worker so
+   * Off/On defaults are obvious. Does not clear explicit overrides.
+   */
+  const [nonAdminPickSeed, setNonAdminPickSeed] = useCanvasState(
+    "crmCompanyModulesNonAdminPick.v792",
+    false,
+  );
+  useEffect(() => {
+    if (tab !== "workers") return;
+    if (!demoNonAdminInRoster) return;
+    if (!nonAdminPickSeed) {
+      setSelectedWorkerId(DEMO_NON_ADMIN_WORKER_ID);
+      /** Ensure demo staff stays non-admin even if older rights seeded System Admin. */
+      setRightsMap((prev) => {
+        const map = prev && typeof prev === "object" ? prev : {};
+        return {
+          ...map,
+          [DEMO_NON_ADMIN_WORKER_ID]: {
+            workerId: DEMO_NON_ADMIN_WORKER_ID,
+            role: "worker",
+            active: true,
+            moduleAccess: defaultModuleAccessForRole("worker"),
+          },
+        };
+      });
+      /** Fresh visibility map for demo worker so role defaults re-apply (Clients On). */
+      setWorkerEnabled((prev) => {
+        const normalized = normalizeWorkerModuleEnabledMap(prev);
+        if (!(DEMO_NON_ADMIN_WORKER_ID in normalized)) return normalized;
+        const next = { ...normalized };
+        delete next[DEMO_NON_ADMIN_WORKER_ID];
+        return next;
+      });
+      setNonAdminPickSeed(true);
+    } else if (!selectedWorkerId) {
+      setSelectedWorkerId(DEMO_NON_ADMIN_WORKER_ID);
+    }
+  }, [tab, demoNonAdminInRoster, nonAdminPickSeed, selectedWorkerId]);
+
+  /** Persist role defaults only for keys the worker has never overridden. */
+  useEffect(() => {
+    if (tab !== "workers" || !effectiveWorkerId) return;
+    if (isAdminLike(selectedRights.role)) return;
+    const offIds = defaultNonAdminWorkerModuleOffIds(selectedDeptIds);
+    setWorkerEnabled((prev) => {
+      const normalized = normalizeWorkerModuleEnabledMap(prev);
+      const current = { ...(normalized[effectiveWorkerId] ?? {}) };
+      let changed = false;
+      for (const id of offIds) {
+        if (!Object.prototype.hasOwnProperty.call(current, id)) {
+          current[id] = false;
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      return { ...normalized, [effectiveWorkerId]: current };
+    });
+  }, [
+    tab,
+    effectiveWorkerId,
+    selectedRights.role,
+    selectedDeptIds.join("|"),
+  ]);
+
+  const selectedRolePillLabel =
+    selectedRights.role === "systemadmin"
+      ? t(uiLang, "companyModulesRoleSystemAdmin")
+      : selectedRights.role === "admin"
+        ? t(uiLang, "companyModulesRoleAdmin")
+        : t(uiLang, "companyModulesRoleStaff");
+  const selectedRolePillTone =
+    selectedRights.role === "worker" ? "neutral" : "info";
+
+  const tabs: RaisedTabItem[] = [
+    {
+      id: "company",
+      label: t(uiLang, "companyModulesTabCompany"),
+    },
+    {
+      id: "workers",
+      label: t(uiLang, "companyModulesTabWorkers"),
+    },
+  ];
+
+  const toggleCompany = (moduleId: string, checked: boolean) => {
+    if (ALWAYS_ON_COMPANY_MODULE_IDS.has(moduleId)) return;
+    setCompanyEnabled((prev) => ({
+      ...normalizeModuleEnabledMap(prev),
+      [moduleId]: checked,
+    }));
+  };
+
+  const toggleWorker = (moduleId: string, checked: boolean) => {
+    if (ALWAYS_ON_COMPANY_MODULE_IDS.has(moduleId)) return;
+    if (!isCompanyModuleIncluded(moduleId, companyEnabled)) return;
+    if (!effectiveWorkerId) return;
+    setWorkerEnabled((prev) => {
+      const normalized = normalizeWorkerModuleEnabledMap(prev);
+      const current = { ...(normalized[effectiveWorkerId] ?? {}) };
+      current[moduleId] = checked;
+      return { ...normalized, [effectiveWorkerId]: current };
+    });
+  };
+
+  const moduleName = (mod: CompanyModuleDef) => {
+    if (!mod.parentId) {
+      return primaryRailLabel(uiLang, mod.id);
+    }
+    return tileLabel(uiLang, mod.id, mod.id);
+  };
+
+  const renderModuleRow = (
+    mod: CompanyModuleDef,
+    mode: CompanyModulesTab,
+    depth: number,
+  ) => {
+    const companyOn = isCompanyModuleIncluded(mod.id, companyEnabled);
+    const workerOn = companyOn && workerEnabled[mod.id] !== false;
+    const checked = mode === "company" ? companyOn : workerOn;
+    const lockedAlways = !!mod.alwaysOn;
+    const lockedByCompany =
+      mode === "workers" && !companyOn && !lockedAlways;
+    const disabled = lockedAlways || lockedByCompany;
+    const accent = TILE_ICON_COLORS[mod.iconId] ?? theme.accent.primary;
+    const children = companyModuleChildren(mod.id);
+    /** Parent off → hide sub-module controls (subs cannot be on without parent). */
+    const showChildren =
+      children.length > 0 &&
+      (mode === "company"
+        ? companyOn || lockedAlways
+        : companyOn && (workerOn || lockedAlways));
+
+    return (
+      <Stack key={mod.id} gap={6}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            width: "100%",
+            gap: 12,
+            padding: "8px 10px",
+            paddingInlineStart: 10 + depth * 22,
+            borderRadius: 10,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+            boxSizing: "border-box",
+            opacity: lockedByCompany ? 0.62 : 1,
+          }}
+        >
+          <div
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <ModuleTileIcon
+              tileId={mod.iconId}
+              color={accent}
+              size={depth > 0 ? 18 : 22}
+            />
+          </div>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: "hidden",
+            }}
+          >
+            <ChromeText
+              size="small"
+              weight="semibold"
+              truncate
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {moduleName(mod)}
+            </ChromeText>
+            {lockedAlways ? (
+              <ChromeText size="small" tone="tertiary" truncate>
+                {t(uiLang, "companyModulesAlwaysOn")}
+              </ChromeText>
+            ) : lockedByCompany ? (
+              <ChromeText size="small" tone="tertiary" truncate>
+                {t(uiLang, "companyModulesCompanyLocked")}
+              </ChromeText>
+            ) : null}
+          </div>
+          <div
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <ChromeToggle
+              checked={checked}
+              disabled={disabled}
+              onChange={(next) => {
+                if (mode === "company") toggleCompany(mod.id, next);
+                else toggleWorker(mod.id, next);
+              }}
+            />
+            <ChromeText
+              size="small"
+              style={{
+                color: checked ? theme.accent.primary : CHROME_INK_MUTED,
+                fontWeight: checked ? 600 : 500,
+                minWidth: uiLang === "he" ? 64 : 88,
+                flexShrink: 0,
+              }}
+            >
+              {mode === "company"
+                ? checked
+                  ? t(uiLang, "companyModulesOn")
+                  : t(uiLang, "companyModulesOff")
+                : checked
+                  ? t(uiLang, "companyModulesWorkerOn")
+                  : t(uiLang, "companyModulesWorkerOff")}
+            </ChromeText>
+          </div>
+        </div>
+        {showChildren
+          ? children.map((child) => renderModuleRow(child, mode, depth + 1))
+          : null}
+      </Stack>
+    );
+  };
+
+  const renderModuleRows = (mode: CompanyModulesTab) => {
+    return COMPANY_MODULE_GROUP_ORDER.map((group) => {
+      /** Top-level only — sub-modules render indented under their parent. */
+      const mods = COMPANY_MODULE_CATALOG.filter(
+        (m) => m.group === group && !m.parentId,
+      );
+      if (mods.length === 0) return null;
+      return (
+        <Stack key={group} gap={8}>
+          <ChromeText size="small" weight="semibold" tone="secondary">
+            {companyModuleGroupLabel(uiLang, group)}
+          </ChromeText>
+          <Stack gap={6}>
+            {mods.map((mod) => renderModuleRow(mod, mode, 0))}
+          </Stack>
+        </Stack>
+      );
+    });
+  };
+
+  return (
+    <Stack
+      gap={16}
+      style={{ ...SHELL_FILL, width: "100%", paddingInlineEnd: 4 }}
+    >
+      <Row align="center" gap={12} wrap style={{ flexShrink: 0 }}>
+        <Spacer />
+        <Pill
+          tone={tab === "workers" ? selectedRolePillTone : "info"}
+        >
+          {tab === "workers"
+            ? selectedRolePillLabel
+            : t(uiLang, "systemAdminPill")}
+        </Pill>
+      </Row>
+
+      <Stack gap={4} style={{ flexShrink: 0 }}>
+        <H1 style={{ margin: 0 }}>{t(uiLang, "companyModules")}</H1>
+        <ChromeText tone="secondary">
+          {t(uiLang, "companyModulesHint")}
+        </ChromeText>
+      </Stack>
+
+      <RaisedTabBar
+        tabs={tabs}
+        activeId={tab}
+        onSelect={(id) => setTab(id as CompanyModulesTab)}
+        ariaLabel={t(uiLang, "companyModules")}
+      />
+
+      {tab === "workers" ? (
+        <Stack gap={6} style={{ flexShrink: 0, maxWidth: 480 }}>
+          <ChromeText size="small" weight="semibold" tone="secondary">
+            {t(uiLang, "companyModulesWorkerSelect")}
+          </ChromeText>
+          <Row align="center" gap={10} wrap>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <Select
+                value={effectiveWorkerId}
+                onChange={(v) => setSelectedWorkerId(v)}
+                options={roster.map((w) => {
+                  const rights = resolveStaffRightsEntry(w.id, rightsMap, roster);
+                  const base = uiLang === "he" ? w.nameHe || w.name : w.name;
+                  const roleTag = isAdminLike(rights.role)
+                    ? uiLang === "he"
+                      ? "מנהל"
+                      : "Admin"
+                    : uiLang === "he"
+                      ? "עובד"
+                      : "Staff";
+                  return {
+                    value: w.id,
+                    label: `${base} · ${roleTag}`,
+                  };
+                })}
+              />
+            </div>
+            <Pill tone={selectedRolePillTone}>{selectedRolePillLabel}</Pill>
+          </Row>
+          {effectiveWorkerId === DEMO_NON_ADMIN_WORKER_ID &&
+          !isAdminLike(selectedRights.role) ? (
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "companyModulesNonAdminDemoHint")}
+            </ChromeText>
+          ) : null}
+        </Stack>
+      ) : null}
+
+      <div
+        style={{
+          width: "100%",
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          overflow: "auto",
+        }}
+      >
+        <Stack gap={16}>{renderModuleRows(tab)}</Stack>
+      </div>
+    </Stack>
+  );
+}
+
 /** Systemadmin → Users & rights — roster + demo role / module-access matrix. */
 function UsersRightsScreen() {
   const theme = useHostTheme();
@@ -46170,6 +50197,18 @@ function UsersRightsScreen() {
   const [draftAccess, setDraftAccess] = useCanvasState<
     Record<StaffRightsModuleKey, boolean>
   >("crmStaffRightsDraftAccess.v1", defaultModuleAccessForRole("worker"));
+  const [inviteOpen, setInviteOpen] = useCanvasState(
+    "crmStaffInviteOpen.v1",
+    false,
+  );
+  const [inviteEmail, setInviteEmail] = useCanvasState(
+    "crmStaffInviteEmail.v1",
+    "",
+  );
+  const [inviteRole, setInviteRole] = useCanvasState<Role>(
+    "crmStaffInviteRole.v1",
+    "worker",
+  );
 
   const roster = normalizeFirmWorkers(
     Array.isArray(workers) && workers.length > 0 ? workers : DEMO_STAFF,
@@ -46203,6 +50242,9 @@ function UsersRightsScreen() {
       workerId: selectedId,
       role: draftRole,
       active: draftActive,
+      invitePending: draftActive
+        ? false
+        : !!rightsFor(selectedId).invitePending,
       moduleAccess: { ...draftAccess },
     };
     setRightsMap((prev) => ({
@@ -46259,7 +50301,54 @@ function UsersRightsScreen() {
     setFlash(t(uiLang, "usersRightsAdded"));
   };
 
-  const inviteStub = () => {
+  const sendInvite = () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email || !email.includes("@") || email.startsWith("@") || email.endsWith("@")) {
+      setFlash(t(uiLang, "usersRightsInviteInvalid"));
+      return;
+    }
+    const local = email.split("@")[0] || "invitee";
+    const pretty = local
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .trim() || "Invited User";
+    const n = roster.length + 1;
+    const id = `staff-invite-${Date.now().toString(36)}`;
+    const deptId =
+      departments[0]?.id ??
+      DEFAULT_FIRM_DEPARTMENTS[0]?.id ??
+      "reportDeptAccounting";
+    const row = normalizeFirmWorker({
+      id,
+      name: pretty,
+      nameHe: pretty,
+      deptId,
+      deptIds: [deptId],
+      employeeTag: String(30 + n).padStart(2, "0"),
+      email,
+      phone: "",
+      emailSignatureName: deriveWorkerSignatureName(pretty),
+      emailSignatureBody: deriveWorkerSignatureBody(pretty, pretty, email),
+    });
+    setWorkers((prev) => [
+      ...normalizeFirmWorkers(Array.isArray(prev) ? prev : DEMO_STAFF),
+      row,
+    ]);
+    setRightsMap((prev) => ({
+      ...(prev && typeof prev === "object" ? prev : {}),
+      [id]: {
+        ...normalizeStaffRightsEntry(
+          { workerId: id, role: inviteRole, active: false },
+          id,
+          [...roster, row],
+        ),
+        invitePending: true,
+        active: false,
+      },
+    }));
+    setInviteEmail("");
+    setInviteOpen(false);
+    beginEdit(id);
     setFlash(t(uiLang, "usersRightsInviteFlash"));
   };
 
@@ -46293,10 +50382,68 @@ function UsersRightsScreen() {
         <Button variant="primary" onClick={addDemoUser}>
           {t(uiLang, "usersRightsAddDemo")}
         </Button>
-        <Button variant="secondary" onClick={inviteStub}>
+        <Button
+          variant="secondary"
+          onClick={() => setInviteOpen((v) => !v)}
+        >
           {t(uiLang, "usersRightsInvite")}
         </Button>
       </Row>
+
+      {inviteOpen ? (
+        <Stack
+          gap={10}
+          style={{
+            flexShrink: 0,
+            padding: 12,
+            borderRadius: 10,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
+          <ChromeText size="small" weight="semibold">
+            {t(uiLang, "usersRightsInvite")}
+          </ChromeText>
+          <Grid columns={2} gap={12}>
+            <Stack gap={4}>
+              <FieldLabel>{t(uiLang, "usersRightsInviteEmail")}</FieldLabel>
+              <ChromeTextInput
+                value={inviteEmail}
+                onChange={setInviteEmail}
+                placeholder="name@firm.example"
+              />
+            </Stack>
+            <Stack gap={4}>
+              <FieldLabel>{t(uiLang, "usersRightsInviteRole")}</FieldLabel>
+              <Select
+                value={inviteRole}
+                onChange={(v) => setInviteRole(v as Role)}
+                options={[
+                  { value: "worker", label: t(uiLang, "roleWorkerFull") },
+                  { value: "admin", label: t(uiLang, "roleAdminFull") },
+                  { value: "systemadmin", label: t(uiLang, "systemAdmin") },
+                ]}
+              />
+            </Stack>
+          </Grid>
+          <Row gap={8} wrap>
+            <Button variant="primary" onClick={sendInvite}>
+              {t(uiLang, "usersRightsInviteSend")}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setInviteOpen(false);
+                setInviteEmail("");
+              }}
+            >
+              {t(uiLang, "usersRightsInviteCancel")}
+            </Button>
+          </Row>
+        </Stack>
+      ) : null}
 
       <Grid columns={2} gap={12} style={{ flexShrink: 0 }}>
         <Stack gap={4}>
@@ -46336,7 +50483,9 @@ function UsersRightsScreen() {
         <div style={{ flexShrink: 0, width: "100%" }}>
           <Callout
             tone={
-              flash === t(uiLang, "usersRightsInviteFlash") ? "info" : "success"
+              flash === t(uiLang, "usersRightsInviteInvalid")
+                ? "danger"
+                : "success"
             }
             title={t(uiLang, "usersRights")}
           >
@@ -46381,9 +50530,11 @@ function UsersRightsScreen() {
               uiLang === "he" ? row.nameHe : row.name,
               departmentLabels(uiLang, row.deptIds, departments),
               staffRightsRoleLabel(uiLang, rights.role),
-              rights.active
-                ? t(uiLang, "usersRightsActive")
-                : t(uiLang, "usersRightsInactive"),
+              rights.invitePending
+                ? t(uiLang, "usersRightsPending")
+                : rights.active
+                  ? t(uiLang, "usersRightsActive")
+                  : t(uiLang, "usersRightsInactive"),
               <Button
                 variant={selected ? "primary" : "secondary"}
                 onClick={() =>
@@ -46469,21 +50620,41 @@ function UsersRightsScreen() {
               {t(uiLang, "usersRightsModuleAccess")}
             </ChromeText>
             {STAFF_RIGHTS_MODULE_KEYS.map((key) => (
-              <Row key={key} align="center" gap={10}>
-                <ChromeToggle
-                  checked={!!draftAccess[key]}
-                  onChange={(checked) =>
-                    setDraftAccess((prev) => ({
-                      ...defaultModuleAccessForRole(draftRole),
-                      ...prev,
-                      [key]: checked,
-                    }))
-                  }
-                />
-                <ChromeText size="small">
+              <div
+                key={key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  width: "100%",
+                  gap: 10,
+                }}
+              >
+                <ChromeText
+                  size="small"
+                  truncate
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {staffRightsModuleLabel(uiLang, key)}
                 </ChromeText>
-              </Row>
+                <div style={{ flexShrink: 0 }}>
+                  <ChromeToggle
+                    checked={!!draftAccess[key]}
+                    onChange={(checked) =>
+                      setDraftAccess((prev) => ({
+                        ...defaultModuleAccessForRole(draftRole),
+                        ...prev,
+                        [key]: checked,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
             ))}
           </Stack>
 
@@ -47612,12 +51783,12 @@ function HelpFeedbackScreen() {
                       >
                         <ChromeText size="small">{msg.text}</ChromeText>
                         {msg.attachmentName ? (
-                          <ChromeText
-                            size="small"
-                            style={{ color: CHROME_INK_MUTED, marginTop: 4 }}
-                          >
-                            {msg.attachmentName}
-                          </ChromeText>
+                          <div style={{ marginTop: 4 }}>
+                            <ExplorerFileNameCell
+                              label={msg.attachmentName}
+                              kind="file"
+                            />
+                          </div>
                         ) : null}
                       </div>
                     </div>
@@ -47905,6 +52076,96 @@ function isAiMaintenanceHistoryKind(
   v: unknown,
 ): v is AiMaintenanceHistoryKind {
   return v === "bug" || v === "suggestion" || v === "ai-scan";
+}
+
+/**
+ * Distinct pill colors for AI maintenance / Help kind badges.
+ * bug = red-orange · suggestion = green · AI fixes (ai-scan) = violet · help = blue
+ */
+function aiMaintenanceCategoryTone(
+  kind: AiMaintenanceHistoryKind | HelpFeedbackKind | "all",
+): {
+  bg: string;
+  fg: string;
+  border: string;
+  accent: string;
+  glyph: "bug" | "suggestion" | "ai" | "help";
+} {
+  switch (kind) {
+    case "bug":
+      return {
+        bg: "#FDE8E4",
+        fg: "#B42318",
+        border: "1px solid #F0A090",
+        accent: "#D92D20",
+        glyph: "bug",
+      };
+    case "suggestion":
+      return {
+        bg: "#E6F6EE",
+        fg: "#0F6B4C",
+        border: "1px solid #8FCFB0",
+        accent: "#1F8A5B",
+        glyph: "suggestion",
+      };
+    case "ai-scan":
+      return {
+        bg: "#EBE6FA",
+        fg: "#4A35A8",
+        border: "1px solid #B8A8E8",
+        accent: "#6B4FD8",
+        glyph: "ai",
+      };
+    case "help":
+      return {
+        bg: "#E3EFFA",
+        fg: "#175CD3",
+        border: "1px solid #9DC1E8",
+        accent: "#1B5FDB",
+        glyph: "help",
+      };
+    default:
+      return {
+        bg: CHROME_SOFT_BLUE,
+        fg: CHROME_INK,
+        border: CHROME_FIELD_BORDER,
+        accent: CHROME_BORDER_BLUE,
+        glyph: "help",
+      };
+  }
+}
+
+/** Colored category pill + glyph — used in AI maintenance inbox & history. */
+function AiMaintenanceKindBadge({
+  kind,
+  label,
+}: {
+  kind: AiMaintenanceHistoryKind | HelpFeedbackKind;
+  label: string;
+}) {
+  const tone = aiMaintenanceCategoryTone(kind);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "2px 8px 2px 6px",
+        borderRadius: 8,
+        background: tone.bg,
+        border: tone.border,
+        color: tone.fg,
+        fontSize: 11,
+        fontWeight: 600,
+        flexShrink: 0,
+        lineHeight: 1.2,
+        boxSizing: "border-box",
+      }}
+    >
+      <HelpFabGlyph kind={tone.glyph} color={tone.accent} size={12} />
+      {label}
+    </span>
+  );
 }
 
 function normalizeAiMaintenanceHistory(
@@ -48950,6 +53211,7 @@ function AiMaintenanceScreen() {
             <Row gap={8} style={{ flexWrap: "wrap", flexShrink: 0 }}>
               {inboxFilterTabs.map((f) => {
                 const active = inboxFilter === f.id;
+                const tone = aiMaintenanceCategoryTone(f.id);
                 return (
                   <button
                     key={f.id}
@@ -48961,13 +53223,31 @@ function AiMaintenanceScreen() {
                       padding: "6px 12px",
                       borderRadius: 8,
                       boxSizing: "border-box",
-                      background: active ? CHROME_SELECTED_BLUE : CHROME_WHITE,
-                      border: CHROME_FIELD_BORDER,
-                      color: CHROME_INK,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: active
+                        ? f.id === "all"
+                          ? CHROME_SELECTED_BLUE
+                          : tone.bg
+                        : CHROME_WHITE,
+                      border:
+                        active && f.id !== "all"
+                          ? tone.border
+                          : CHROME_FIELD_BORDER,
+                      color:
+                        active && f.id !== "all" ? tone.fg : CHROME_INK,
                       fontSize: 12,
                       fontWeight: active ? 700 : 500,
                     }}
                   >
+                    {f.id !== "all" ? (
+                      <HelpFabGlyph
+                        kind={tone.glyph}
+                        color={tone.accent}
+                        size={12}
+                      />
+                    ) : null}
                     {f.label}
                   </button>
                 );
@@ -49022,20 +53302,10 @@ function AiMaintenanceScreen() {
                             >
                               {item.subject}
                             </ChromeText>
-                            <span
-                              style={{
-                                padding: "2px 8px",
-                                borderRadius: 8,
-                                background: CHROME_SOFT_BLUE,
-                                border: CHROME_FIELD_BORDER,
-                                color: CHROME_INK,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {kindLabel(item.kind)}
-                            </span>
+                            <AiMaintenanceKindBadge
+                              kind={item.kind}
+                              label={kindLabel(item.kind)}
+                            />
                           </Row>
                           <ChromeText
                             size="small"
@@ -49384,6 +53654,7 @@ function AiMaintenanceScreen() {
             <Row gap={8} style={{ flexWrap: "wrap", flexShrink: 0 }}>
               {historyFilterTabs.map((f) => {
                 const active = historyFilter === f.id;
+                const tone = aiMaintenanceCategoryTone(f.id);
                 return (
                   <button
                     key={f.id}
@@ -49395,13 +53666,31 @@ function AiMaintenanceScreen() {
                       padding: "6px 12px",
                       borderRadius: 8,
                       boxSizing: "border-box",
-                      background: active ? CHROME_SELECTED_BLUE : CHROME_WHITE,
-                      border: CHROME_FIELD_BORDER,
-                      color: CHROME_INK,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: active
+                        ? f.id === "all"
+                          ? CHROME_SELECTED_BLUE
+                          : tone.bg
+                        : CHROME_WHITE,
+                      border:
+                        active && f.id !== "all"
+                          ? tone.border
+                          : CHROME_FIELD_BORDER,
+                      color:
+                        active && f.id !== "all" ? tone.fg : CHROME_INK,
                       fontSize: 12,
                       fontWeight: active ? 700 : 500,
                     }}
                   >
+                    {f.id !== "all" ? (
+                      <HelpFabGlyph
+                        kind={tone.glyph}
+                        color={tone.accent}
+                        size={12}
+                      />
+                    ) : null}
                     {f.label}
                   </button>
                 );
@@ -49451,20 +53740,10 @@ function AiMaintenanceScreen() {
                             >
                               {dateLabel}
                             </ChromeText>
-                            <span
-                              style={{
-                                padding: "2px 8px",
-                                borderRadius: 8,
-                                background: CHROME_SOFT_BLUE,
-                                border: CHROME_FIELD_BORDER,
-                                color: CHROME_INK,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {historyKindLabel(entry.kind)}
-                            </span>
+                            <AiMaintenanceKindBadge
+                              kind={entry.kind}
+                              label={historyKindLabel(entry.kind)}
+                            />
                           </Row>
                           <ChromeText
                             size="small"
@@ -50058,9 +54337,7 @@ function HelpChatComposerBar({
             }}
           />
           {attachName ? (
-            <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
-              {attachName}
-            </ChromeText>
+            <ExplorerFileNameCell label={attachName} kind="file" />
           ) : null}
           <Row
             gap={12}
@@ -51510,17 +55787,17 @@ function WorkerHelpFeedbackFab({
                           {msg.text}
                         </ChromeText>
                         {msg.attachmentName ? (
-                          <ChromeText
-                            size="small"
+                          <div
                             style={{
-                              color: mine
-                                ? "rgba(255,255,255,0.85)"
-                                : CHROME_INK_MUTED,
                               marginTop: 4,
+                              opacity: mine ? 0.95 : 1,
                             }}
                           >
-                            {msg.attachmentName}
-                          </ChromeText>
+                            <ExplorerFileNameCell
+                              label={msg.attachmentName}
+                              kind="file"
+                            />
+                          </div>
                         ) : null}
                       </div>
                     </div>
@@ -51571,9 +55848,7 @@ function WorkerHelpFeedbackFab({
               </ChromeText>
             ) : null}
             {attachName ? (
-              <ChromeText size="small" style={{ color: CHROME_INK_MUTED }}>
-                {attachName}
-              </ChromeText>
+              <ExplorerFileNameCell label={attachName} kind="file" />
             ) : null}
 
             {awaitingAiResolve ? (
@@ -52097,8 +56372,25 @@ function FilesRootScreen() {
                 setSelectedId("");
               }}
             >
-              {settings.rootPath.split(/[\\/]/).filter(Boolean).pop() ||
-                "Intertax"}
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <ExplorerFileIcon
+                  label={
+                    settings.rootPath.split(/[\\/]/).filter(Boolean).pop() ||
+                    "Intertax"
+                  }
+                  kind="folder"
+                  size="sm"
+                  variant="root"
+                />
+                {settings.rootPath.split(/[\\/]/).filter(Boolean).pop() ||
+                  "Intertax"}
+              </span>
             </Button>
             {crumbs.map((c) => (
               <Button
@@ -52106,7 +56398,20 @@ function FilesRootScreen() {
                 variant={c.id === folderId ? "primary" : "secondary"}
                 onClick={() => openFolder(c.id)}
               >
-                {filesEntryLabel(uiLang, c)}
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <ExplorerFileIcon
+                    label={filesEntryLabel(uiLang, c)}
+                    kind="folder"
+                    size="sm"
+                  />
+                  {filesEntryLabel(uiLang, c)}
+                </span>
               </Button>
             ))}
           </Row>
@@ -52136,7 +56441,6 @@ function FilesRootScreen() {
         <FirmDataTable
           headers={[
             t(uiLang, "filesRootColName"),
-            t(uiLang, "filesRootColKind"),
             t(uiLang, "filesRootColSize"),
             t(uiLang, "filesRootColModified"),
             t(uiLang, "filesRootColHint"),
@@ -52144,6 +56448,11 @@ function FilesRootScreen() {
           ]}
           rows={currentRows.map((row) => {
             const selectedRow = selectedId === row.id;
+            const entryLabel = filesEntryLabel(uiLang, row);
+            const iconLabel =
+              row.kind === "file" && row.ext
+                ? `${entryLabel}${entryLabel.includes(".") ? "" : `.${row.ext.toLowerCase()}`}`
+                : entryLabel;
             return [
               <button
                 key={`${row.id}-name`}
@@ -52162,13 +56471,18 @@ function FilesRootScreen() {
                   fontWeight: selectedRow || row.kind === "folder" ? 700 : 500,
                   fontSize: 13,
                   textAlign: uiLang === "he" ? "right" : "left",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
                 }}
               >
-                {filesEntryLabel(uiLang, row)}
+                <ExplorerFileIcon
+                  label={iconLabel}
+                  kind={row.kind}
+                  size="sm"
+                />
+                <span>{entryLabel}</span>
               </button>,
-              row.kind === "folder"
-                ? t(uiLang, "filesRootKindFolder")
-                : row.ext || t(uiLang, "filesRootKindFile"),
               row.kind === "folder" ? "—" : row.size || "—",
               row.modified,
               filesEntryHint(uiLang, row),
@@ -52196,6 +56510,38 @@ function FilesRootScreen() {
       <Callout tone="info" title={t(uiLang, "whoCanOpen")}>
         {t(uiLang, "filesRootWho")}
       </Callout>
+    </Stack>
+  );
+}
+
+/** Clients home → Client folders — firm-wide TaxReturnFolderBrowser archive. */
+function ClientFoldersScreen() {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const tree = buildClientFoldersArchiveTree(uiLang);
+  const rootId = tree[0]?.id ?? "client-folders-root";
+  const activeId = "cf-root-active";
+  const [expandedIds, setExpandedIds] = useCanvasState<Record<string, boolean>>(
+    "clientFolders.expanded.v1",
+    { [rootId]: true, [activeId]: true },
+  );
+  const [selectedId, setSelectedId] = useCanvasState<string | null>(
+    "clientFolders.selected.v1",
+    activeId,
+  );
+
+  return (
+    <Stack gap={12} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
+      <Stack gap={4}>
+        <H1>{t(uiLang, "clientFoldersTitle")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "clientFoldersHint")}</ChromeText>
+      </Stack>
+      <TaxReturnFolderBrowser
+        tree={tree}
+        expandedIds={expandedIds}
+        setExpandedIds={setExpandedIds}
+        selectedId={selectedId}
+        setSelectedId={setSelectedId}
+      />
     </Stack>
   );
 }
@@ -53987,10 +58333,18 @@ const DEFAULT_PAID_TO_DATE_ILS: Record<string, number> = {
 };
 
 /**
- * Closed sample punches live on this past day only.
- * Never leave an open “in” here — that used to accumulate ~234h into “today”.
+ * Closed sample punches for timesheet lists — always local yesterday at load.
+ * Must never be today (and never an open “in”), or Home punch face inherits
+ * seed hours after a day change / hydrate.
  */
-const DEMO_SAMPLE_CLOCK_DAY = "2026-09-15";
+const DEMO_SAMPLE_CLOCK_DAY = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+})();
 
 const DEFAULT_TIME_PUNCHES: TimePunch[] = [
   {
@@ -54945,6 +59299,31 @@ function formatDecimalHours(hours: number): string {
   return (Math.round(hours * 100) / 100).toFixed(2);
 }
 
+/** Worker standard day — overtime is anything beyond this (8 hours). */
+const STANDARD_WORKDAY_SECONDS = 8 * 3600;
+const STANDARD_WORKDAY_HOURS = STANDARD_WORKDAY_SECONDS / 3600;
+
+/** OT seconds for a calendar day’s worked time (0 when ≤ standard day). */
+function overtimeSecondsFromDayWorked(workedSec: number): number {
+  return Math.max(0, Math.floor(workedSec) - STANDARD_WORKDAY_SECONDS);
+}
+
+/** Regular (≤8h) seconds for a calendar day’s worked time. */
+function regularSecondsFromDayWorked(workedSec: number): number {
+  const safe = Math.max(0, Math.floor(workedSec));
+  return Math.min(safe, STANDARD_WORKDAY_SECONDS);
+}
+
+/** Decimal-hour OT for day reporting rows (same 8h standard). */
+function overtimeHoursFromDayWorked(workedHours: number): number {
+  return overtimeSecondsFromDayWorked(workedHours * 3600) / 3600;
+}
+
+/** Decimal-hour regular (≤8h) for day reporting rows. */
+function regularHoursFromDayWorked(workedHours: number): number {
+  return regularSecondsFromDayWorked(workedHours * 3600) / 3600;
+}
+
 function minutesToHm(totalMin: number): string {
   const safe = Math.max(0, Math.round(totalMin));
   const h = Math.floor(safe / 60) % 24;
@@ -54997,7 +59376,8 @@ function buildHoursReportRows(
   lang: UiLang,
   settings: WorkerExpectedHours,
 ): HoursReportRow[] {
-  const standardDay = settings.hoursPerDay;
+  // Day OT uses fixed 8h standard; settings.hoursPerDay still drives expected pay.
+  const standardDay = STANDARD_WORKDAY_HOURS;
   if (period === "week") {
     const week = HOURS_WEEK_OPTIONS.find((w) => w.id === weekId);
     const start = week?.start ?? "2026-09-14";
@@ -55015,7 +59395,7 @@ function buildHoursReportRows(
         ? ""
         : minutesToHm(9 * 60 + Math.round(hrs * 60));
       const under = isOff ? 0 : Math.max(0, standardDay - hrs);
-      const exceed = isOff ? 0 : Math.max(0, hrs - standardDay);
+      const exceed = isOff ? 0 : overtimeHoursFromDayWorked(hrs);
       return {
         dayLabel,
         dateIso,
@@ -55131,9 +59511,9 @@ function buildMonthDailyReportRows(
   workerId: string,
   monthId: string,
   lang: UiLang,
-  settings: WorkerExpectedHours,
+  _settings: WorkerExpectedHours,
 ): HoursReportRow[] {
-  const standardDay = settings.hoursPerDay;
+  const standardDay = STANDARD_WORKDAY_HOURS;
   const workdays = listWorkdaysInMonth(monthId);
   const fromWeekly = new Map<string, number>();
   let anyWeekly = false;
@@ -55186,7 +59566,7 @@ function buildMonthDailyReportRows(
       billable: hrs,
       standard: isOff ? 0 : standardDay,
       under: isOff ? 0 : Math.max(0, standardDay - hrs),
-      exceed: isOff ? 0 : Math.max(0, hrs - standardDay),
+      exceed: isOff ? 0 : overtimeHoursFromDayWorked(hrs),
       isOff,
     };
   });
@@ -55442,28 +59822,31 @@ function formatMinutesAsHours(totalMin: number): string {
   return `${h}:${String(m).padStart(2, "0")}`;
 }
 
-/** Live elapsed display: M:SS or H:MM:SS. */
+/** Live elapsed display: always H:MM:SS (e.g. 0:07:32, 1:08:05, 16:43:00). */
 function formatElapsedClock(totalSec: number): string {
   const safe = Math.max(0, Math.floor(totalSec));
   const h = Math.floor(safe / 3600);
   const m = Math.floor((safe % 3600) / 60);
   const s = safe % 60;
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-  return `${m}:${String(s).padStart(2, "0")}`;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 /** Resolve punch instant; falls back to day + HH:MM(:SS) local time. */
 function parsePunchInstantMs(p: TimePunch): number {
-  if (typeof p.atMs === "number" && Number.isFinite(p.atMs)) return p.atMs;
-  const parts = p.time.split(":").map((x) => Number(x));
+  if (typeof p.atMs === "number" && Number.isFinite(p.atMs) && p.atMs > 0) {
+    return p.atMs;
+  }
+  const parts = String(p.time ?? "")
+    .split(":")
+    .map((x) => Number(x));
   const h = parts[0] ?? 0;
   const m = parts[1] ?? 0;
   const s = Number.isFinite(parts[2]) ? parts[2] : 0;
+  if (!p.day || !/^\d{4}-\d{2}-\d{2}$/.test(p.day)) return 0;
   const iso = `${p.day}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   const t = new Date(iso).getTime();
-  return Number.isFinite(t) ? t : Date.now();
+  // Never fall back to Date.now() — that attributed broken seeds to “today”.
+  return Number.isFinite(t) ? t : 0;
 }
 
 /** Local midnight (ms) for an ISO YYYY-MM-DD calendar day. */
@@ -55481,17 +59864,46 @@ function localMidnightMs(dayIso: string): number {
   ).getTime();
 }
 
+/** Ms until next local midnight (at least 1). */
+function msUntilNextLocalMidnight(fromMs: number = Date.now()): number {
+  const d = new Date(fromMs);
+  const next = new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate() + 1,
+    0,
+    0,
+    0,
+    0,
+  );
+  return Math.max(1, next.getTime() - fromMs);
+}
+
 /**
- * Tick hook — updates every second while `running` (clocked in / on break).
- * Cleans up the interval on unmount or when running becomes false.
+ * Tick hook — every second while `running` (In/break).
+ * Always arms a local-midnight timeout so Out face day totals reset at the
+ * calendar boundary without requiring a click / re-mount.
  */
 function useLiveNowMs(running: boolean): number {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     setNowMs(Date.now());
-    if (!running) return;
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    let midnightId: ReturnType<typeof setTimeout> | undefined;
+    if (running) {
+      intervalId = setInterval(() => setNowMs(Date.now()), 1000);
+    }
+    const armMidnight = () => {
+      midnightId = setTimeout(() => {
+        setNowMs(Date.now());
+        armMidnight();
+      }, msUntilNextLocalMidnight());
+    };
+    armMidnight();
+    return () => {
+      if (intervalId != null) clearInterval(intervalId);
+      if (midnightId != null) clearTimeout(midnightId);
+    };
   }, [running]);
   return nowMs;
 }
@@ -55546,6 +59958,7 @@ function workedSecondsFromPunches(
 
   for (const p of ordered) {
     const tMs = parsePunchInstantMs(p);
+    if (!Number.isFinite(tMs) || tMs <= 0) continue;
     if (p.kind === "in") {
       // Re-in without a recorded out used to drop the prior open slice (timer
       // jumped back to 0). Close the dangling segment at this punch first.
@@ -55591,6 +60004,8 @@ function openSessionSecondsFromPunches(
   workerId?: string,
   dayIso?: string,
 ): number {
+  // Same local day window as workedSecondsFromPunches (post-midnight slice only).
+  const targetDay = dayIso ?? todayLocalIso();
   const ordered = punches
     .filter((p) => (workerId ? p.workerId === workerId : true))
     .slice()
@@ -55608,10 +60023,118 @@ function openSessionSecondsFromPunches(
   if (!sessionPunches.some((p) => p.kind === "in" || p.kind === "break-end")) {
     return 0;
   }
-  return workedSecondsFromPunches(sessionPunches, nowMs, workerId, dayIso);
+  return workedSecondsFromPunches(sessionPunches, nowMs, workerId, targetDay);
 }
 
-/** Big punch face: Out = frozen closed day total; In/break = session from 0 (v738). */
+
+/**
+ * Worked seconds of the most recently closed in→out session today (breaks pause).
+ * Used under the Out punch face — does not affect the big day-total clock.
+ *
+ * Prefer the latest session closed by `out` on the target day (orphan outs
+ * ignored). Fallback when day worked > 0 but no clean out-session was recorded:
+ * last completed closed segment from the same walk as workedSecondsFromPunches
+ * (in→out / in→break-start / dangling re-in), else the longest such segment.
+ */
+function lastClosedSessionSecondsFromPunches(
+  punches: TimePunch[],
+  workerId?: string,
+  dayIso?: string,
+): number {
+  const targetDay = dayIso ?? todayLocalIso();
+  const dayStart = localMidnightMs(targetDay);
+  const dayEnd = dayStart + 86_400_000;
+  if (!Number.isFinite(dayStart) || dayStart <= 0) return 0;
+
+  const ordered = punches
+    .filter((p) => (workerId ? p.workerId === workerId : true))
+    .slice()
+    .sort((a, b) => parsePunchInstantMs(a) - parsePunchInstantMs(b));
+
+  let lastOutSessionSec = 0;
+  let sessionOpen = false;
+  let segmentStart: number | null = null;
+  let onBreak = false;
+  let sessionWorkMs = 0;
+  let lastClosedSegSec = 0;
+  let longestClosedSegSec = 0;
+
+  const clipSegMs = (fromMs: number, toMs: number) => {
+    const a = Math.max(fromMs, dayStart);
+    const b = Math.min(toMs, dayEnd);
+    return b > a ? b - a : 0;
+  };
+
+  const addSeg = (fromMs: number, toMs: number) => {
+    const ms = clipSegMs(fromMs, toMs);
+    if (ms <= 0) return;
+    sessionWorkMs += ms;
+    const sec = Math.floor(ms / 1000);
+    if (sec > 0) {
+      lastClosedSegSec = sec;
+      if (sec > longestClosedSegSec) longestClosedSegSec = sec;
+    }
+  };
+
+  const outOnTargetDay = (p: TimePunch, tMs: number) =>
+    p.day === targetDay || (tMs >= dayStart && tMs < dayEnd);
+
+  for (const p of ordered) {
+    const tMs = parsePunchInstantMs(p);
+    if (!Number.isFinite(tMs) || tMs <= 0) continue;
+    if (p.kind === "in") {
+      // Same dangling-close as workedSecondsFromPunches — prior open slice
+      // counts toward the current session and as a closed segment fallback.
+      if (segmentStart != null && !onBreak) addSeg(segmentStart, tMs);
+      if (!sessionOpen) {
+        sessionOpen = true;
+        sessionWorkMs = 0;
+      }
+      segmentStart = tMs;
+      onBreak = false;
+    } else if (p.kind === "break-start" && segmentStart != null && !onBreak) {
+      addSeg(segmentStart, tMs);
+      segmentStart = null;
+      onBreak = true;
+    } else if (p.kind === "break-end" && onBreak) {
+      segmentStart = tMs;
+      onBreak = false;
+      if (!sessionOpen) {
+        sessionOpen = true;
+        sessionWorkMs = 0;
+      }
+    } else if (p.kind === "out") {
+      if (segmentStart != null && !onBreak) addSeg(segmentStart, tMs);
+      // Only a real open session counts — orphan/duplicate outs are ignored.
+      if (sessionOpen && outOnTargetDay(p, tMs)) {
+        const closed = Math.floor(sessionWorkMs / 1000);
+        if (closed > 0) lastOutSessionSec = closed;
+      }
+      sessionOpen = false;
+      segmentStart = null;
+      onBreak = false;
+      sessionWorkMs = 0;
+    }
+  }
+
+  if (lastOutSessionSec > 0) return lastOutSessionSec;
+
+  // No clean out-session today, but day total has completed work — reuse the
+  // last (else longest) closed segment from the same walk as day totals.
+  const dayClosedSec = workedSecondsFromPunches(
+    punches,
+    dayEnd - 1,
+    workerId,
+    targetDay,
+    false,
+  );
+  if (dayClosedSec <= 0) return 0;
+  if (lastClosedSegSec > 0) return lastClosedSegSec;
+  if (longestClosedSegSec > 0) return longestClosedSegSec;
+  return dayClosedSec;
+}
+
+/** Big punch face: In/break = today’s worked (closed + live); Out = frozen closed day. */
 function punchFaceSeconds(
   status: ClockStatus,
   punches: TimePunch[],
@@ -55623,7 +60146,8 @@ function punchFaceSeconds(
     // Closed in→out segments only — never addLive / never grow with nowMs.
     return workedSecondsFromPunches(punches, nowMs, workerId, dayIso, false);
   }
-  return openSessionSecondsFromPunches(punches, nowMs, workerId, dayIso);
+  // Clock-in does NOT reset — continues today’s accumulated total.
+  return workedSecondsFromPunches(punches, nowMs, workerId, dayIso, true);
 }
 
 /** Build a punch row with a unique id (kind suffix avoids same-ms collisions). */
@@ -55961,7 +60485,7 @@ const ANDROID_HEADER_PUNCH_SIZE = 68;
 
 /**
  * Round punch control for Modules home shell (sidebar).
- * Same UX as TimeClockScreen; shares timeClockStatus.v2 / punches.v2.
+ * Same UX as TimeClockScreen; shares timeClockStatus.v3 / punches.v3.
  * Optional `size` for sidebar fit (default matches Time Clock 208).
  */
 function CompactHomePunchButton({
@@ -55972,23 +60496,47 @@ function CompactHomePunchButton({
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [status, setStatus] = useCanvasState<ClockStatus>(
-    "timeClockStatus.v2",
+    "timeClockStatus.v3",
     "out",
   );
   const [punches, setPunches] = useCanvasState<TimePunch[]>(
-    "timeClockPunches.v2",
+    "timeClockPunches.v3",
     DEFAULT_TIME_PUNCHES,
   );
 
   const liveRunning = status === "in" || status === "break";
   const tickMs = useLiveNowMs(liveRunning);
-  // In/break: wall clock for live session. Out: frozen tick — no Date.now() per paint.
+  // In/break: prefer wall clock so a stale tick after Out→In cannot zero the live
+  // slice. Out: use frozen tick only — do not re-sample Date.now() on every paint.
   const nowMs = liveRunning ? Math.max(tickMs, Date.now()) : tickMs;
-  // Out = closed day total (frozen); In/break = open session from 0.
-  const elapsed = formatElapsedClock(
-    punchFaceSeconds(status, punches, nowMs, DEMO_WORKER.id),
-  );
   const clockToday = todayLocalIso();
+  // Big: today’s accumulated worked time (clock-in does not reset).
+  const dayWorkedSec = punchFaceSeconds(
+    status,
+    punches,
+    nowMs,
+    DEMO_WORKER.id,
+    clockToday,
+  );
+  const elapsed = formatElapsedClock(dayWorkedSec);
+  const dayOtSec = overtimeSecondsFromDayWorked(dayWorkedSec);
+  // Tiny open-session clock (In/break); Out uses last closed session instead.
+  const openSessionSec = openSessionSecondsFromPunches(
+    punches,
+    nowMs,
+    DEMO_WORKER.id,
+    clockToday,
+  );
+  const lastClosedSessionSec = lastClosedSessionSecondsFromPunches(
+    punches,
+    DEMO_WORKER.id,
+    clockToday,
+  );
+  // Out + In/break session tinies: always H:MM:SS (never formatMinutesAsHours).
+  const closedSessionTiny = formatElapsedClock(lastClosedSessionSec);
+  const sessionTiny = liveRunning
+    ? formatElapsedClock(openSessionSec)
+    : closedSessionTiny;
   const lastIn = punches
     .filter(
       (p) =>
@@ -56004,10 +60552,9 @@ function CompactHomePunchButton({
       : status === "break"
         ? t(uiLang, "clockStatusBreak")
         : t(uiLang, "clockStatusOut");
+  // Hardcoded face meta — never “Session” (legacy sessionElapsed key).
   const elapsedMetaLabel =
-    status === "out"
-      ? t(uiLang, "todayElapsed")
-      : t(uiLang, "sessionElapsed");
+    uiLang === "he" ? "זמן היום" : "Today’s elapsed";
 
   const scale = size / PUNCH_BUTTON_SIZE;
   /** Header / tiny: drop floor so labels fit inside the circle. */
@@ -56019,6 +60566,8 @@ function CompactHomePunchButton({
   );
   const metaSize = Math.max(dense ? 8 : 10, Math.round(11 * scale));
   const elapsedSize = Math.max(dense ? 14 : 22, Math.round(28 * scale));
+  /** In-session under big day total — dark, must stay readable on secondary. */
+  const sessionTinySize = Math.max(dense ? 9 : 11, Math.round(12 * scale));
   const labelMaxWidth = Math.round((dense ? 58 : 176) * (dense ? 1 : scale));
   const breakMinHeight = Math.max(dense ? 16 : 24, Math.round(36 * scale));
   const breakFontSize = Math.max(dense ? 8 : 10, Math.round(11 * scale));
@@ -56027,9 +60576,9 @@ function CompactHomePunchButton({
   const breakMarginTop = Math.max(dense ? 1 : 2, Math.round(4 * scale));
   const breakRadius = Math.max(dense ? 5 : 6, Math.round(8 * scale));
   const punchPad = Math.max(dense ? 3 : 5, Math.round(10 * scale));
-  /** WHITE: In/Out + Clock in/out only. */
+  /** WHITE: status In/Out/Break only (Clock in/out use success green). */
   const punchFaceWhite = CHROME_WHITE;
-  /** DARK: Today’s/session elapsed row + digits + Start/End break. */
+  /** DARK: Today’s elapsed row + digits + session tiny + Start/End break. */
   const punchFaceInk = CHROME_INK;
 
   const appendPunches = (kinds: PunchKind[]) => {
@@ -56079,9 +60628,23 @@ function CompactHomePunchButton({
     <button
       type="button"
       data-chrome={`compact-home-punch-${GMAIL_DUAL_NAV_BUILD}`}
-      data-punch-face={elapsed}
+      data-punch-day={elapsed}
+      data-punch-session={sessionTiny}
+      data-punch-ot={dayOtSec > 0 ? formatElapsedClock(dayOtSec) : undefined}
       onClick={status === "out" ? onClockIn : onClockOut}
-      title={`${statusLabel} · ${elapsedMetaLabel} ${elapsed}`}
+      title={
+        status === "out"
+          ? `${statusLabel} · ${elapsedMetaLabel} ${elapsed} · ${t(uiLang, "totalSession")}: ${closedSessionTiny}${
+              dayOtSec > 0
+                ? ` · ${t(uiLang, "overtimeShort")} ${formatElapsedClock(dayOtSec)}`
+                : ""
+            }`
+          : `${statusLabel} · ${elapsedMetaLabel} ${elapsed}${
+              dayOtSec > 0
+                ? ` · ${t(uiLang, "overtimeShort")} ${formatElapsedClock(dayOtSec)}`
+                : ""
+            }`
+      }
       style={{
         width: size,
         height: size,
@@ -56130,9 +60693,6 @@ function CompactHomePunchButton({
           }}
         >
           {elapsedMetaLabel}
-          {status !== "out" && lastIn
-            ? ` · ${t(uiLang, "sinceTime")} ${formatClockHm(lastIn.time)}`
-            : ""}
         </span>
       ) : null}
       <span
@@ -56151,13 +60711,101 @@ function CompactHomePunchButton({
         {elapsed}
       </span>
       <span
+        data-punch-tiny="session"
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "center",
+          columnGap: 4,
+          rowGap: 1,
+          fontSize: sessionTinySize,
+          fontWeight: 700,
+          lineHeight: 1.15,
+          letterSpacing: "-0.01em",
+          minHeight: sessionTinySize + 2,
+          marginTop: 0,
+          marginBottom: dense ? 0 : 1,
+          color: punchFaceInk,
+          WebkitTextFillColor: punchFaceInk,
+          fontVariantNumeric: "tabular-nums",
+          maxWidth: labelMaxWidth,
+          opacity: 1,
+          visibility: "visible",
+        }}
+      >
+        {status === "out" ? (
+          <>
+            <span style={{ fontWeight: 700, opacity: 1 }}>
+              {t(uiLang, "totalSession")}
+            </span>
+            <span aria-hidden="true" style={{ fontWeight: 600, opacity: 0.55 }}>
+              ·
+            </span>
+            <span style={{ fontWeight: 600, opacity: 0.9 }}>
+              {closedSessionTiny}
+            </span>
+          </>
+        ) : (
+          <>
+            <span style={{ fontWeight: 700, opacity: 1 }}>
+              {t(uiLang, "sinceTime")}{" "}
+              {lastIn ? formatClockHm(lastIn.time) : "--:--"}
+            </span>
+            <span aria-hidden="true" style={{ fontWeight: 600, opacity: 0.55 }}>
+              ·
+            </span>
+            <span style={{ fontWeight: 600, opacity: 0.88 }}>
+              {t(uiLang, "sessionNow")} {sessionTiny}
+            </span>
+          </>
+        )}
+      </span>
+      {!dense && dayOtSec > 0 ? (
+        <span
+          data-punch-tiny="ot"
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "center",
+            columnGap: 4,
+            rowGap: 1,
+            fontSize: Math.max(dense ? 8 : 10, sessionTinySize - 1),
+            fontWeight: 700,
+            lineHeight: 1.15,
+            letterSpacing: "-0.01em",
+            marginTop: 0,
+            marginBottom: dense ? 0 : 1,
+            color: punchFaceInk,
+            WebkitTextFillColor: punchFaceInk,
+            fontVariantNumeric: "tabular-nums",
+            maxWidth: labelMaxWidth,
+            opacity: 0.85,
+          }}
+        >
+          <span style={{ fontWeight: 700, opacity: 1 }}>
+            {t(uiLang, "overtimeShort")}
+          </span>
+          <span aria-hidden="true" style={{ fontWeight: 600, opacity: 0.55 }}>
+            ·
+          </span>
+          <span style={{ fontWeight: 600, opacity: 0.9 }}>
+            {formatElapsedClock(dayOtSec)}
+          </span>
+        </span>
+      ) : null}
+      <span
         style={{
           fontSize: statusActionSize,
           fontWeight: 800,
           lineHeight: 1.1,
           letterSpacing: "-0.01em",
-          color: punchFaceWhite,
-          WebkitTextFillColor: punchFaceWhite,
+          // Clock in + Clock out: light mint on accent blue (status In/Out stays white).
+          color: "#7DFFB3",
+          WebkitTextFillColor: "#7DFFB3",
           maxWidth: labelMaxWidth,
         }}
       >
@@ -56835,6 +61483,246 @@ function DepartmentsScreen({ role }: { role: Role }) {
                   </Button>
                 </>
               ) : null}
+            </Row>
+          ))}
+        </Stack>
+      )}
+    </Stack>
+  );
+}
+
+/** Admin → Fees: firm default fee schedules (list + edit demo). */
+function FeesScreen() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [schedules, setSchedules] = useCanvasState<FirmFeeSchedule[]>(
+    "firmFeeSchedules.v1",
+    DEFAULT_FIRM_FEE_SCHEDULES,
+  );
+  const [editingId, setEditingId] = useCanvasState(
+    "firmFeeSchedulesEditingId.v1",
+    "",
+  );
+  const [draftNameEn, setDraftNameEn] = useCanvasState(
+    "firmFeeSchedulesDraftEn.v1",
+    "",
+  );
+  const [draftNameHe, setDraftNameHe] = useCanvasState(
+    "firmFeeSchedulesDraftHe.v1",
+    "",
+  );
+  const [draftAmount, setDraftAmount] = useCanvasState(
+    "firmFeeSchedulesDraftAmount.v1",
+    "",
+  );
+  const [draftFrequency, setDraftFrequency] = useCanvasState<FeeLineFrequency>(
+    "firmFeeSchedulesDraftFreq.v1",
+    "monthly",
+  );
+  const [draftTermsEn, setDraftTermsEn] = useCanvasState(
+    "firmFeeSchedulesDraftTermsEn.v1",
+    "",
+  );
+  const [draftTermsHe, setDraftTermsHe] = useCanvasState(
+    "firmFeeSchedulesDraftTermsHe.v1",
+    "",
+  );
+  const [flash, setFlash] = useCanvasState("firmFeeSchedulesFlash.v1", "");
+
+  const freqOptions = buildFeeFrequencySelectOptions(uiLang, []).filter(
+    (o) =>
+      o.value === "monthly" ||
+      o.value === "quarterly" ||
+      o.value === "yearly" ||
+      o.value === "one-off" ||
+      o.value === "when_necessary",
+  );
+
+  const startEdit = (row: FirmFeeSchedule) => {
+    setEditingId(row.id);
+    setDraftNameEn(row.nameEn);
+    setDraftNameHe(row.nameHe);
+    setDraftAmount(String(row.amountIls));
+    setDraftFrequency(row.frequency);
+    setDraftTermsEn(row.termsEn);
+    setDraftTermsHe(row.termsHe);
+    setFlash("");
+  };
+
+  const startAdd = () => {
+    setEditingId("__new__");
+    setDraftNameEn("");
+    setDraftNameHe("");
+    setDraftAmount("");
+    setDraftFrequency("monthly");
+    setDraftTermsEn("");
+    setDraftTermsHe("");
+    setFlash("");
+  };
+
+  const cancelEdit = () => {
+    setEditingId("");
+    setFlash("");
+  };
+
+  const saveEdit = () => {
+    const nameEn = draftNameEn.trim();
+    const nameHe = draftNameHe.trim() || nameEn;
+    if (!nameEn) {
+      setFlash(t(uiLang, "feesNameRequired"));
+      return;
+    }
+    const amountIls = Math.max(0, Number(String(draftAmount).replace(/,/g, "")) || 0);
+    const next: FirmFeeSchedule = {
+      id: editingId === "__new__" ? `fee-${Date.now().toString(36)}` : editingId,
+      nameEn,
+      nameHe,
+      amountIls,
+      frequency: draftFrequency,
+      termsEn: draftTermsEn.trim(),
+      termsHe: draftTermsHe.trim(),
+    };
+    if (editingId === "__new__") {
+      setSchedules((prev) => [...prev, next]);
+    } else {
+      setSchedules((prev) =>
+        prev.map((row) => (row.id === editingId ? next : row)),
+      );
+    }
+    setEditingId("");
+    setFlash("");
+  };
+
+  const deleteRow = (id: string) => {
+    setSchedules((prev) => prev.filter((row) => row.id !== id));
+    if (editingId === id) setEditingId("");
+    setFlash("");
+  };
+
+  return (
+    <Stack gap={14} style={{ ...SHELL_SCROLL, paddingInlineEnd: 4 }}>
+      <Stack gap={4}>
+        <H1 style={{ margin: 0 }}>{t(uiLang, "fees")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "feesHint")}</ChromeText>
+      </Stack>
+
+      <Callout tone="info" title={t(uiLang, "fees")}>
+        {t(uiLang, "feesWho")}
+      </Callout>
+
+      <Row gap={8} wrap>
+        <Button variant="primary" onClick={startAdd}>
+          {t(uiLang, "feesAdd")}
+        </Button>
+      </Row>
+
+      {flash ? (
+        <ChromeText size="small" tone="secondary">
+          {flash}
+        </ChromeText>
+      ) : null}
+
+      {editingId ? (
+        <Stack
+          gap={10}
+          style={{
+            padding: 14,
+            borderRadius: 10,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
+          <Grid columns={2} gap={10}>
+            <Stack gap={4}>
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "feesNameEn")}
+              </ChromeText>
+              <ChromeTextInput value={draftNameEn} onChange={setDraftNameEn} />
+            </Stack>
+            <Stack gap={4}>
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "feesNameHe")}
+              </ChromeText>
+              <ChromeTextInput value={draftNameHe} onChange={setDraftNameHe} />
+            </Stack>
+            <Stack gap={4}>
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "feesAmount")}
+              </ChromeText>
+              <ChromeTextInput value={draftAmount} onChange={setDraftAmount} />
+            </Stack>
+            <Stack gap={4}>
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "feesFrequency")}
+              </ChromeText>
+              <Select
+                value={draftFrequency}
+                onChange={(v) => setDraftFrequency(v as FeeLineFrequency)}
+                options={freqOptions}
+              />
+            </Stack>
+            <Stack gap={4}>
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "feesTermsEn")}
+              </ChromeText>
+              <ChromeTextInput value={draftTermsEn} onChange={setDraftTermsEn} />
+            </Stack>
+            <Stack gap={4}>
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "feesTermsHe")}
+              </ChromeText>
+              <ChromeTextInput value={draftTermsHe} onChange={setDraftTermsHe} />
+            </Stack>
+          </Grid>
+          <Row gap={8}>
+            <Button variant="primary" onClick={saveEdit}>
+              {t(uiLang, "feesSave")}
+            </Button>
+            <Button variant="ghost" onClick={cancelEdit}>
+              {t(uiLang, "feesCancel")}
+            </Button>
+          </Row>
+        </Stack>
+      ) : null}
+
+      {schedules.length === 0 ? (
+        <ChromeText tone="secondary">{t(uiLang, "feesEmpty")}</ChromeText>
+      ) : (
+        <Stack gap={8}>
+          {schedules.map((row) => (
+            <Row
+              key={row.id}
+              align="center"
+              gap={12}
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: `1px solid ${chromeBorder(theme)}`,
+                background: CHROME_WHITE,
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            >
+              <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                <ChromeText weight="semibold">
+                  {uiLang === "he" ? row.nameHe : row.nameEn}
+                </ChromeText>
+                <ChromeText size="small" tone="secondary">
+                  {formatIls(row.amountIls)} ·{" "}
+                  {feeLineFrequencyLabel(uiLang, row.frequency)}
+                  {(uiLang === "he" ? row.termsHe : row.termsEn)
+                    ? ` · ${uiLang === "he" ? row.termsHe : row.termsEn}`
+                    : ""}
+                </ChromeText>
+              </Stack>
+              <Button variant="secondary" onClick={() => startEdit(row)}>
+                {t(uiLang, "feesEdit")}
+              </Button>
+              <Button variant="ghost" onClick={() => deleteRow(row.id)}>
+                {t(uiLang, "feesDelete")}
+              </Button>
             </Row>
           ))}
         </Stack>
@@ -59848,9 +64736,12 @@ function MyBoardsScreen({
                     </ChromeText>
                     {(selectedCard.attachments ?? []).map((a) => (
                       <Row key={a.id} gap={6} align="center">
-                        <ChromeText size="small" style={{ flex: 1 }}>
-                          {a.name}
-                        </ChromeText>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <ExplorerFileNameCell
+                            label={a.name}
+                            kind="file"
+                          />
+                        </div>
                         <Button
                           variant="ghost"
                           onClick={() =>
@@ -62680,9 +67571,12 @@ function EditableTrelloBoard({
                     </ChromeText>
                     {(selected.attachments ?? []).map((a) => (
                       <Row key={a.id} gap={6} align="center">
-                        <ChromeText size="small" style={{ flex: 1 }}>
-                          {a.name}
-                        </ChromeText>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <ExplorerFileNameCell
+                            label={a.name}
+                            kind="file"
+                          />
+                        </div>
                         <Button
                           variant="ghost"
                           onClick={() =>
@@ -64897,11 +69791,11 @@ function TimeClockScreen({
     0,
   );
   const [status, setStatus] = useCanvasState<ClockStatus>(
-    "timeClockStatus.v2",
+    "timeClockStatus.v3",
     "out",
   );
   const [punches, setPunches] = useCanvasState<TimePunch[]>(
-    "timeClockPunches.v2",
+    "timeClockPunches.v3",
     DEFAULT_TIME_PUNCHES,
   );
   const [leaveRequests, setLeaveRequests] = useCanvasState<LeaveRequest[]>(
@@ -65172,24 +70066,16 @@ function TimeClockScreen({
     .slice()
     .sort((a, b) => parsePunchInstantMs(b) - parsePunchInstantMs(a));
   const elapsedWorkerId = canPunch ? DEMO_WORKER.id : hoursWorkerId;
-  // Day total (stats): Out = closed only (frozen); In/break includes live open.
+  // Day total: Out = closed segments only (frozen); In/break includes live open.
   const dayElapsedSec = workedSecondsFromPunches(
     punches,
     nowMs,
     elapsedWorkerId,
-    undefined,
+    clockToday,
     liveRunning,
   );
   const elapsed = formatElapsedClock(dayElapsedSec);
-  // Big face: Out = frozen closed day; In/break = session from 0.
-  const faceElapsed = formatElapsedClock(
-    punchFaceSeconds(status, punches, nowMs, elapsedWorkerId),
-  );
-  const faceMetaLabel =
-    status === "out"
-      ? t(uiLang, "todayElapsed")
-      : t(uiLang, "sessionElapsed");
-  const lastIn = todayPunches.find((p) => p.kind === "in");
+  // Punch face lives in CompactHomePunchButton (day big + Since/Total session).
 
   const ownLeave = leaveRequests.filter((r) =>
     inAdminMode ? r.workerId === hoursWorkerId : r.workerId === DEMO_WORKER.id,
@@ -65455,6 +70341,8 @@ function TimeClockScreen({
                 t(uiLang, "manualTimeClockIn"),
                 t(uiLang, "manualTimeClockOut"),
                 t(uiLang, "reportColTotalHours"),
+                t(uiLang, "reportRegularHours"),
+                t(uiLang, "reportOvertime"),
               ]}
               rows={weekDailyRows.map((r) => [
                 r.dayLabel,
@@ -65462,9 +70350,13 @@ function TimeClockScreen({
                 r.isOff ? "—" : r.clockIn || "—",
                 r.isOff ? "—" : r.clockOut || "—",
                 r.isOff ? "—" : formatDecimalHours(r.total),
+                r.isOff
+                  ? "—"
+                  : formatDecimalHours(regularHoursFromDayWorked(r.total)),
+                r.isOff ? "—" : formatDecimalHours(r.exceed),
               ])}
               striped
-              minWidth={520}
+              minWidth={640}
             />
           </Stack>
         ) : null}
@@ -65480,6 +70372,8 @@ function TimeClockScreen({
                 t(uiLang, "manualTimeClockIn"),
                 t(uiLang, "manualTimeClockOut"),
                 t(uiLang, "reportColTotalHours"),
+                t(uiLang, "reportRegularHours"),
+                t(uiLang, "reportOvertime"),
               ]}
               rows={monthDailyRows.map((r) => [
                 r.dayLabel,
@@ -65487,9 +70381,13 @@ function TimeClockScreen({
                 r.isOff ? "—" : r.clockIn || "—",
                 r.isOff ? "—" : r.clockOut || "—",
                 r.isOff ? "—" : formatDecimalHours(r.total),
+                r.isOff
+                  ? "—"
+                  : formatDecimalHours(regularHoursFromDayWorked(r.total)),
+                r.isOff ? "—" : formatDecimalHours(r.exceed),
               ])}
               striped
-              minWidth={520}
+              minWidth={640}
             />
           </Stack>
         ) : null}
@@ -66233,6 +71131,8 @@ function TimeClockScreen({
     </Stack>
   ) : null;
 
+  const dayOtSec = overtimeSecondsFromDayWorked(dayElapsedSec);
+  const dayRegularSec = regularSecondsFromDayWorked(dayElapsedSec);
   /** Read-only status strip in Admin mode (no interactive punch). */
   const adminStatusStats = inAdminMode ? (
     <Row gap={12} wrap>
@@ -66242,8 +71142,34 @@ function TimeClockScreen({
         label={t(uiLang, "todayElapsed")}
         tone="info"
       />
+      <Stat
+        value={formatElapsedClock(dayRegularSec)}
+        label={t(uiLang, "reportRegularHours")}
+      />
+      {dayOtSec > 0 ? (
+        <Stat
+          value={formatElapsedClock(dayOtSec)}
+          label={t(uiLang, "reportOvertime")}
+          tone="warning"
+        />
+      ) : null}
     </Row>
   ) : null;
+  /** Worker clock day total — regular + OT when today’s elapsed exceeds 8h. */
+  const workerDayOtStrip =
+    !inAdminMode && dayOtSec > 0 ? (
+      <Row gap={12} wrap>
+        <Stat
+          value={formatElapsedClock(dayRegularSec)}
+          label={t(uiLang, "reportRegularHours")}
+        />
+        <Stat
+          value={formatElapsedClock(dayOtSec)}
+          label={t(uiLang, "reportOvertime")}
+          tone="warning"
+        />
+      </Row>
+    ) : null;
 
   const punchKindOptions: { value: PunchKind; label: string }[] = [
     { value: "in", label: t(uiLang, "punchIn") },
@@ -66640,6 +71566,7 @@ function TimeClockScreen({
       {/* Own screen: punch first, then Manual edit, then times. Admin (other worker): stats + Manual edit (punch hidden). */}
       {adminStatusStats}
       {punchControl}
+      {workerDayOtStrip}
       {manualTimeSection}
       {todaysPunchesSection}
     </Stack>
@@ -67703,10 +72630,12 @@ function WorkerFilesScreen({ role }: { role: Role }) {
     <FirmDataTable
       headers={[
         t(uiLang, "workerFilesColName"),
-        t(uiLang, "workerFilesColKind"),
         t(uiLang, "workerFilesColDate"),
       ]}
-      rows={rows.map((f) => [fileLabel(f), kindLabel(f), f.added])}
+      rows={rows.map((f) => [
+        <ExplorerFileNameCell key={f.id} label={fileLabel(f)} kind="file" />,
+        f.added,
+      ])}
       emptyMessage={t(uiLang, "workerFilesEmptyYear")}
       stickyHeader={false}
     />
@@ -68342,9 +73271,11 @@ function ConverterToolsPanel({ uiLang }: { uiLang: UiLang }) {
                   {t(uiLang, "toolsConvUpload")}
                 </Button>
                 {uploadedName ? (
-                  <ChromeText size="small" weight="semibold" style={{ color: accent }}>
-                    {uploadedName}
-                  </ChromeText>
+                  <ExplorerFileNameCell
+                    label={uploadedName}
+                    kind="file"
+                    semibold
+                  />
                 ) : null}
               </Stack>
             </div>
@@ -68383,7 +73314,11 @@ function ConverterToolsPanel({ uiLang }: { uiLang: UiLang }) {
                 <ChromeText weight="semibold">
                   {t(uiLang, "toolsConvResultTitle")}
                 </ChromeText>
-                <ChromeText size="small">{resultName}</ChromeText>
+                <ExplorerFileNameCell
+                  label={resultName}
+                  kind="file"
+                  semibold
+                />
                 <ChromeText size="small" tone="secondary">
                   {t(uiLang, "toolsConvPreviewReady")}
                 </ChromeText>
@@ -68633,13 +73568,11 @@ function Section46ToolsPanel({ uiLang }: { uiLang: UiLang }) {
                 {t(uiLang, "toolsS46Upload")}
               </Button>
               {uploadedName ? (
-                <ChromeText
-                  size="small"
-                  weight="semibold"
-                  style={{ color: accent }}
-                >
-                  {uploadedName}
-                </ChromeText>
+                <ExplorerFileNameCell
+                  label={uploadedName}
+                  kind="file"
+                  semibold
+                />
               ) : null}
             </Stack>
           </div>
@@ -68709,7 +73642,11 @@ function Section46ToolsPanel({ uiLang }: { uiLang: UiLang }) {
               <ChromeText weight="semibold">
                 {t(uiLang, "toolsConvResultTitle")}
               </ChromeText>
-              <ChromeText size="small">{exportName}</ChromeText>
+              <ExplorerFileNameCell
+                label={exportName}
+                kind="file"
+                semibold
+              />
               <div
                 style={{
                   height: 72,
@@ -68852,7 +73789,11 @@ function MasavToolsPanel({ uiLang }: { uiLang: UiLang }) {
               <ChromeText weight="semibold">
                 {t(uiLang, "toolsMasavResultTitle")}
               </ChromeText>
-              <ChromeText size="small">{resultName}</ChromeText>
+              <ExplorerFileNameCell
+                label={resultName}
+                kind="file"
+                semibold
+              />
               <ChromeText size="small" tone="secondary">
                 {batchName.trim() || t(uiLang, "toolsMasavBatchPh")}
               </ChromeText>
@@ -68978,13 +73919,11 @@ function SumitDapiToolsPanel({ uiLang }: { uiLang: UiLang }) {
                 {t(uiLang, "toolsSumitUpload")}
               </Button>
               {uploadedName ? (
-                <ChromeText
-                  size="small"
-                  weight="semibold"
-                  style={{ color: accent }}
-                >
-                  {uploadedName}
-                </ChromeText>
+                <ExplorerFileNameCell
+                  label={uploadedName}
+                  kind="file"
+                  semibold
+                />
               ) : null}
             </Stack>
           </div>
@@ -69086,7 +74025,11 @@ function SumitDapiToolsPanel({ uiLang }: { uiLang: UiLang }) {
               <ChromeText weight="semibold">
                 {t(uiLang, "toolsSumitResultTitle")}
               </ChromeText>
-              <ChromeText size="small">{exportName}</ChromeText>
+              <ExplorerFileNameCell
+                label={exportName}
+                kind="file"
+                semibold
+              />
               <div
                 style={{
                   height: 72,
@@ -69601,16 +74544,13 @@ function AiChatToolsPanel({ uiLang }: { uiLang: UiLang }) {
                       }}
                     >
                       <Row gap={10} wrap style={{ alignItems: "center" }}>
-                        <ChromeText
-                          size="small"
-                          weight="semibold"
-                          style={{ flex: "1 1 160px" }}
-                        >
-                          {d.fileName}
-                        </ChromeText>
-                        <ChromeText size="small" tone="secondary">
-                          {aiDevKindLabel(uiLang, d.kind)}
-                        </ChromeText>
+                        <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                          <ExplorerFileNameCell
+                            label={d.fileName}
+                            kind="file"
+                            semibold
+                          />
+                        </div>
                         <ChromeText size="small" tone="tertiary">
                           {fmtWhen(d.at)}
                         </ChromeText>
@@ -69900,9 +74840,12 @@ function ToolsScreen({
           </Pill>
         ) : null}
       </Row>
-      <ChromeText size="small" tone="secondary">
-        {p.clientName} · {p.fileName}
-      </ChromeText>
+      <Row gap={8} align="center" wrap>
+        <ChromeText size="small" tone="secondary">
+          {p.clientName}
+        </ChromeText>
+        <ExplorerFileNameCell label={p.fileName} kind="file" />
+      </Row>
       {p.recipientEmail ? (
         <ChromeText size="small" tone="tertiary">
           {t(uiLang, "toolsSendToEmail")}: {p.recipientEmail}
@@ -70120,9 +75063,11 @@ function ToolsScreen({
             {t(uiLang, "toolsUploadPdf")}
           </Button>
           {prepFileName ? (
-            <ChromeText size="small" weight="semibold">
-              {prepFileName}
-            </ChromeText>
+            <ExplorerFileNameCell
+              label={prepFileName}
+              kind="file"
+              semibold
+            />
           ) : null}
         </Row>
         <Stack gap={6}>
@@ -72283,19 +77228,78 @@ function BillingScreen({
     );
   };
 
-  const sendManualReminder = (inv: FirmInvoice) => {
+  const stampReminderNow = () => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    return `${todayLocalIso()} ${hh}:${mm}`;
+  };
+
+  const reminderTargetInvoice = (inv?: FirmInvoice) =>
+    inv ??
+    invoices.find((i) => i.status === "overdue" || i.status === "open") ??
+    invoices[0];
+
+  const reminderClientContact = (inv: FirmInvoice) => {
+    const row = clients.find((c) => c.id === inv.clientId);
+    const email =
+      row?.email?.trim() ||
+      `${inv.clientName.toLowerCase().replace(/\s+/g, ".")}@demo.intertax.local`;
+    const phone = row?.phone?.trim() || "+972-50-000-0000";
+    return { email, phone };
+  };
+
+  const reminderChannelNote = (
+    channel: ReminderChannel,
+    inv: FirmInvoice,
+  ): string => {
+    const { email, phone } = reminderClientContact(inv);
+    if (channel === "email") {
+      return t(uiLang, "reminderEmailDemoNote")
+        .replace("{email}", email)
+        .replace("{invoice}", inv.number)
+        .replace("{client}", inv.clientName);
+    }
+    if (channel === "whatsapp") {
+      return t(uiLang, "reminderWhatsAppDemoNote")
+        .replace("{phone}", phone)
+        .replace("{invoice}", inv.number)
+        .replace("{client}", inv.clientName);
+    }
+    if (channel === "sms") {
+      return t(uiLang, "reminderSmsDemoNote")
+        .replace("{phone}", phone)
+        .replace("{invoice}", inv.number)
+        .replace("{client}", inv.clientName);
+    }
+    return t(uiLang, "reminderCallTaskNote");
+  };
+
+  const appendReminderSend = (
+    channel: ReminderChannel,
+    inv?: FirmInvoice,
+  ) => {
+    const target = reminderTargetInvoice(inv);
+    if (!target) return;
+    const isCall = channel === "call";
+    const note = reminderChannelNote(channel, target);
     const entry: BillingReminderLogEntry = {
       id: `rl-${Date.now()}`,
-      invoiceId: inv.id,
-      invoiceNumber: inv.number,
-      clientName: inv.clientName,
+      invoiceId: target.id,
+      invoiceNumber: target.number,
+      clientName: target.clientName,
       when: reminderDefaults.when,
-      channel: "email",
-      status: "sent",
-      at: "2026-09-15 14:30",
+      channel,
+      status: isCall ? "task" : "sent",
+      at: stampReminderNow(),
+      note,
     };
     setReminderLog((prev) => [entry, ...prev]);
-    setReminderFlash(t(uiLang, "reminderSentFlash"));
+    setReminderFlash(note);
+  };
+
+  const sendManualReminder = (inv: FirmInvoice) => {
+    appendReminderSend("email", inv);
     setBillingNav("reminders");
   };
 
@@ -72324,31 +77328,7 @@ function BillingScreen({
     channel: Exclude<ReminderChannel, "email">,
     inv?: FirmInvoice,
   ) => {
-    const target =
-      inv ??
-      invoices.find((i) => i.status === "overdue" || i.status === "open") ??
-      invoices[0];
-    if (!target) return;
-    const isCall = channel === "call";
-    const note =
-      channel === "whatsapp"
-        ? t(uiLang, "reminderEscalateWhatsAppBtn")
-        : channel === "sms"
-          ? t(uiLang, "reminderEscalateSmsBtn")
-          : t(uiLang, "reminderCallTaskNote");
-    const entry: BillingReminderLogEntry = {
-      id: `rl-${Date.now()}`,
-      invoiceId: target.id,
-      invoiceNumber: target.number,
-      clientName: target.clientName,
-      when: reminderDefaults.when,
-      channel,
-      status: isCall ? "task" : "sent",
-      at: "2026-09-15 15:00",
-      note,
-    };
-    setReminderLog((prev) => [entry, ...prev]);
-    setReminderFlash(note);
+    appendReminderSend(channel, inv);
   };
 
   const invoiceTable = (rows: FirmInvoice[], withActions?: boolean) => (
@@ -73986,14 +78966,19 @@ function BillingScreen({
                   {t(uiLang, "remindersHint")}
                 </ChromeText>
               </Stack>
-              <Callout tone="info" title={t(uiLang, "billingNavReminders")}>
-                {t(uiLang, "remindersCallout")}
-              </Callout>
               {reminderFlash ? (
                 <Callout tone="success" title={t(uiLang, "billingNavReminders")}>
                   {reminderFlash}
                 </Callout>
               ) : null}
+              <Row gap={8} wrap>
+                <Button
+                  variant="primary"
+                  onClick={() => appendReminderSend("email")}
+                >
+                  {t(uiLang, "reminderSendEmailDemo")}
+                </Button>
+              </Row>
               <Grid columns={billingChartCols} gap={12}>
                 <Stack gap={4}>
                   <FieldLabel>{t(uiLang, "reminderWhen")}</FieldLabel>
@@ -74062,7 +79047,7 @@ function BillingScreen({
                   {t(uiLang, "reminderEscalationHint")}
                 </ChromeText>
               </Stack>
-              <Callout tone="warning" title={t(uiLang, "reminderEscalationTitle")}>
+              <Callout tone="info" title={t(uiLang, "reminderEscalationTitle")}>
                 {t(uiLang, "reminderEscalationCallout")}
               </Callout>
               <Row align="center" gap={10}>
@@ -77658,6 +82643,46 @@ function phonesMatch(a: string, b: string): boolean {
 
 type PhoneContactEntry = { phone: string; name?: string };
 
+/**
+ * Demo phone-contacts directory: every CRM client mobile/landline/contact
+ * phone (deduped by last 9 digits). Stands in for a future phone-contacts API
+ * so `phoneExistsInContacts` matches beyond profile.inContacts flags.
+ */
+function buildPhoneContactsDirectoryFromClients(
+  clients: DemoRow[],
+): PhoneContactEntry[] {
+  const seen = new Set<string>();
+  const out: PhoneContactEntry[] = [];
+  const push = (phone: string | undefined, name?: string) => {
+    const v = (phone ?? "").trim();
+    if (!v || v === "—") return;
+    const digits = phoneDigits(v);
+    if (digits.length < 7) return;
+    const key = digits.slice(-9);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const label = (name ?? "").trim();
+    out.push(label ? { phone: v, name: label } : { phone: v });
+  };
+  for (const client of clients) {
+    const name =
+      (client.name ?? "").trim() ||
+      (client.nameHe ?? "").trim() ||
+      undefined;
+    push(client.phone, name);
+    push(client.profile?.mobile2, name);
+    push(
+      client.profile?.contactPhone,
+      (client.profile?.contactName ?? "").trim() || name,
+    );
+    push(client.profile?.telephone, name);
+  }
+  return out;
+}
+
+const DEFAULT_PHONE_CONTACTS_DIRECTORY =
+  buildPhoneContactsDirectoryFromClients(DEFAULT_DEMO_ROWS);
+
 function phoneExistsOnWhatsApp(
   phone: string,
   mobile2: string,
@@ -77716,7 +82741,7 @@ function phoneExistsOnWhatsApp(
 
 /**
  * Phone contacts directory match.
- * `directory` is filled later by phone-contacts API; until then also match
+ * Prefers `directory` (demo-seeded from CRM phones / future API); also match
  * CRM clients already marked In Contacts.
  */
 function phoneExistsInContacts(
@@ -77842,10 +82867,10 @@ function NewClientFormScreen({
     "threads.v3",
     DEFAULT_THREADS,
   );
-  /** Future phone-contacts API sync target (empty until connected). */
+  /** Phone-contacts directory (demo-seeded from CRM phones; future API sync). */
   const [phoneContactsDirectory] = useCanvasState<PhoneContactEntry[]>(
-    "phoneContactsDirectory.v1",
-    [],
+    "phoneContactsDirectory.v2",
+    DEFAULT_PHONE_CONTACTS_DIRECTORY,
   );
   const [children, setChildren] = useCanvasState<ClientChild[]>(
     `ncChildrenList:${seedKey}`,
@@ -80864,6 +85889,25 @@ export default function CrmModulesHome() {
     "signedInWorkerId.v1",
     DEMO_WORKER.id,
   );
+  const [companyModulesEnabledShell] = useCanvasState<Record<string, boolean>>(
+    "crmCompanyModulesEnabled.v1",
+    {},
+  );
+  const [workerModulesEnabledShell] = useCanvasState<
+    Record<string, Record<string, boolean>>
+  >("crmWorkerModulesEnabled.v792", {});
+  const shellModuleVisible = (moduleId: string) =>
+    isModuleVisibleForViewer(
+      moduleId,
+      normalizeModuleEnabledMap(companyModulesEnabledShell),
+      withWorkerModuleRoleDefaults(
+        normalizeWorkerModuleEnabledMap(workerModulesEnabledShell)[
+          signedInWorkerId
+        ] ?? {},
+        role,
+        workerDeptIds(signedInWorkerId, firmWorkers),
+      ),
+    );
   const [canvasSurface, setCanvasSurface] = useCanvasState<
     "firm" | "client-wa" | "client-email" | "client-portal"
   >("crmCanvasSurface.v1", "firm");
@@ -81162,7 +86206,11 @@ export default function CrmModulesHome() {
   }, [selectedCategory]);
 
   useEffect(() => {
-    const allowed = categoryIdsForUser(role, signedInDeptIds);
+    const allowed = categoryIdsForUser(
+      role,
+      signedInDeptIds,
+      shellModuleVisible,
+    );
     const cat = normalizePrimaryCategory(selectedCategory);
     if (!allowed.includes(cat)) {
       if (selectedCategory === "secretariat") return;
@@ -81355,6 +86403,15 @@ export default function CrmModulesHome() {
     "demoRows.v10",
     DEFAULT_DEMO_ROWS,
   );
+  /** Keep phone-contacts directory aligned with live CRM client phones. */
+  const [, setPhoneContactsDirectory] = useCanvasState<PhoneContactEntry[]>(
+    "phoneContactsDirectory.v2",
+    DEFAULT_PHONE_CONTACTS_DIRECTORY,
+  );
+  useEffect(() => {
+    const rows = Array.isArray(demoRows) ? demoRows : DEFAULT_DEMO_ROWS;
+    setPhoneContactsDirectory(buildPhoneContactsDirectoryFromClients(rows));
+  }, [demoRows]);
   const [signDocPackets] = useCanvasState<SignDocPacket[]>(
     "signDocPackets.v2",
     DEFAULT_SIGN_DOC_PACKETS,
@@ -81570,15 +86627,32 @@ export default function CrmModulesHome() {
     setScreen("home");
   };
 
-  /** Header shortcut: Firm CRM client card → Client email; click again to leave. */
-  const openClientEmailDemo = () => {
-    if (canvasSurface === "client-email") {
-      setCanvasSurface(clientEmailDemoReturn);
+  /** Firm CRM pill — clears every demo surface + Android (exclusive home). */
+  const goFirmCrmSurface = () => {
+    setAndroidPreview(false);
+    setCanvasSurface("firm");
+    setClientEmailDemoReturn("firm");
+    setClientPortalDemoReturn("firm");
+  };
+
+  /** Header: Client WhatsApp (demo); second click restores Firm CRM. */
+  const openClientWaDemo = () => {
+    if (canvasSurface === "client-wa" && !androidPreview) {
+      goFirmCrmSurface();
       return;
     }
-    setClientEmailDemoReturn(
-      canvasSurface === "client-wa" ? "client-wa" : "firm",
-    );
+    setAndroidPreview(false);
+    setCanvasSurface("client-wa");
+  };
+
+  /** Header: Client email (demo); second click restores Firm CRM. */
+  const openClientEmailDemo = () => {
+    if (canvasSurface === "client-email" && !androidPreview) {
+      goFirmCrmSurface();
+      return;
+    }
+    setAndroidPreview(false);
+    setClientEmailDemoReturn("firm");
     setCanvasSurface("client-email");
     const preferredId =
       selectedClientId && demoRows.some((r) => r.id === selectedClientId)
@@ -81593,15 +86667,14 @@ export default function CrmModulesHome() {
     setScreen("client-card");
   };
 
-  /** Header shortcut: Firm CRM client card → Portal; click again to leave. */
+  /** Header: Client portal (demo); second click restores Firm CRM. */
   const openClientPortalDemo = () => {
-    if (canvasSurface === "client-portal") {
-      setCanvasSurface(clientPortalDemoReturn);
+    if (canvasSurface === "client-portal" && !androidPreview) {
+      goFirmCrmSurface();
       return;
     }
-    setClientPortalDemoReturn(
-      canvasSurface === "client-wa" ? "client-wa" : "firm",
-    );
+    setAndroidPreview(false);
+    setClientPortalDemoReturn("firm");
     setCanvasSurface("client-portal");
     const preferredId =
       selectedClientId && demoRows.some((r) => r.id === selectedClientId)
@@ -81719,10 +86792,22 @@ export default function CrmModulesHome() {
       setScreen("users-rights");
       return;
     }
+    if (tile.opens === "company-modules") {
+      setSelectedCategory("systemadmin");
+      setNavSecondaryOpen(true);
+      setScreen("company-modules");
+      return;
+    }
     if (tile.opens === "files-root") {
       setSelectedCategory("systemadmin");
       setNavSecondaryOpen(true);
       setScreen("files-root");
+      return;
+    }
+    if (tile.opens === "client-folders") {
+      setSelectedCategory("client");
+      setNavSecondaryOpen(true);
+      setScreen("client-folders");
       return;
     }
     if (tile.opens === "help-feedback") {
@@ -81752,6 +86837,12 @@ export default function CrmModulesHome() {
       setSelectedCategory("admin");
       setNavSecondaryOpen(true);
       setScreen("reports");
+      return;
+    }
+    if (tile.opens === "fees") {
+      setSelectedCategory("admin");
+      setNavSecondaryOpen(true);
+      setScreen("fees");
       return;
     }
     if (tile.opens === "billing") {
@@ -82105,6 +87196,8 @@ export default function CrmModulesHome() {
                         ? t(uiLang, "departments")
                         : screen === "reports"
                           ? t(uiLang, "reports")
+                          : screen === "fees"
+                            ? t(uiLang, "fees")
                         : screen === "whatsapp-settings"
                           ? t(uiLang, "waDeskSettings")
                           : screen === "services"
@@ -82133,12 +87226,14 @@ export default function CrmModulesHome() {
                                               ? t(uiLang, "usersRights")
                                               : screen === "files-root"
                                                 ? t(uiLang, "filesRoot")
-                                                : screen === "placeholder"
-                                                  ? placeholderLabel
-                                                  : primaryRailLabel(
-                                                      uiLang,
-                                                      selectedCategory,
-                                                    );
+                                                : screen === "client-folders"
+                                                  ? t(uiLang, "clientFolders")
+                                                  : screen === "placeholder"
+                                                    ? placeholderLabel
+                                                    : primaryRailLabel(
+                                                        uiLang,
+                                                        selectedCategory,
+                                                      );
 
   const topChrome = (
     <Stack gap={4} style={{ width: "100%", overflow: "visible" }}>
@@ -82180,13 +87275,13 @@ export default function CrmModulesHome() {
             <>
               <Button
                 variant={canvasSurface === "firm" ? "primary" : "secondary"}
-                onClick={() => setCanvasSurface("firm")}
+                onClick={goFirmCrmSurface}
               >
                 {t(uiLang, "firmCrmSurface")}
               </Button>
               <Button
                 variant={canvasSurface === "client-wa" ? "primary" : "secondary"}
-                onClick={() => setCanvasSurface("client-wa")}
+                onClick={openClientWaDemo}
               >
                 {t(uiLang, "clientWaSurface")}
               </Button>
@@ -82581,7 +87676,8 @@ export default function CrmModulesHome() {
    */
   const hoverHasSecondary =
     hoverKey != null &&
-    (tilesForCategory(hoverKey, signedInDeptIds).length > 0 ||
+    (tilesForCategory(hoverKey, signedInDeptIds, shellModuleVisible).length >
+      0 ||
       hoverKey === "work" ||
       hoverKey === "tasks" ||
       hoverKey === "boards" ||
@@ -82634,7 +87730,9 @@ export default function CrmModulesHome() {
       return fillSecondaryForCategory("worker", opts);
     }
     if (categoryId === "client") {
-      const clientFilterRows: SecondaryNavRow[] = SIDEBAR.map((item) => ({
+      const clientFilterRows: SecondaryNavRow[] = SIDEBAR.filter((item) =>
+        shellModuleVisible(clientFilterModuleId(item.id)),
+      ).map((item) => ({
         id: item.id,
         label: sidebarFilterLabel(uiLang, item.id),
         iconId: clientFilterSecondaryIconId(item.id),
@@ -82658,45 +87756,51 @@ export default function CrmModulesHome() {
         rows: clientFilterRows,
         topActions: (
           <Stack gap={8} style={{ width: "100%" }}>
-            <GmailComposeButton
-              variant="primary"
-              iconId="potential"
-              onClick={() => {
-                clearHoverLeaveTimer();
-                setHoverKey(null);
-                setSelectedCategory("client");
-                setNavSecondaryOpen(true);
-                openNewProspect();
-              }}
-            >
-              {t(uiLang, "newProspect")}
-            </GmailComposeButton>
-            <GmailComposeButton
-              variant="secondary"
-              iconId="address-book"
-              onClick={() => {
-                clearHoverLeaveTimer();
-                setHoverKey(null);
-                setSelectedCategory("client");
-                setNavSecondaryOpen(true);
-                openNewClientForm();
-              }}
-            >
-              {t(uiLang, "newClient")}
-            </GmailComposeButton>
-            <GmailComposeButton
-              variant="secondary"
-              iconId="services"
-              onClick={() => {
-                clearHoverLeaveTimer();
-                setHoverKey(null);
-                setSelectedCategory("client");
-                setNavSecondaryOpen(true);
-                openServices("clients");
-              }}
-            >
-              {t(uiLang, "services")}
-            </GmailComposeButton>
+            {shellModuleVisible("potential") ? (
+              <GmailComposeButton
+                variant="primary"
+                iconId="potential"
+                onClick={() => {
+                  clearHoverLeaveTimer();
+                  setHoverKey(null);
+                  setSelectedCategory("client");
+                  setNavSecondaryOpen(true);
+                  openNewProspect();
+                }}
+              >
+                {t(uiLang, "newProspect")}
+              </GmailComposeButton>
+            ) : null}
+            {shellModuleVisible("clients") ? (
+              <GmailComposeButton
+                variant="secondary"
+                iconId="address-book"
+                onClick={() => {
+                  clearHoverLeaveTimer();
+                  setHoverKey(null);
+                  setSelectedCategory("client");
+                  setNavSecondaryOpen(true);
+                  openNewClientForm();
+                }}
+              >
+                {t(uiLang, "newClient")}
+              </GmailComposeButton>
+            ) : null}
+            {shellModuleVisible("services") ? (
+              <GmailComposeButton
+                variant="secondary"
+                iconId="services"
+                onClick={() => {
+                  clearHoverLeaveTimer();
+                  setHoverKey(null);
+                  setSelectedCategory("client");
+                  setNavSecondaryOpen(true);
+                  openServices("clients");
+                }}
+              >
+                {t(uiLang, "services")}
+              </GmailComposeButton>
+            ) : null}
           </Stack>
         ) as ReturnType<typeof Stack> | null,
       };
@@ -82850,49 +87954,57 @@ export default function CrmModulesHome() {
       categoryId === "tasks" ||
       categoryId === "boards"
     ) {
+      const workRows: SecondaryNavRow[] = [];
+      if (shellModuleVisible("tasks")) {
+        workRows.push({
+          id: "tasks",
+          label: t(uiLang, "tasks"),
+          iconId: "tasks",
+          badge: tasksOpenBadge || undefined,
+          active:
+            showActiveMarks &&
+            normalizePrimaryCategory(selectedCategory) === "work" &&
+            workModule === "tasks" &&
+            screen === "home",
+          onClick: () => {
+            clearHoverLeaveTimer();
+            setHoverKey(null);
+            setSelectedCategory("work");
+            setWorkModule("tasks");
+            setNavSecondaryOpen(true);
+            setScreen("home");
+          },
+        });
+      }
+      if (shellModuleVisible("boards")) {
+        workRows.push({
+          id: "boards",
+          label: t(uiLang, "myBoards"),
+          iconId: "boards",
+          badge: boardsUnreadBadge || undefined,
+          active: showActiveMarks && screen === "boards",
+          onClick: () => {
+            clearHoverLeaveTimer();
+            setHoverKey(null);
+            setSelectedCategory("work");
+            setWorkModule("boards");
+            setMyBoardsViewShell("board");
+            setNavSecondaryOpen(true);
+            setScreen("boards");
+          },
+        });
+      }
       return {
         title: t(uiLang, "work"),
-        rows: [
-          {
-            id: "tasks",
-            label: t(uiLang, "tasks"),
-            iconId: "tasks",
-            badge: tasksOpenBadge || undefined,
-            active:
-              showActiveMarks &&
-              normalizePrimaryCategory(selectedCategory) === "work" &&
-              workModule === "tasks" &&
-              screen === "home",
-            onClick: () => {
-              clearHoverLeaveTimer();
-              setHoverKey(null);
-              setSelectedCategory("work");
-              setWorkModule("tasks");
-              setNavSecondaryOpen(true);
-              setScreen("home");
-            },
-          },
-          {
-            id: "boards",
-            label: t(uiLang, "myBoards"),
-            iconId: "boards",
-            badge: boardsUnreadBadge || undefined,
-            active: showActiveMarks && screen === "boards",
-            onClick: () => {
-              clearHoverLeaveTimer();
-              setHoverKey(null);
-              setSelectedCategory("work");
-              setWorkModule("boards");
-              setMyBoardsViewShell("board");
-              setNavSecondaryOpen(true);
-              setScreen("boards");
-            },
-          },
-        ],
+        rows: workRows,
         topActions: null as ReturnType<typeof Stack> | null,
       };
     }
-    const tiles = tilesForCategory(categoryId, signedInDeptIds);
+    const tiles = tilesForCategory(
+      categoryId,
+      signedInDeptIds,
+      shellModuleVisible,
+    );
     if (tiles.length > 0) {
       const tileRows: SecondaryNavRow[] = tiles.map((tile) => {
         const liveBadge =
@@ -83007,7 +88119,11 @@ export default function CrmModulesHome() {
       };
     }
     if (categoryId === "workers" && isAdminLike(role)) {
-      const workerModuleTiles = tilesForCategory("workers");
+      const workerModuleTiles = tilesForCategory(
+        "workers",
+        undefined,
+        shellModuleVisible,
+      );
       return {
         title: t(uiLang, "workersModule"),
         rows: workerModuleTiles.map((tile) => ({
@@ -83103,7 +88219,8 @@ export default function CrmModulesHome() {
   } else if (
     screen === "clients" ||
     screen === "new-client" ||
-    screen === "client-card"
+    screen === "client-card" ||
+    screen === "client-folders"
   ) {
     const clientsSec = fillSecondaryForCategory("client");
     secondaryTitle = clientsSec.title;
@@ -83319,6 +88436,17 @@ export default function CrmModulesHome() {
           <UsersRightsScreen />
         </Stack>
       )}
+      {screen === "company-modules" && (
+        <Stack gap={12} style={{ ...SHELL_FILL, width: "100%" }}>
+          <div style={{ flexShrink: 0, width: "100%" }}>
+            <ModuleChromeBar
+              pill={t(uiLang, "companyModules")}
+              onSecondaryBack={onSecondaryBack}
+            />
+          </div>
+          <CompanyModulesVisibilityScreen />
+        </Stack>
+      )}
       {screen === "files-root" && (
         <Stack gap={12} style={{ ...SHELL_SCROLL }}>
           <ModuleChromeBar
@@ -83326,6 +88454,15 @@ export default function CrmModulesHome() {
             onSecondaryBack={onSecondaryBack}
           />
           <FilesRootScreen />
+        </Stack>
+      )}
+      {screen === "client-folders" && (
+        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
+          <ModuleChromeBar
+            pill={t(uiLang, "clientFolders")}
+            onSecondaryBack={onSecondaryBack}
+          />
+          <ClientFoldersScreen />
         </Stack>
       )}
       {screen === "help-feedback" && (
@@ -83481,6 +88618,15 @@ export default function CrmModulesHome() {
           <ReportsScreen />
         </Stack>
       )}
+      {screen === "fees" && isAdminLike(role) && (
+        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
+          <ModuleChromeBar
+            pill={t(uiLang, "fees")}
+            onSecondaryBack={onSecondaryBack}
+          />
+          <FeesScreen />
+        </Stack>
+      )}
       {screen === "placeholder" && (
         <Stack gap={12} style={{ ...SHELL_SCROLL }}>
           <ModuleChromeBar
@@ -83568,6 +88714,7 @@ export default function CrmModulesHome() {
               systemadmin: helpFeedbackRailBadge,
             },
             signedInDeptIds,
+            shellModuleVisible,
           );
           const androidActive = normalizePrimaryCategory(selectedCategory);
           return (
