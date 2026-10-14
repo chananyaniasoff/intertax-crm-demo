@@ -1,4 +1,4 @@
-﻿import {
+import {
   BarChart,
   Callout,
   Card,
@@ -32,13 +32,173 @@
   type TableProps,
   type TextProps,
 } from "cursor/canvas";
-/** Bust stale canvas preview — App-wide Docs tables → TaxReturnFolderBrowser. */
-const GMAIL_DUAL_NAV_BUILD = "v796-2026-10-14-appwide-docs-explorer";
+/** Bust stale canvas preview — Clients QA vs Modules section split. */
+const GMAIL_DUAL_NAV_BUILD = "v842-2026-10-14-checklist-crm-brand-icon";
 /** Shared folder explorer tree/detail split width (% of row). */
 const CRM_EXPLORER_SPLIT_PCT_KEY = "crmExplorerSplitPct.v1";
 const CRM_EXPLORER_SPLIT_DEFAULT = 46;
 const CRM_EXPLORER_SPLIT_MIN = 22;
 const CRM_EXPLORER_SPLIT_MAX = 78;
+/**
+ * ── Per-worker Quick Access ONLY (never firm-/company-global) ──
+ *
+ * useCanvasState key: `crmQuickAccessByWorker.v1`
+ * Shape: `Record<workerId, SidebarQuickAccessPin[]>`
+ *
+ * Every pin read/write must go through signedInWorkerId → that worker’s array.
+ * Switching demo worker shows only that worker’s pins (Work / Billing / Clients /
+ * explorer “Pin to sidebar”). Never share one list across workers.
+ *
+ * Pin fields:
+ * - `id` — folder node id, or client id when kind is "client"
+ * - `label` — short display name for the secondary row
+ * - `sidebar` — which AppSecondarySidebar shows it: "work" | "billing" | "clients"
+ * - `kind` — "folder" (default) | "client" (Clients list/card pins)
+ *
+ * Helpers: workerQuickAccessPins, pinsForQuickAccessSidebar,
+ * upsertWorkerQuickAccessPin, removeWorkerQuickAccessPin,
+ * renameWorkerQuickAccessPin.
+ */
+const CRM_QUICK_ACCESS_BY_WORKER_KEY = "crmQuickAccessByWorker.v1";
+
+/**
+ * ── Firm / product branding (renameable; not locked to one company) ──
+ *
+ * useCanvasState key: `crmProductBrand.v1`
+ * Shape: `{ name: string; iconId?: string }`
+ *
+ * Default name: "CRM". App shell header shows CrmProductBrandIcon + this name
+ * (`crm-product-brand-header`). Not shown on AppPrimaryRail. Company logo
+ * upload stays separate. Systemadmin → Company settings renames `name`
+ * (keeps `iconId`).
+ */
+const CRM_PRODUCT_BRAND_KEY = "crmProductBrand.v1";
+const DEFAULT_CRM_PRODUCT_BRAND_NAME = "CRM";
+const DEFAULT_CRM_PRODUCT_ICON_ID = "crm-orbit";
+
+type CrmProductBrand = {
+  name: string;
+  /** Built-in glyph id — currently `crm-orbit` (gradient tile + geometric hub). */
+  iconId?: string;
+};
+
+const DEFAULT_CRM_PRODUCT_BRAND: CrmProductBrand = {
+  name: DEFAULT_CRM_PRODUCT_BRAND_NAME,
+  iconId: DEFAULT_CRM_PRODUCT_ICON_ID,
+};
+
+function normalizeCrmProductBrand(
+  raw: CrmProductBrand | null | undefined,
+): CrmProductBrand {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_CRM_PRODUCT_BRAND };
+  const name =
+    typeof raw.name === "string" && raw.name.trim()
+      ? raw.name.trim()
+      : DEFAULT_CRM_PRODUCT_BRAND_NAME;
+  const iconId =
+    typeof raw.iconId === "string" && raw.iconId.trim()
+      ? raw.iconId.trim()
+      : DEFAULT_CRM_PRODUCT_ICON_ID;
+  return { name, iconId };
+}
+
+function crmProductBrandDisplayName(brand: CrmProductBrand): string {
+  return normalizeCrmProductBrand(brand).name;
+}
+
+type QuickAccessSidebar = "work" | "billing" | "clients";
+
+type QuickAccessPinKind = "folder" | "client";
+
+type SidebarQuickAccessPin = {
+  id: string;
+  label: string;
+  sidebar: QuickAccessSidebar;
+  /** Defaults to "folder" when omitted. */
+  kind?: QuickAccessPinKind;
+};
+
+type QuickAccessByWorker = Record<string, SidebarQuickAccessPin[]>;
+
+function shortQuickAccessLabel(label: string, max = 22): string {
+  const trimmed = label.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, Math.max(1, max - 1))}…`;
+}
+
+/**
+ * ── Firm Work drives (Systemadmin-managed; Work secondary rows) ──
+ *
+ * useCanvasState key: `crmWorkDrives.v1`
+ * Active drive: `crmWorkActiveDriveId.v1`
+ *
+ * Each drive is a named Work secondary module (company + cloud work-drive icon).
+ * The displayed tab label is `drive.name` (not a fixed "Drive"). Default seed is
+ * "My company" with the Companies + firm shared archive tree.
+ */
+const CRM_WORK_DRIVES_KEY = "crmWorkDrives.v1";
+const CRM_WORK_ACTIVE_DRIVE_KEY = "crmWorkActiveDriveId.v1";
+const DEFAULT_WORK_DRIVE_ID = "wd-my-company";
+const COMPANY_ARCHIVE_TREE_ID = "company-archive";
+
+type WorkDriveKind = "local" | "google" | "link";
+
+type WorkDrive = {
+  id: string;
+  name: string;
+  kind: WorkDriveKind;
+  /** Google Drive / folder URL or local path note (demo). */
+  rootPathOrUrl?: string;
+  /** `company-archive` = existing Companies + firm shared tree. */
+  folderTreeId?: string;
+};
+
+function seedWorkDrives(): WorkDrive[] {
+  return [
+    {
+      id: DEFAULT_WORK_DRIVE_ID,
+      name: "My company",
+      kind: "local",
+      folderTreeId: COMPANY_ARCHIVE_TREE_ID,
+    },
+  ];
+}
+
+function normalizeWorkDrives(raw: WorkDrive[] | null | undefined): WorkDrive[] {
+  if (!Array.isArray(raw) || raw.length === 0) return seedWorkDrives();
+  const cleaned: WorkDrive[] = [];
+  for (const d of raw) {
+    if (!d || typeof d.id !== "string" || !d.id.trim()) continue;
+    const kind: WorkDriveKind =
+      d.kind === "google" || d.kind === "link" || d.kind === "local"
+        ? d.kind
+        : "local";
+    cleaned.push({
+      id: String(d.id).trim(),
+      name: String(d.name ?? "").trim() || "Drive",
+      kind,
+      rootPathOrUrl:
+        typeof d.rootPathOrUrl === "string" && d.rootPathOrUrl.trim()
+          ? d.rootPathOrUrl.trim()
+          : undefined,
+      folderTreeId:
+        typeof d.folderTreeId === "string" && d.folderTreeId.trim()
+          ? d.folderTreeId.trim()
+          : undefined,
+    });
+  }
+  return cleaned.length > 0 ? cleaned : seedWorkDrives();
+}
+
+function companyArchiveWorkDrive(drives: WorkDrive[]): WorkDrive {
+  const list = normalizeWorkDrives(drives);
+  return (
+    list.find((d) => d.folderTreeId === COMPANY_ARCHIVE_TREE_ID) ??
+    list.find((d) => d.id === DEFAULT_WORK_DRIVE_ID) ??
+    list[0]
+  );
+}
+
 
 function clampExplorerSplitPct(raw: number): number {
   if (!Number.isFinite(raw)) return CRM_EXPLORER_SPLIT_DEFAULT;
@@ -109,6 +269,7 @@ const SYSTEMADMIN_HELP_HIDE_SCREENS = new Set([
   "users-rights",
   "company-modules",
   "files-root",
+  "work-drives",
 ]);
 
 /**
@@ -1063,6 +1224,16 @@ function ScrollTable(
     minWidth?: number;
     /** Per-column min widths (px), aligned with headers. */
     columnMinWidths?: Array<number | undefined>;
+    /** Right-click a data row (Clients list pin, etc.). */
+    onRowContextMenu?: (
+      rowIndex: number,
+      e: {
+        clientX: number;
+        clientY: number;
+        preventDefault: () => void;
+        stopPropagation?: () => void;
+      },
+    ) => void;
   },
 ) {
   const isMobile = useIsMobile();
@@ -1091,6 +1262,7 @@ function ScrollTable(
           emptyMessage={props.emptyMessage}
           columnMinWidths={props.columnMinWidths}
           overflow="visible"
+          onRowContextMenu={props.onRowContextMenu}
         />
       </div>
     </div>
@@ -1141,6 +1313,7 @@ type Screen =
   | "departments"
   | "new-client"
   | "billing"
+  | "billing-folders"
   | "secretariat"
   | "template-settings"
   | "template-merge-fields"
@@ -1152,9 +1325,11 @@ type Screen =
   | "assign-staff"
   | "tools"
   | "boards"
+  | "drive"
   | "users-rights"
   | "company-modules"
   | "files-root"
+  | "work-drives"
   | "client-folders"
   | "help-feedback"
   | "ai-maintenance"
@@ -1182,9 +1357,10 @@ function secondaryIdentity(
   selectedCategory: string,
 ): string {
   if (screen === "time-clock") return "time-clock";
-  if (screen === "billing") return "billing";
+  if (screen === "billing" || screen === "billing-folders") return "billing";
   if (screen === "tools") return "tools";
   if (screen === "boards") return "boards";
+  if (screen === "drive") return "drive";
   if (screen === "secretariat") return "secretariat";
   if (screen === "workers") return "workers";
   if (screen === "assign-staff") {
@@ -1219,6 +1395,7 @@ function secondaryIdentity(
     screen === "users-rights" ||
     screen === "company-modules" ||
     screen === "files-root" ||
+    screen === "work-drives" ||
     screen === "client-folders" ||
     screen === "help-feedback" ||
     screen === "ai-maintenance" ||
@@ -1767,14 +1944,71 @@ const CRM_UI = {
     he: "מחלקות המשרד לעובדים",
   },
   tasks: { en: "Tasks", he: "משימות" },
-  /** Combined primary-rail module for Tasks + My Boards. */
+  /** Combined primary-rail module for Tasks + My Boards + Drive. */
   work: { en: "Work", he: "עבודה" },
   workHint: {
-    en: "Tasks & boards",
-    he: "משימות ולוחות",
+    en: "Tasks, boards & Drive",
+    he: "משימות, לוחות ודרייב",
   },
   tools: { en: "Tools", he: "כלים" },
   myBoards: { en: "My Boards", he: "הלוחות שלי" },
+  drive: { en: "Drive", he: "דרייב" },
+  hintDrive: {
+    en: "Firm-wide company folders and shared office document archive",
+    he: "תיקיות חברות בכל המשרד וארכיון מסמכים משותף",
+  },
+  driveTitle: { en: "Drive", he: "דרייב" },
+  driveHint: {
+    en: "Windows Explorer view of all company folder trees plus firm shared folders.",
+    he: "תצוגת סייר Windows לכל עצי תיקיות החברות ולתיקיות המשרד המשותפות.",
+  },
+  driveRootCompanies: { en: "Companies", he: "חברות" },
+  driveRootFirm: { en: "Firm shared folders", he: "תיקיות משרד משותפות" },
+  workDrives: { en: "Work drives", he: "כונני עבודה" },
+  workDrivesTitle: { en: "Work drives", he: "כונני עבודה" },
+  workDrivesHint: {
+    en: "Add named drives (company folders, Google Drive, or folder links) to the Work sidebar. Each name becomes its own secondary tab.",
+    he: "הוסיפו כוננים עם שם (תיקיות חברה, Google Drive או קישורי תיקייה) לסרגל הצד של עבודה. כל שם מופיע כלשונית משנית.",
+  },
+  hintWorkDrives: {
+    en: "Manage Work sidebar drives and Google Drive links",
+    he: "ניהול כונני סרגל עבודה וקישורי Google Drive",
+  },
+  workDriveKindLocal: {
+    en: "Company folders",
+    he: "תיקיות חברה",
+  },
+  workDriveKindGoogle: { en: "Google Drive link", he: "קישור Google Drive" },
+  workDriveKindLink: { en: "Folder link", he: "קישור תיקייה" },
+  workDriveNameLabel: { en: "Drive name", he: "שם הכונן" },
+  workDriveTypeLabel: { en: "Type", he: "סוג" },
+  workDriveUrlLabel: {
+    en: "Google Drive / folder URL",
+    he: "כתובת Google Drive / תיקייה",
+  },
+  workDriveUrlHint: {
+    en: "Demo stores the URL and shows it in the explorer. Opening the live folder is a stub.",
+    he: "בדמו נשמרת הכתובת ומוצגת בסייר. פתיחת התיקייה בפועל היא stub.",
+  },
+  workDriveAdd: { en: "Add drive", he: "הוסף כונן" },
+  workDriveRemove: { en: "Remove", he: "הסר" },
+  workDriveRename: { en: "Rename", he: "שנה שם" },
+  workDriveSaved: {
+    en: "Work drives saved (demo state).",
+    he: "כונני העבודה נשמרו (מצב דמו).",
+  },
+  workDriveLinkStub: {
+    en: "External link — open in browser (demo stub)",
+    he: "קישור חיצוני — פתיחה בדפדפן (דמו)",
+  },
+  workDriveEmptyFolder: {
+    en: "Empty folder (demo)",
+    he: "תיקייה ריקה (דמו)",
+  },
+  workDriveArchiveNote: {
+    en: "Default company archive (Companies + firm shared).",
+    he: "ארכיון החברות ברירת המחדל (חברות + משותף משרד).",
+  },
   myBoardsShort: { en: "Boards", he: "לוחות" },
   /** Template name in + New board — not a FirmBoardsViewTabs tab. */
   activeBoard: { en: "Active board", he: "לוח פעיל" },
@@ -2070,6 +2304,14 @@ const CRM_UI = {
   toolsToolMasavHint: {
     en: "Payee batch → Masav credit MSV file (movement 006)",
     he: "אצוות נמענים → קובץ מס״ב זיכוי MSV (תנועה 006)",
+  },
+  toolsToolTrustCalc: {
+    en: "Trust tax calculation",
+    he: "חישוב מס נאמנות",
+  },
+  toolsToolTrustCalcHint: {
+    en: "Flexible trust tax estimate — add income and expense lines, set trust share, and review the estimated tax.",
+    he: "אומדן מס נאמנות גמיש — הוסף שורות הכנסה והוצאה, הגדר חלק נאמנות, וסקור את המס המשוער.",
   },
   toolsToolSumitDapi: {
     en: "Preparation for Sumit Dapi Bank",
@@ -2978,6 +3220,14 @@ const CRM_UI = {
   usersRightsInviteRole: { en: "Invite role", he: "תפקיד בהזמנה" },
   usersRightsInviteSend: { en: "Send invite", he: "שליחת הזמנה" },
   usersRightsInviteCancel: { en: "Cancel", he: "ביטול" },
+  usersRightsInvitePhoto: {
+    en: "Profile picture",
+    he: "תמונת פרופיל",
+  },
+  usersRightsInvitePhotoHint: {
+    en: "Optional — shown on the roster and signed-in chip after invite (demo stays in canvas state).",
+    he: "אופציונלי — מוצג ברשימה ובצ׳יפ המחובר אחרי ההזמנה (דמו נשמר במצב הקנבס).",
+  },
   usersRightsInviteInvalid: {
     en: "Enter a valid email before sending the invite.",
     he: "הזינו אימייל תקין לפני שליחת ההזמנה.",
@@ -3945,6 +4195,16 @@ const CRM_UI = {
     he: "מספר תיק ניכויים",
   },
   companyProfileSection: { en: "Company profile", he: "פרופיל חברה" },
+  companyProductBrandSection: {
+    en: "CRM product name",
+    he: "שם מוצר ה־CRM",
+  },
+  companyProductBrandName: { en: "Product name", he: "שם המוצר" },
+  companyProductBrandHint: {
+    en: "Shown in the shell header and primary rail. Default is CRM. Separate from firm legal name and logo — does not change the product icon.",
+    he: "מוצג בכותרת ובפס הראשי. ברירת מחדל: CRM. נפרד משם החברה המשפטי ומהלוגו — לא משנה את אייקון המוצר.",
+  },
+  companyProductBrandReset: { en: "Reset to CRM", he: "איפוס ל־CRM" },
   companyDefaultsSection: { en: "Defaults", he: "ברירות מחדל" },
   companyTaxSection: { en: "Tax / withholding files", he: "תיקי מס וניכויים" },
   companySettingsSaved: {
@@ -4040,6 +4300,17 @@ const CRM_UI = {
     en: "Display name",
     he: "שם לתצוגה",
   },
+  userSettingsPhoto: {
+    en: "Profile picture",
+    he: "תמונת פרופיל",
+  },
+  userSettingsPhotoHint: {
+    en: "Shown next to your name and on the signed-in chip. Demo upload is stored in canvas state per worker.",
+    he: "מוצגת ליד השם ובצ׳יפ המחובר. העלאת דמו נשמרת במצב הקנבס לפי עובד.",
+  },
+  userSettingsPhotoUpload: { en: "Upload", he: "העלאה" },
+  userSettingsPhotoChange: { en: "Change", he: "החלפה" },
+  userSettingsPhotoRemove: { en: "Remove", he: "הסרה" },
   userSettingsEmail: {
     en: "Email",
     he: "אימייל",
@@ -4410,6 +4681,84 @@ const CRM_UI = {
     en: "Salaries / payroll processed",
     he: "משכורות עובדו",
   },
+  bkPipelineStagesTitle: {
+    en: "This month's stages",
+    he: "שלבי החודש",
+  },
+  bkNavSettings: { en: "Settings", he: "הגדרות" },
+  bkSettingsTitle: { en: "Bookkeeping settings", he: "הגדרות הנה״ח" },
+  bkSettingsHint: {
+    en: "These choices decide which month steps this client has, and whether the VAT and Salaries tabs show.",
+    he: "הבחירות האלה קובעות אילו שלבים חודשיים יש ללקוח, והאם לשוניות מע״מ ומשכורות מוצגות.",
+  },
+  bkSettingsVat: { en: "VAT", he: "מע״מ" },
+  bkSettingsAdvances: { en: "Advances", he: "מקדמות" },
+  bkSettingsSalaryTransfer: {
+    en: "Salary transfer",
+    he: "העברת משכורות",
+  },
+  bkSettingsRecon: { en: "Reconciliations", he: "התאמות" },
+  bkCycleOff: { en: "Off", he: "כבוי" },
+  bkCycleMonthly: { en: "Monthly", he: "חודשי" },
+  bkCycleBimonthly: { en: "Bimonthly", he: "דו-חודשי" },
+  bkTransferNone: { en: "None", he: "ללא" },
+  bkTransferManual: { en: "Manual", he: "ידני" },
+  bkTransferMasav: { en: "Masav", he: "מס״ב" },
+  bkReconBanks: { en: "Banks", he: "בנקים" },
+  bkReconCards: { en: "Credit cards", he: "כרטיסי אשראי" },
+  bkReconSuppliers: { en: "Suppliers", he: "ספקים" },
+  bkReconCustomers: { en: "Customers", he: "לקוחות" },
+  bkSettingsBimonthlyHint: {
+    en: "Bimonthly report and payment steps appear on Feb, Apr, Jun, Aug, Oct, and Dec.",
+    he: "שלבי דיווח ותשלום דו-חודשיים מופיעים בפברואר, אפריל, יוני, אוגוסט, אוקטובר ודצמבר.",
+  },
+  bkCheckExpReceive: {
+    en: "Receive expenses from the client",
+    he: "קבלת החומר מהלקוח — הוצאות",
+  },
+  bkCheckExpCapture: {
+    en: "Capture expenses and file them",
+    he: "קליטת הוצאות — תיוק",
+  },
+  bkCheckIncReceive: {
+    en: "Receive income from the client or pull it from other software",
+    he: "קבלת הכנסות מהלקוח / משיכת הכנסות מתוכנות שונות",
+  },
+  bkCheckIncCapture: {
+    en: "Capture income",
+    he: "קליטת ההכנסות",
+  },
+  bkCheckVatReport: { en: "VAT report", he: "דיווח למע״מ" },
+  bkCheckVatPay: { en: "VAT payment", he: "תשלום למע״מ" },
+  bkCheckAdvReport: { en: "Advances report", he: "דיווח מקדמות" },
+  bkCheckAdvPay: { en: "Advances payment", he: "תשלום מקדמות" },
+  bkCheckPayPrepare: { en: "Prepare salaries", he: "הכנת משכורות" },
+  bkCheckPayTransfer: { en: "Transfer salaries", he: "העברת משכורות" },
+  bkCheckPayTransferMasav: {
+    en: "Transfer salaries (Masav)",
+    he: "העברת משכורות (מס״ב)",
+  },
+  bkCheckAuthReport: {
+    en: "Report to income tax and National Insurance",
+    he: "דיווח לרשויות — מס הכנסה וביטוח לאומי",
+  },
+  bkCheckAuthPay: {
+    en: "Pay income tax and National Insurance",
+    he: "תשלום לרשויות — מס הכנסה וביטוח לאומי",
+  },
+  bkCheckReconBanks: { en: "Bank reconciliation", he: "התאמת בנקים" },
+  bkCheckReconCards: {
+    en: "Credit card reconciliation",
+    he: "התאמת כרטיסי אשראי",
+  },
+  bkCheckReconSuppliers: {
+    en: "Supplier reconciliation",
+    he: "התאמת ספקים",
+  },
+  bkCheckReconCustomers: {
+    en: "Customer reconciliation",
+    he: "התאמת לקוחות",
+  },
   taxReturnProcessTitle: {
     en: "Personal tax return process",
     he: "תהליך הכנת והגשת דוח אישי",
@@ -4766,6 +5115,63 @@ const CRM_UI = {
     en: "Open / Preview",
     he: "פתיחה / תצוגה מקדימה",
   },
+  taxReturnFolderCtxPinQuickAccess: {
+    en: "Pin to sidebar",
+    he: "הצמדה לסרגל הצד",
+  },
+  taxReturnFolderCtxUnpinQuickAccess: {
+    en: "Unpin from sidebar",
+    he: "ביטול הצמדה מסרגל הצד",
+  },
+  taxReturnFolderPinFlash: {
+    en: "Pinned to sidebar",
+    he: "הוצמד לסרגל הצד",
+  },
+  taxReturnFolderUnpinFlash: {
+    en: "Removed from sidebar",
+    he: "הוסר מסרגל הצד",
+  },
+  driveQuickAccess: {
+    en: "Quick access",
+    he: "גישה מהירה",
+  },
+  /** Windows Explorer Quick Access–style pin row context menu. */
+  quickAccessCtxOpen: {
+    en: "Open",
+    he: "פתיחה",
+  },
+  quickAccessCtxUnpin: {
+    en: "Unpin from Quick access",
+    he: "הסרה מגישה מהירה",
+  },
+  quickAccessCtxCopyPath: {
+    en: "Copy path",
+    he: "העתקת נתיב",
+  },
+  clientsQuickAccessEmpty: {
+    en: "Pin a client from the list or card",
+    he: "הצמידו לקוח מהרשימה או מהכרטיס",
+  },
+  pinClient: {
+    en: "Pin client",
+    he: "הצמדת לקוח",
+  },
+  unpinClient: {
+    en: "Unpin client",
+    he: "ביטול הצמדת לקוח",
+  },
+  billingFolders: {
+    en: "Billing folders",
+    he: "תיקיות חיוב",
+  },
+  billingFoldersTitle: {
+    en: "Billing folders",
+    he: "תיקיות חיוב",
+  },
+  billingFoldersHint: {
+    en: "Invoices, receipts, payment docs, and firm billing archive.",
+    he: "חשבוניות, קבלות, מסמכי תשלום וארכיון חיוב של המשרד.",
+  },
   taxReturnFolderCtxNewMenu: {
     en: "New",
     he: "חדש",
@@ -4949,6 +5355,19 @@ const CRM_UI = {
   auditNextStage: {
     en: "Next stage",
     he: "שלב הבא",
+  },
+  /** Pipeline stage body: Back / Forward / Completed (Trust, BK, Audit). */
+  stageNavBack: {
+    en: "Back",
+    he: "חזרה",
+  },
+  stageNavForward: {
+    en: "Forward",
+    he: "קדימה",
+  },
+  stageNavCompleted: {
+    en: "Completed",
+    he: "הושלם",
   },
   auditNavFolder: {
     en: "Working folder",
@@ -5329,6 +5748,30 @@ const CRM_UI = {
   checklistEditName: {
     en: "Edit name",
     he: "עריכת שם",
+  },
+  /** Destination app for the step (informational — not a submit/complete action). */
+  checklistDoneIn: {
+    en: "Done in {app}",
+    he: "מבוצע ב־{app}",
+  },
+  checklistOpenInAppDemo: {
+    en: "Open {app} (demo)",
+    he: "פתיחת {app} (דמו)",
+  },
+  checklistAppSumit: { en: "Sumit", he: "סאמיט" },
+  checklistAppExcel: { en: "Excel", he: "אקסל" },
+  checklistAppShaam: {
+    en: "SHAAM / Tax Authority",
+    he: "שע״מ / רשות המסים",
+  },
+  checklistAppMasav: { en: "Masav", he: "מס״ב" },
+  checklistAppBanana: { en: "Banana", he: "באננה" },
+  checklistAppKonto: { en: "Konto", he: "קונטו" },
+  checklistAppCrm: { en: "CRM", he: "CRM" },
+  checklistAppPortal: { en: "Client portal", he: "פורטל לקוח" },
+  checklistChooseDoneIn: {
+    en: "Choose where this step is done",
+    he: "בחרו איפה מבצעים את השלב",
   },
   checklistRenameHint: {
     en: "Rename any row, or add your own items. Progress includes custom rows.",
@@ -10206,6 +10649,7 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     departments: "departments",
     "whatsapp-settings": "waDeskSettings",
     "files-root": "filesRoot",
+    "work-drives": "workDrives",
     "client-folders": "clientFolders",
     "help-feedback": "helpFeedback",
     "ai-maintenance": "aiMaintenance",
@@ -10216,6 +10660,7 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     "my-assignments": "myAssignments",
     tasks: "tasks",
     boards: "myBoards",
+    drive: "drive",
     secretariat: "secretariatBoard",
     "chats-settings": "chatsSettings",
     "all-workers": "timeClockAllWorkers",
@@ -10266,7 +10711,9 @@ function tileHint(lang: UiLang, tileId: string, fallback: string): string {
     departments: "hintDepartments",
     "whatsapp-settings": "hintWaDeskSettings",
     "files-root": "hintFilesRoot",
+    "work-drives": "hintWorkDrives",
     "client-folders": "hintClientFolders",
+    drive: "hintDrive",
     "help-feedback": "hintHelpFeedback",
     "ai-maintenance": "hintAiMaintenance",
     wave: "hintWave",
@@ -10359,11 +10806,12 @@ function normalizePrimaryCategory(id: string): string {
   return id;
 }
 
-type WorkModuleId = "tasks" | "boards";
+type WorkModuleId = "tasks" | "boards" | "drive";
 
 function workModuleFromLegacyCategory(id: string): WorkModuleId | null {
   if (id === "tasks") return "tasks";
   if (id === "boards") return "boards";
+  if (id === "drive") return "drive";
   return null;
 }
 
@@ -10591,6 +11039,9 @@ function serviceLabel(lang: UiLang, serviceName: string): string {
   }
   if (key === "vat") return t(lang, "vat");
   if (key === "payroll") return t(lang, "payroll");
+  if (key === "trust reporting") {
+    return lang === "he" ? "דיווח נאמנות" : "Trust reporting";
+  }
   if (key === "consulting") return t(lang, "consulting");
   if (key === "company secretary") return t(lang, "companySecretary");
   if (
@@ -10678,8 +11129,8 @@ function clientStatusLabel(lang: UiLang, status: string): string {
  * Services catalog — each firm service is a tab type; a tab appears on a client
  * card only when that client has the service (service-gated). Known streams
  * (Bookkeeping, Billing, Audit, Tax return, Payroll) keep dedicated
- * workspaces; VAT nests under Bookkeeping as an inner tab + checklist row when
- * the client also has Bookkeeping (otherwise VAT stays a top-level tab).
+ * workspaces; VAT nests under Bookkeeping as an inner tab when that client's
+ * bookkeeping settings have VAT on (otherwise the VAT tab is hidden).
  * Brand-new custom services open a generic service workspace.
  * Optional status dot on process tabs (not Docs). Tabs wrap when tight.
  *
@@ -10707,7 +11158,8 @@ type KnownStreamPanel =
   | "stream-billing"
   | "stream-audit"
   | "stream-vat"
-  | "stream-payroll";
+  | "stream-payroll"
+  | "stream-trust";
 /** Custom firm services → `stream-custom:<slug>` (e.g. Company secretary). */
 type CustomStreamPanel = `stream-custom:${string}`;
 type ClientCardPanel = AlwaysOnPanel | KnownStreamPanel | CustomStreamPanel;
@@ -10835,8 +11287,8 @@ function clientHasVatService(client: { services?: string }): boolean {
 }
 
 /**
- * VAT is never a top-level client-card tab — it always lives under Bookkeeping /
- * Osek Patur as an inner section. The Bookkeeping side pane always shows VAT.
+ * VAT is never a top-level client-card tab — it lives under Bookkeeping /
+ * Osek Patur. The side pane shows it when bookkeeping settings VAT is not Off.
  */
 function nestVatUnderBookkeeping(_client: { services?: string }): boolean {
   return true;
@@ -10938,12 +11390,28 @@ const AUDIT_DOC_TYPE_IDS: AuditDocTypeId[] = [
 
 type AuditSignStatus = "none" | "pending" | "signed";
 
+/**
+ * Destination app where the worker performs a checklist step.
+ * Shown as a tiny icon next to Edit name — informational, not submit/complete.
+ */
+type ChecklistDoneInAppId =
+  | "sumit"
+  | "excel"
+  | "shaam"
+  | "masav"
+  | "banana"
+  | "konto"
+  | "crm"
+  | "portal";
+
 type WorkspaceChecklistItem = {
   id: string;
   label: string;
   done: boolean;
   /** Process stage / month this row belongs to (tax, audit, or Jan–Dec month key). */
   stageId?: TaxReturnProcessStage | AuditProcessStage | string;
+  /** App the worker uses for this step (Sumit, SHAAM, Banana, …). */
+  doneInApp?: ChecklistDoneInAppId;
 };
 
 type WorkspaceFileRow = {
@@ -10951,7 +11419,7 @@ type WorkspaceFileRow = {
   name: string;
   period: string;
   kind: string;
-  /** Bookkeeping month checklist item auto-checked on upload (bk-c1…). */
+  /** Bookkeeping month checklist item id, when an upload should mark a step done. */
   checklistItemId?: string;
   monthKey?: string;
 };
@@ -11699,6 +12167,176 @@ function findTaxReturnFolderParentId(
     }
   }
   return null;
+}
+
+/** Ancestor folder ids (nearest parent first) — expand Drive tree to a Quick Access pin. */
+function taxReturnFolderAncestorIds(
+  tree: TaxReturnFolderNode[],
+  id: string,
+): string[] {
+  const ancestors: string[] = [];
+  let cur: string | null = id;
+  const guard = new Set<string>();
+  while (cur && cur.length > 0 && !guard.has(cur)) {
+    guard.add(cur);
+    const parent = findTaxReturnFolderParentId(tree, cur);
+    if (parent === null || parent.length === 0) break;
+    ancestors.push(parent);
+    cur = parent;
+  }
+  return ancestors;
+}
+
+/**
+ * Demo pins when a worker has never written to the store.
+ * Per-worker only — each worker gets their own copy on first read.
+ * Work + Billing folders + 2 Clients person pins (Explorer-style seed).
+ */
+function defaultQuickAccessPinsForWorker(
+  lang: UiLang,
+): SidebarQuickAccessPin[] {
+  return [
+    {
+      id: "cf-c-greenleaf-root",
+      label: lang === "he" ? "גרין ליף בע״מ" : "Green Leaf Ltd",
+      sidebar: "work",
+      kind: "folder",
+    },
+    {
+      id: "drive-firm-shared",
+      label: lang === "he" ? "משותף" : "Shared",
+      sidebar: "work",
+      kind: "folder",
+    },
+    {
+      id: "bf-invoices",
+      label: lang === "he" ? "חשבוניות" : "Invoices",
+      sidebar: "billing",
+      kind: "folder",
+    },
+    {
+      id: "bf-receipts",
+      label: lang === "he" ? "קבלות" : "Receipts",
+      sidebar: "billing",
+      kind: "folder",
+    },
+    {
+      id: "c-dana-levi",
+      label: lang === "he" ? "דנה לוי" : "Dana Levi",
+      sidebar: "clients",
+      kind: "client",
+    },
+    {
+      id: "c-avi-cohen",
+      label: lang === "he" ? "אבי כהן" : "Avi Cohen",
+      sidebar: "clients",
+      kind: "client",
+    },
+  ];
+}
+
+function workerQuickAccessPins(
+  store: QuickAccessByWorker | null | undefined,
+  workerId: string,
+  lang: UiLang,
+): SidebarQuickAccessPin[] {
+  const wid = (workerId || "").trim();
+  if (!wid) return defaultQuickAccessPinsForWorker(lang);
+  const list = store?.[wid];
+  if (Array.isArray(list)) return list;
+  return defaultQuickAccessPinsForWorker(lang);
+}
+
+function pinsForQuickAccessSidebar(
+  pins: SidebarQuickAccessPin[],
+  sidebar: QuickAccessSidebar,
+): SidebarQuickAccessPin[] {
+  return pins.filter((p) => p.sidebar === sidebar);
+}
+
+function quickAccessPinMatches(
+  pin: SidebarQuickAccessPin,
+  id: string,
+  sidebar: QuickAccessSidebar,
+  kind?: QuickAccessPinKind,
+): boolean {
+  if (pin.id !== id || pin.sidebar !== sidebar) return false;
+  const pinKind = pin.kind ?? "folder";
+  const wantKind = kind ?? "folder";
+  return pinKind === wantKind;
+}
+
+function upsertWorkerQuickAccessPin(
+  store: QuickAccessByWorker,
+  workerId: string,
+  pin: SidebarQuickAccessPin,
+  lang: UiLang,
+): QuickAccessByWorker {
+  const wid = (workerId || "").trim() || "worker";
+  const prev = workerQuickAccessPins(store, wid, lang);
+  const kind = pin.kind ?? "folder";
+  if (
+    prev.some((p) =>
+      quickAccessPinMatches(p, pin.id, pin.sidebar, kind),
+    )
+  ) {
+    return store;
+  }
+  return { ...store, [wid]: [...prev, { ...pin, kind }] };
+}
+
+function removeWorkerQuickAccessPin(
+  store: QuickAccessByWorker,
+  workerId: string,
+  folderId: string,
+  sidebar: QuickAccessSidebar,
+  lang: UiLang,
+  kind: QuickAccessPinKind = "folder",
+): QuickAccessByWorker {
+  const wid = (workerId || "").trim() || "worker";
+  const prev = workerQuickAccessPins(store, wid, lang);
+  return {
+    ...store,
+    [wid]: prev.filter(
+      (p) => !quickAccessPinMatches(p, folderId, sidebar, kind),
+    ),
+  };
+}
+
+/** Rename a per-worker Quick Access pin label (display name only). */
+function renameWorkerQuickAccessPin(
+  store: QuickAccessByWorker,
+  workerId: string,
+  pinId: string,
+  sidebar: QuickAccessSidebar,
+  nextLabel: string,
+  lang: UiLang,
+  kind: QuickAccessPinKind = "folder",
+): QuickAccessByWorker {
+  const wid = (workerId || "").trim() || "worker";
+  const label = nextLabel.trim();
+  if (!label) return store;
+  const prev = workerQuickAccessPins(store, wid, lang);
+  let changed = false;
+  const next = prev.map((p) => {
+    if (!quickAccessPinMatches(p, pinId, sidebar, kind)) return p;
+    if (p.label === label) return p;
+    changed = true;
+    return { ...p, label };
+  });
+  if (!changed) return store;
+  return { ...store, [wid]: next };
+}
+
+/** Best-effort clipboard write (canvas host may block). */
+function copyTextToClipboard(text: string): void {
+  const value = (text || "").trim();
+  if (!value) return;
+  try {
+    void navigator.clipboard?.writeText(value);
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Explorer-style breadcrumb path for a node (demo). */
@@ -13096,7 +13734,8 @@ function isKnownStreamPanel(panel: ClientCardPanel): panel is KnownStreamPanel {
     panel === "stream-billing" ||
     panel === "stream-audit" ||
     panel === "stream-vat" ||
-    panel === "stream-payroll"
+    panel === "stream-payroll" ||
+    panel === "stream-trust"
   );
 }
 
@@ -13560,20 +14199,51 @@ function auditMonthlyYearAverage(monthly: Record<string, number>): number {
 }
 
 /**
- * Bookkeeping / monthly-reporting checklist item ids.
- * Default template: import → match → reconcile → VAT → salaries → close.
+ * Monthly bookkeeping pipeline from the office sheet.
+ * Always-on steps are expenses and income. VAT, advances, payroll,
+ * and reconciliations follow per-client bookkeeping settings.
+ * Bimonthly report/payment steps appear on even months only.
  */
-const BK_VAT_CHECK_ID = "bk-c5";
-const BK_SALARIES_CHECK_ID = "bk-c6";
-const BK_MONTH_CHECKLIST_IDS = [
-  "bk-c1",
-  "bk-c2",
-  "bk-c3",
-  BK_VAT_CHECK_ID,
-  BK_SALARIES_CHECK_ID,
-  "bk-c4",
+type BkCycleSetting = "off" | "monthly" | "bimonthly";
+type BkSalaryTransfer = "none" | "manual" | "masav";
+
+type BkClientSettings = {
+  vat: BkCycleSetting;
+  advances: BkCycleSetting;
+  payroll: boolean;
+  salaryTransfer: BkSalaryTransfer;
+  reconBanks: boolean;
+  reconCards: boolean;
+  reconSuppliers: boolean;
+  reconCustomers: boolean;
+};
+
+const BK_CHECK_EXP_RECEIVE = "bk-exp-receive";
+const BK_CHECK_EXP_CAPTURE = "bk-exp-capture";
+const BK_CHECK_INC_RECEIVE = "bk-inc-receive";
+const BK_CHECK_INC_CAPTURE = "bk-inc-capture";
+const BK_CHECK_VAT_REPORT = "bk-vat-report";
+const BK_CHECK_VAT_PAY = "bk-vat-pay";
+const BK_CHECK_ADV_REPORT = "bk-adv-report";
+const BK_CHECK_ADV_PAY = "bk-adv-pay";
+const BK_CHECK_PAY_PREPARE = "bk-pay-prepare";
+const BK_CHECK_PAY_TRANSFER = "bk-pay-transfer";
+const BK_CHECK_AUTH_REPORT = "bk-auth-report";
+const BK_CHECK_AUTH_PAY = "bk-auth-pay";
+const BK_CHECK_RECON_BANKS = "bk-recon-banks";
+const BK_CHECK_RECON_CARDS = "bk-recon-cards";
+const BK_CHECK_RECON_SUPPLIERS = "bk-recon-suppliers";
+const BK_CHECK_RECON_CUSTOMERS = "bk-recon-customers";
+
+const BK_ALWAYS_CHECK_IDS = [
+  BK_CHECK_EXP_RECEIVE,
+  BK_CHECK_EXP_CAPTURE,
+  BK_CHECK_INC_RECEIVE,
+  BK_CHECK_INC_CAPTURE,
 ] as const;
-const BK_CORE_CHECKLIST_IDS = BK_MONTH_CHECKLIST_IDS;
+
+/** Closing month of each Israeli bimonthly pair. */
+const BK_BIMONTHLY_MONTHS = new Set(["02", "04", "06", "08", "10", "12"]);
 
 type BkMonthKey = (typeof AUDIT_MONTH_KEYS)[number];
 
@@ -13584,9 +14254,93 @@ function isBkMonthKey(v: string): v is BkMonthKey {
   return (AUDIT_MONTH_KEYS as readonly string[]).includes(v);
 }
 
-function bkMonthChecklistIds(_includeVat = true): string[] {
-  // VAT reported is part of the default month template for every BK client.
-  return [...BK_MONTH_CHECKLIST_IDS];
+function bkIsBimonthlyFilingMonth(month: string): boolean {
+  return BK_BIMONTHLY_MONTHS.has(month);
+}
+
+function bkCycleStepActive(cycle: BkCycleSetting, month: string): boolean {
+  if (cycle === "off") return false;
+  if (cycle === "monthly") return true;
+  return bkIsBimonthlyFilingMonth(month);
+}
+
+function defaultBkClientSettings(client: {
+  kind?: string;
+  services?: string;
+  profile?: { vatCycle?: VatCycle };
+}): BkClientSettings {
+  const osek = client.kind === "osek";
+  const vatCycle = client.profile?.vatCycle;
+  let vat: BkCycleSetting = "off";
+  if (!osek) {
+    if (vatCycle === "monthly" || vatCycle === "bimonthly") vat = vatCycle;
+    else if (clientHasVatService(client)) vat = "monthly";
+  }
+  const payroll = clientHasService(client.services ?? "", "Payroll");
+  return {
+    vat,
+    advances: "monthly",
+    payroll,
+    salaryTransfer: payroll ? "manual" : "none",
+    reconBanks: true,
+    reconCards: true,
+    reconSuppliers: true,
+    reconCustomers: true,
+  };
+}
+
+function normalizeBkClientSettings(
+  raw: Partial<BkClientSettings> | null | undefined,
+  client: {
+    kind?: string;
+    services?: string;
+    profile?: { vatCycle?: VatCycle };
+  },
+): BkClientSettings {
+  const base = defaultBkClientSettings(client);
+  if (!raw) return base;
+  const cycle = (v: unknown, fallback: BkCycleSetting): BkCycleSetting =>
+    v === "off" || v === "monthly" || v === "bimonthly" ? v : fallback;
+  const transfer = (v: unknown, fallback: BkSalaryTransfer): BkSalaryTransfer =>
+    v === "none" || v === "manual" || v === "masav" ? v : fallback;
+  return {
+    vat: cycle(raw.vat, base.vat),
+    advances: cycle(raw.advances, base.advances),
+    payroll: typeof raw.payroll === "boolean" ? raw.payroll : base.payroll,
+    salaryTransfer: transfer(raw.salaryTransfer, base.salaryTransfer),
+    reconBanks:
+      typeof raw.reconBanks === "boolean" ? raw.reconBanks : base.reconBanks,
+    reconCards:
+      typeof raw.reconCards === "boolean" ? raw.reconCards : base.reconCards,
+    reconSuppliers:
+      typeof raw.reconSuppliers === "boolean"
+        ? raw.reconSuppliers
+        : base.reconSuppliers,
+    reconCustomers:
+      typeof raw.reconCustomers === "boolean"
+        ? raw.reconCustomers
+        : base.reconCustomers,
+  };
+}
+
+function bkMonthChecklistIds(settings: BkClientSettings, month: string): string[] {
+  const ids: string[] = [...BK_ALWAYS_CHECK_IDS];
+  if (bkCycleStepActive(settings.vat, month)) {
+    ids.push(BK_CHECK_VAT_REPORT, BK_CHECK_VAT_PAY);
+  }
+  if (bkCycleStepActive(settings.advances, month)) {
+    ids.push(BK_CHECK_ADV_REPORT, BK_CHECK_ADV_PAY);
+  }
+  if (settings.payroll) {
+    ids.push(BK_CHECK_PAY_PREPARE);
+    if (settings.salaryTransfer !== "none") ids.push(BK_CHECK_PAY_TRANSFER);
+    ids.push(BK_CHECK_AUTH_REPORT, BK_CHECK_AUTH_PAY);
+  }
+  if (settings.reconBanks) ids.push(BK_CHECK_RECON_BANKS);
+  if (settings.reconCards) ids.push(BK_CHECK_RECON_CARDS);
+  if (settings.reconSuppliers) ids.push(BK_CHECK_RECON_SUPPLIERS);
+  if (settings.reconCustomers) ids.push(BK_CHECK_RECON_CUSTOMERS);
+  return ids;
 }
 
 function bkChecklistDoneKey(month: string, itemId: string): string {
@@ -13622,11 +14376,12 @@ function bkChecklistDoneCountFromPct(pct: number, itemCount = 6): number {
 function defaultBkMonthChecklistDone(
   clientId: string,
   year: string,
+  settings: BkClientSettings,
 ): Record<string, boolean> {
   const monthly = defaultAuditMonthlyPct(clientId, year);
   const out: Record<string, boolean> = {};
-  const ids = [...BK_MONTH_CHECKLIST_IDS];
   for (const m of AUDIT_MONTH_KEYS) {
+    const ids = bkMonthChecklistIds(settings, m);
     const n = bkChecklistDoneCountFromPct(monthly[m] ?? 0, ids.length);
     ids.forEach((id, i) => {
       out[bkChecklistDoneKey(m, id)] = i < n;
@@ -13638,10 +14393,10 @@ function defaultBkMonthChecklistDone(
 function bookkeepingMonthPctFromChecklist(
   month: string,
   done: Record<string, boolean>,
+  settings: BkClientSettings,
   extraItemIds: string[] = [],
-  includeVat = false,
 ): number {
-  const ids = [...bkMonthChecklistIds(includeVat), ...extraItemIds];
+  const ids = [...bkMonthChecklistIds(settings, month), ...extraItemIds];
   if (ids.length === 0) return 0;
   let completed = 0;
   for (const id of ids) {
@@ -13653,14 +14408,14 @@ function bookkeepingMonthPctFromChecklist(
 function bookkeepingAllMonthsPct(
   done: Record<string, boolean>,
   customItems: { id: string; monthKey: string }[] = [],
-  includeVat = false,
+  settings: BkClientSettings,
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const m of AUDIT_MONTH_KEYS) {
     const extra = customItems
       .filter((c) => c.monthKey === m)
       .map((c) => c.id);
-    out[m] = bookkeepingMonthPctFromChecklist(m, done, extra, includeVat);
+    out[m] = bookkeepingMonthPctFromChecklist(m, done, settings, extra);
   }
   return out;
 }
@@ -13669,9 +14424,9 @@ function bookkeepingAllMonthsPct(
 function bookkeepingYearFullyComplete(
   done: Record<string, boolean>,
   customItems: { id: string; monthKey: string }[] = [],
-  includeVat = false,
+  settings: BkClientSettings,
 ): boolean {
-  const monthly = bookkeepingAllMonthsPct(done, customItems, includeVat);
+  const monthly = bookkeepingAllMonthsPct(done, customItems, settings);
   return AUDIT_MONTH_KEYS.every((m) => (monthly[m] ?? 0) >= 100);
 }
 
@@ -13713,38 +14468,84 @@ function auditProcessStageFillRatios(
   });
 }
 
-function bkCheckLabelKey(itemId: string): CrmUiKey {
-  if (itemId === "bk-c1") return "bkCheckImport";
-  if (itemId === "bk-c2") return "bkCheckMatch";
-  if (itemId === "bk-c3") return "bkCheckReconcile";
-  if (itemId === BK_VAT_CHECK_ID) return "bkCheckVat";
-  if (itemId === BK_SALARIES_CHECK_ID) return "bkCheckSalaries";
-  return "bkCheckClose";
+function bkCheckLabelKey(itemId: string, settings: BkClientSettings): CrmUiKey {
+  if (itemId === BK_CHECK_EXP_RECEIVE) return "bkCheckExpReceive";
+  if (itemId === BK_CHECK_EXP_CAPTURE) return "bkCheckExpCapture";
+  if (itemId === BK_CHECK_INC_RECEIVE) return "bkCheckIncReceive";
+  if (itemId === BK_CHECK_INC_CAPTURE) return "bkCheckIncCapture";
+  if (itemId === BK_CHECK_VAT_REPORT) return "bkCheckVatReport";
+  if (itemId === BK_CHECK_VAT_PAY) return "bkCheckVatPay";
+  if (itemId === BK_CHECK_ADV_REPORT) return "bkCheckAdvReport";
+  if (itemId === BK_CHECK_ADV_PAY) return "bkCheckAdvPay";
+  if (itemId === BK_CHECK_PAY_PREPARE) return "bkCheckPayPrepare";
+  if (itemId === BK_CHECK_PAY_TRANSFER) {
+    return settings.salaryTransfer === "masav"
+      ? "bkCheckPayTransferMasav"
+      : "bkCheckPayTransfer";
+  }
+  if (itemId === BK_CHECK_AUTH_REPORT) return "bkCheckAuthReport";
+  if (itemId === BK_CHECK_AUTH_PAY) return "bkCheckAuthPay";
+  if (itemId === BK_CHECK_RECON_BANKS) return "bkCheckReconBanks";
+  if (itemId === BK_CHECK_RECON_CARDS) return "bkCheckReconCards";
+  if (itemId === BK_CHECK_RECON_SUPPLIERS) return "bkCheckReconSuppliers";
+  if (itemId === BK_CHECK_RECON_CUSTOMERS) return "bkCheckReconCustomers";
+  return "bkCheckExpReceive";
+}
+
+/** Where the worker does each BK month checklist step (not a complete action). */
+function bkCheckDoneInApp(
+  itemId: string,
+  settings: BkClientSettings,
+): ChecklistDoneInAppId {
+  if (itemId === BK_CHECK_EXP_RECEIVE) return "portal";
+  if (itemId === BK_CHECK_EXP_CAPTURE) return "sumit";
+  if (itemId === BK_CHECK_INC_RECEIVE) return "sumit";
+  if (itemId === BK_CHECK_INC_CAPTURE) return "sumit";
+  if (itemId === BK_CHECK_VAT_REPORT || itemId === BK_CHECK_VAT_PAY)
+    return "shaam";
+  if (itemId === BK_CHECK_ADV_REPORT || itemId === BK_CHECK_ADV_PAY)
+    return "shaam";
+  if (itemId === BK_CHECK_PAY_PREPARE) return "excel";
+  if (itemId === BK_CHECK_PAY_TRANSFER) {
+    return settings.salaryTransfer === "masav" ? "masav" : "excel";
+  }
+  if (itemId === BK_CHECK_AUTH_REPORT || itemId === BK_CHECK_AUTH_PAY)
+    return "shaam";
+  if (
+    itemId === BK_CHECK_RECON_BANKS ||
+    itemId === BK_CHECK_RECON_CARDS ||
+    itemId === BK_CHECK_RECON_SUPPLIERS ||
+    itemId === BK_CHECK_RECON_CUSTOMERS
+  ) {
+    return "sumit";
+  }
+  return "crm";
 }
 
 function demoBookkeepingMonthChecklist(
   lang: UiLang,
   month: string,
   done: Record<string, boolean>,
-  includeVat = false,
+  settings: BkClientSettings,
 ): WorkspaceChecklistItem[] {
-  return bkMonthChecklistIds(includeVat).map((id) => ({
+  return bkMonthChecklistIds(settings, month).map((id) => ({
     id,
-    label: t(lang, bkCheckLabelKey(id)),
+    label: t(lang, bkCheckLabelKey(id, settings)),
     done: !!done[bkChecklistDoneKey(month, id)],
     stageId: month,
+    doneInApp: bkCheckDoneInApp(id, settings),
   }));
 }
 
 function defaultBkActiveMonth(
   clientId: string,
   year: string,
-  includeVat = false,
+  settings: BkClientSettings,
 ): BkMonthKey {
   const monthly = bookkeepingAllMonthsPct(
-    defaultBkMonthChecklistDone(clientId, year),
+    defaultBkMonthChecklistDone(clientId, year, settings),
     [],
-    includeVat,
+    settings,
   );
   for (const m of AUDIT_MONTH_KEYS) {
     const pct = monthly[m] ?? 0;
@@ -13841,6 +14642,16 @@ function auditMonthAbbrKey(month: string): CrmUiKey {
   return "auditMonthAbbr12";
 }
 
+function auditCheckDoneInApp(step: AuditProcessStage): ChecklistDoneInAppId {
+  if (step === "import-konto" || step === "fieldwork") return "konto";
+  if (step === "report-1214" || step === "reporting") return "shaam";
+  if (step === "sign-submit") return "portal";
+  if (step === "bk-close" || step === "bk-banks") return "sumit";
+  if (step === "invoice-check") return "sumit";
+  // year-transfer, bank-confirm, audit-ready — tracked / completed in CRM
+  return "crm";
+}
+
 function demoAuditChecklist(
   lang: UiLang,
   stage: AuditProcessStage,
@@ -13856,6 +14667,7 @@ function demoAuditChecklist(
       stageId: step,
       label: t(lang, auditCheckLabelKey(step)),
       done: doneOverrides[id] ?? autoDone,
+      doneInApp: auditCheckDoneInApp(step),
     };
   });
 }
@@ -14593,6 +15405,7 @@ function demoWorkStatus(
     "stream-audit",
     "stream-vat",
     "stream-payroll",
+    "stream-trust",
   ];
   const idx =
     (clientId.length +
@@ -16753,13 +17566,62 @@ function OverallProgressBar({
  * (Bookkeeping / Audit / Tax). `layout="top"` = horizontal raised tabs
  * (Clients landing Inbox & tasks). ModuleSectionFrame always uses the side pane.
  */
+type ModuleSectionTabIconId = "settings" | "trust-calc";
+
 type ModuleSectionTabItem = {
   id: string;
   label: string;
   badge?: string;
   /** Optional red/yellow/green status dot (e.g. Bookkeeping → VAT). */
   status?: WorkFlowStatus;
+  /**
+   * Optional leading glyph — settings gear, or Tools `trust-calc`
+   * ModuleTileIcon (document + calculator).
+   */
+  icon?: ModuleSectionTabIconId;
 };
+
+/** Leading glyph for ModuleSectionTabs (settings gear or Tools trust-calc). */
+function ModuleSectionTabLeadingIcon({
+  icon,
+  size = 14,
+}: {
+  icon?: ModuleSectionTabIconId;
+  size?: number;
+}) {
+  if (icon === "settings") return <ChromeSettingsGearGlyph size={size} />;
+  if (icon === "trust-calc") {
+    return (
+      <ModuleTileIcon
+        tileId="trust-calc"
+        color={TILE_ICON_COLORS["trust-calc"] ?? "#0D9488"}
+        size={size}
+      />
+    );
+  }
+  return null;
+}
+
+/** Gmail-style settings gear — same path as rail User settings IconButton. */
+function ChromeSettingsGearGlyph({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ flexShrink: 0, display: "block" }}
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
 
 type TabBarVariant = "raised" | "gmail";
 
@@ -17089,6 +17951,7 @@ function ModuleSectionTabs({
                     font: "inherit",
                   }}
                 >
+                  <ModuleSectionTabLeadingIcon icon={item.icon} size={13} />
                   {item.status ? (
                     <StatusBlob status={item.status} size={8} />
                   ) : null}
@@ -17231,6 +18094,7 @@ function ModuleSectionTabs({
                   userSelect: "none",
                 }}
               >
+                <ModuleSectionTabLeadingIcon icon={item.icon} size={14} />
                 {item.status ? (
                   <StatusBlob status={item.status} size={8} />
                 ) : null}
@@ -17361,6 +18225,64 @@ function ModuleSectionFrame({
         ) : null}
         {children}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Back / Forward / Completed footer inside ModuleSectionFrame stage bodies
+ * (Trust pipeline from Intake, BK month panels, Audit stage chain).
+ */
+function ProcessStageNavFooter({
+  uiLang,
+  backDisabled,
+  forwardDisabled,
+  onBack,
+  onForward,
+  onCompleted,
+  completedDisabled = false,
+}: {
+  uiLang: UiLang;
+  backDisabled: boolean;
+  forwardDisabled: boolean;
+  onBack: () => void;
+  onForward: () => void;
+  onCompleted: () => void;
+  completedDisabled?: boolean;
+}) {
+  const theme = useHostTheme();
+  return (
+    <div
+      dir={uiDir(uiLang)}
+      style={{
+        flexShrink: 0,
+        marginTop: 12,
+        paddingTop: 10,
+        borderTop: `1px solid ${chromeBorder(theme)}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        flexWrap: "wrap",
+      }}
+    >
+      <Button variant="secondary" disabled={backDisabled} onClick={onBack}>
+        {`${navBackArrow(uiLang)} ${t(uiLang, "stageNavBack")}`}
+      </Button>
+      <Button
+        variant="primary"
+        disabled={completedDisabled}
+        onClick={onCompleted}
+      >
+        {t(uiLang, "stageNavCompleted")}
+      </Button>
+      <Button
+        variant="secondary"
+        disabled={forwardDisabled}
+        onClick={onForward}
+      >
+        {`${t(uiLang, "stageNavForward")} ${flowArrow(uiLang)}`}
+      </Button>
     </div>
   );
 }
@@ -18106,9 +19028,11 @@ type ModuleTile = {
     | "whatsapp"
     | "tasks"
     | "boards"
+    | "drive"
     | "users-rights"
     | "company-modules"
     | "files-root"
+    | "work-drives"
     | "client-folders"
     | "help-feedback"
     | "ai-maintenance"
@@ -18582,8 +19506,11 @@ function normalizeFirmWorker(w: {
     (w.phone ?? "").trim() ||
     seed?.phone ||
     deriveWorkerPhoneFromSignature(emailSignatureBody);
+  /** Explicit "" clears avatar (initials); undefined still gets demo seed. */
   const photoUrl =
-    (w.photoUrl ?? "").trim() || DEMO_STAFF_PHOTO_SEED[w.id] || "";
+    typeof w.photoUrl === "string"
+      ? w.photoUrl.trim()
+      : DEMO_STAFF_PHOTO_SEED[w.id] || "";
   return {
     id: w.id,
     name: w.name,
@@ -18707,6 +19634,147 @@ function staffPhotoUrl(
     workers.find((s) => s.id === workerId) ??
     DEMO_STAFF.find((s) => s.id === workerId);
   return (row?.photoUrl ?? "").trim();
+}
+
+/** Demo image pick → data URL (same pattern as company logo upload). */
+function readImageFileAsDataUrl(
+  file: File | null | undefined,
+  onDone: (dataUrl: string, fileName: string) => void,
+): void {
+  if (!file || !file.type.startsWith("image/")) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = typeof reader.result === "string" ? reader.result : "";
+    if (result) onDone(result, file.name || "photo");
+  };
+  reader.readAsDataURL(file);
+}
+
+function initialsFromLabel(label: string): string {
+  const parts = label
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "?";
+  return parts
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+/**
+ * Circular profile-picture control — preview + Upload/Change + Remove.
+ * Persists via caller (firmWorkers.photoUrl / invite draft state).
+ */
+function StaffAvatarUploadField({
+  photoUrl,
+  initials,
+  uiLang,
+  onChange,
+  size = 56,
+  hintKey,
+  aside,
+}: {
+  photoUrl: string;
+  initials: string;
+  uiLang: UiLang;
+  onChange: (nextPhotoUrl: string) => void;
+  size?: number;
+  hintKey?: CrmUiKey;
+  /** Optional label block shown to the right of the circle (e.g. display name). */
+  aside?: unknown;
+}) {
+  const theme = useHostTheme();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const accent = theme.category.blue;
+  const trimmed = photoUrl.trim();
+  const hasPhoto = trimmed.length > 0;
+  const label = (initials || "?").slice(0, 2).toUpperCase();
+
+  return (
+    <Stack gap={8}>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          readImageFileAsDataUrl(e.target.files?.[0], (dataUrl) => {
+            onChange(dataUrl);
+          });
+          e.target.value = "";
+        }}
+      />
+      <Row gap={12} align="center" wrap>
+        <div
+          aria-hidden
+          style={{
+            width: size,
+            height: size,
+            borderRadius: 999,
+            background: hasPhoto
+              ? "transparent"
+              : waveChipAlpha(accent, "33"),
+            border: `1px solid ${
+              hasPhoto ? chromeBorder(theme) : waveChipAlpha(accent, "66")
+            }`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: accent,
+            fontSize: size >= 48 ? 16 : 12,
+            fontWeight: 600,
+            lineHeight: 1,
+            flexShrink: 0,
+            overflow: "hidden",
+          }}
+        >
+          {hasPhoto ? (
+            <img
+              src={trimmed}
+              alt=""
+              draggable={false}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                display: "block",
+              }}
+            />
+          ) : (
+            label
+          )}
+        </div>
+        {aside != null && aside !== false ? (
+          <div style={{ minWidth: 0, flex: 1 }}>{aside as never}</div>
+        ) : null}
+      </Row>
+      <Row gap={8} wrap>
+        <Button
+          variant="secondary"
+          onClick={() => fileRef.current?.click()}
+        >
+          {t(
+            uiLang,
+            hasPhoto ? "userSettingsPhotoChange" : "userSettingsPhotoUpload",
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={!hasPhoto}
+          onClick={() => onChange("")}
+        >
+          {t(uiLang, "userSettingsPhotoRemove")}
+        </Button>
+      </Row>
+      {hintKey ? (
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, hintKey)}
+        </ChromeText>
+      ) : null}
+    </Stack>
+  );
 }
 
 /** Resolve signed-in worker send-from + signature (normalized). */
@@ -20377,7 +21445,11 @@ function UserSettingsScreen() {
     patch: Partial<
       Pick<
         FirmWorker,
-        "email" | "phone" | "emailSignatureName" | "emailSignatureBody"
+        | "email"
+        | "phone"
+        | "emailSignatureName"
+        | "emailSignatureBody"
+        | "photoUrl"
       >
     >,
   ) => {
@@ -20426,14 +21498,27 @@ function UserSettingsScreen() {
           </Stack>
 
           <Grid columns={2} gap={12}>
-            <Stack gap={4}>
+            <Stack gap={8}>
               <FieldLabel>{t(uiLang, "userSettingsDisplayName")}</FieldLabel>
-              <ChromeText size="small" weight="semibold">
-                {name}
-              </ChromeText>
-              <ChromeText size="small" tone="tertiary">
-                {deptLabels}
-              </ChromeText>
+              <StaffAvatarUploadField
+                photoUrl={signedInProfile.photoUrl}
+                initials={staffInitials(signedInWorkerId, firmWorkers)}
+                uiLang={uiLang}
+                onChange={(next) =>
+                  patchSignedInProfile({ photoUrl: next })
+                }
+                hintKey="userSettingsPhotoHint"
+                aside={
+                  <Stack gap={2}>
+                    <ChromeText size="small" weight="semibold">
+                      {name}
+                    </ChromeText>
+                    <ChromeText size="small" tone="tertiary">
+                      {deptLabels}
+                    </ChromeText>
+                  </Stack>
+                }
+              />
             </Stack>
             <Stack gap={4}>
               <FieldLabel>{t(uiLang, "userSettingsPhone")}</FieldLabel>
@@ -20779,7 +21864,7 @@ function templateSettingsCategoryForRole(role: Role): string {
   return isSystemAdmin(role) ? "systemadmin" : "worker";
 }
 
-/** Work primary — Tasks + My Boards (secondary rows with icons, like Clients). */
+/** Work primary — Tasks + My Boards + Drive (secondary rows with icons, like Clients). */
 const WORK_TILES: ModuleTile[] = [
   {
     id: "tasks",
@@ -20793,6 +21878,12 @@ const WORK_TILES: ModuleTile[] = [
     label: "My Boards",
     hint: "Department boards",
     opens: "boards",
+  },
+  {
+    id: "drive",
+    label: "Drive",
+    hint: "Firm-wide company folders and shared office document archive",
+    opens: "drive",
   },
 ];
 
@@ -21006,6 +22097,12 @@ const SYSTEM_TILES: ModuleTile[] = [
     opens: "api-connections",
   },
   { id: "files-root", label: "Files root / cloud", hint: "Share now, cloud later", opens: "files-root" },
+  {
+    id: "work-drives",
+    label: "Work drives",
+    hint: "Manage Work sidebar drives and Google Drive links",
+    opens: "work-drives",
+  },
   { id: "wave", label: "Wave import", hint: "Read-only history", opens: "wave-import" },
 ];
 
@@ -21107,7 +22204,7 @@ function buildCompanyModulesCatalog(): CompanyModuleDef[] {
     add(id, id, "primary", false, "tools");
   }
 
-  /** Work → Tasks + My Boards. */
+  /** Work → Tasks + My Boards + Drive. */
   for (const tile of WORK_TILES) {
     add(tile.id, tile.id, "primary", false, "work");
   }
@@ -27073,6 +28170,27 @@ const DEFAULT_DEMO_ROWS: DemoRow[] = [
       preferredLang: "he",
       invoiceSchedule: "biannual",
       feeAmount: "12000",
+      feeLines: [
+        {
+          id: "fl-cohen-trust-reporting",
+          service: "Tax return",
+          amountIls: "10000",
+          frequency: "yearly",
+          amountBasis: "annual_total",
+          vatMode: "included",
+        },
+        {
+          id: "fl-cohen-trust-consulting",
+          service: "Consulting",
+          amountIls: "2000",
+          frequency: "yearly",
+          amountBasis: "annual_total",
+          vatMode: "included",
+        },
+      ],
+      feeTermsEn:
+        "Annual trust reporting + trustee advisory; billed biannually.",
+      feeTermsHe: "דיווח נאמנות שנתי + ייעוץ לנאמן; חיוב דו-שנתי.",
     },
   },
   {
@@ -28806,6 +29924,7 @@ const KNOWN_STREAM_BY_SERVICE: Record<
   "tax return": { id: "stream-tax-return", label: "Tax return" },
   vat: { id: "stream-vat", label: "VAT" },
   payroll: { id: "stream-payroll", label: "Payroll" },
+  "trust reporting": { id: "stream-trust", label: "Trust reporting" },
 };
 
 function slugifyService(name: string): string {
@@ -28875,7 +29994,27 @@ function streamsForClient(
   clientServices: string,
   firmServices: string[],
   clientKind?: DemoRow["kind"],
+  extraServices?: string[],
 ): ClientStreamDef[] {
+  if (clientKind === "trust") {
+    const trustOut: ClientStreamDef[] = [
+      {
+        id: "stream-trust",
+        label: "Trust reporting",
+        serviceName: "Trust reporting",
+      },
+    ];
+    const trustSeen = new Set<string>(["stream-trust"]);
+    for (const firmSvc of extraServices ?? []) {
+      const name = firmSvc.trim();
+      if (!name) continue;
+      const def = streamDefForService(name);
+      if (trustSeen.has(def.id) || def.id === "stream-vat") continue;
+      trustSeen.add(def.id);
+      trustOut.push(def);
+    }
+    return trustOut;
+  }
   const seen = new Set<string>();
   const out: ClientStreamDef[] = [];
   const hasVat = clientHasService(clientServices, "VAT");
@@ -28938,8 +30077,7 @@ function defaultPanelForEntryContext(
       preferred = "stream-bookkeeping";
       break;
     case "trust":
-      // No dedicated Trust process tab yet.
-      preferred = "overview";
+      preferred = "stream-trust";
       break;
     default:
       // all | potential | one-time | overview | empty
@@ -28949,7 +30087,11 @@ function defaultPanelForEntryContext(
   const streams = streamsForClient(
     clientServices,
     firmServices,
-    entry === "individuals" ? "individuals" : undefined,
+    entry === "individuals"
+      ? "individuals"
+      : entry === "trust"
+        ? "trust"
+        : undefined,
   );
   return streams.some((s) => s.id === preferred) ? preferred : "overview";
 }
@@ -29251,26 +30393,35 @@ function clientPanelSubtitle(
   return `${clientPanelTitle(lang, panel)} comments for ${clientName} only — this stream’s chat, not General and not other process tabs.`;
 }
 
-function demoBookkeepingFiles(client: DemoRow): WorkspaceFileRow[] {
+/** Curated period-scoped docs for Bookkeeping → Files (not the year archive). */
+function demoBookkeepingFiles(
+  client: DemoRow,
+  periodLabel: string,
+  monthKey: BkMonthKey,
+  prevPeriodLabel: string,
+): WorkspaceFileRow[] {
   const short = client.name.split(" ")[0] ?? client.name;
   return [
     {
-      id: `${client.id}-bk-bank`,
+      id: `${client.id}-bk-bank-${monthKey}`,
       name: `Bank CSV — ${short}`,
-      period: "Mar 2026",
+      period: periodLabel,
       kind: "Bank",
+      monthKey,
     },
     {
-      id: `${client.id}-bk-sup`,
+      id: `${client.id}-bk-sup-${monthKey}`,
       name: `Supplier invoices pack — ${short}`,
-      period: "Mar 2026",
+      period: periodLabel,
       kind: "Invoices",
+      monthKey,
     },
     {
-      id: `${client.id}-bk-recon`,
+      id: `${client.id}-bk-recon-${monthKey}`,
       name: `Bank reconcile worksheet — ${short}`,
-      period: "Feb 2026",
+      period: prevPeriodLabel,
       kind: "Reconcile",
+      monthKey,
     },
   ];
 }
@@ -29678,40 +30829,280 @@ function buildClientFoldersArchiveTree(lang: UiLang): TaxReturnFolderNode[] {
   ];
 }
 
-function demoBookkeepingChecklist(client: DemoRow): WorkspaceChecklistItem[] {
-  const status = demoWorkStatus(client.id, "stream-bookkeeping");
-  return [
+/**
+ * Work → Drive — firm-wide company document archive (Companies + firm shared).
+ * Same TaxReturnFolderBrowser Explorer as Client folders / Bookkeeping docs.
+ * `rootLabel` is the configured drive name shown as the archive root.
+ */
+function buildCompanyDriveArchiveTree(
+  lang: UiLang,
+  rootLabel?: string,
+): TaxReturnFolderNode[] {
+  const rows = DEFAULT_DEMO_ROWS;
+  const activeCompanies = rows.filter(
+    (r) =>
+      r.status === "Active" && r.kind === "company" && !r.isPotential,
+  );
+  const inactiveCompanies: Array<{
+    id: string;
+    name: string;
+    kind: DemoRow["kind"];
+  }> = [
+    { id: "c-archived-oldco", name: "Old Coast Trading Ltd", kind: "company" },
     {
-      id: "bk-c1",
-      label: "Import bank transactions",
-      done: status !== "not-started",
-    },
-    {
-      id: "bk-c2",
-      label: "Match supplier invoices",
-      done: status === "finished",
-    },
-    {
-      id: "bk-c3",
-      label: "Reconcile bank vs books",
-      done: status === "finished",
-    },
-    {
-      id: "bk-c5",
-      label: "VAT reported",
-      done: status === "finished",
-    },
-    {
-      id: "bk-c6",
-      label: "Salaries / payroll processed",
-      done: status === "finished",
-    },
-    {
-      id: "bk-c4",
-      label: "Close month and post",
-      done: status === "finished",
+      id: "c-archived-northco",
+      name: "North Peak Holdings Ltd",
+      kind: "company",
     },
   ];
+
+  return [
+    {
+      id: "drive-root",
+      label: rootLabel?.trim() || t(lang, "driveTitle"),
+      kind: "folder",
+      children: [
+        {
+          id: "drive-companies",
+          label: t(lang, "driveRootCompanies"),
+          kind: "folder",
+          children: [
+            ...activeCompanies.map((c) =>
+              buildClientFoldersEntityTree(lang, c),
+            ),
+            ...inactiveCompanies.map((c) =>
+              buildClientFoldersEntityTree(lang, c, { inactive: true }),
+            ),
+          ],
+        },
+        {
+          id: "drive-firm",
+          label: t(lang, "driveRootFirm"),
+          kind: "folder",
+          children: [
+            {
+              id: "drive-firm-templates",
+              label: lang === "he" ? "תבניות משרד" : "Firm templates",
+              kind: "folder",
+              children: [
+                {
+                  id: "drive-firm-tpl-eng",
+                  label: "Engagement_letter_template.docx",
+                  kind: "file",
+                },
+                {
+                  id: "drive-firm-tpl-fee",
+                  label: "Fee_schedule_2026.xlsx",
+                  kind: "file",
+                },
+                {
+                  id: "drive-firm-tpl-corp",
+                  label: "Company_docs_checklist.docx",
+                  kind: "file",
+                },
+              ],
+            },
+            {
+              id: "drive-firm-shared",
+              label: lang === "he" ? "משותף" : "Shared",
+              kind: "folder",
+              children: [
+                {
+                  id: "drive-firm-shared-policy",
+                  label: "Document_retention_policy.pdf",
+                  kind: "file",
+                },
+                {
+                  id: "drive-firm-shared-index",
+                  label: "Company_archive_index.xlsx",
+                  kind: "file",
+                },
+              ],
+            },
+            {
+              id: "drive-firm-registry",
+              label: lang === "he" ? "רשם החברות" : "Companies Registrar",
+              kind: "folder",
+              children: [
+                {
+                  id: "drive-firm-reg-guide",
+                  label: "Registrar_filing_guide.pdf",
+                  kind: "file",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+}
+
+/** Firm Billing docs folders — Explorer tree for Billing secondary module. */
+function buildBillingFoldersArchiveTree(lang: UiLang): TaxReturnFolderNode[] {
+  return [
+    {
+      id: "bf-root",
+      label: t(lang, "billingFoldersTitle"),
+      kind: "folder",
+      children: [
+        {
+          id: "bf-invoices",
+          label: lang === "he" ? "חשבוניות" : "Invoices",
+          kind: "folder",
+          children: [
+            {
+              id: "bf-inv-2026",
+              label: lang === "he" ? "2026" : "2026",
+              kind: "folder",
+              children: [
+                {
+                  id: "bf-inv-2026-sample",
+                  label: "INV-2026-0042.pdf",
+                  kind: "file",
+                },
+              ],
+            },
+            {
+              id: "bf-inv-drafts",
+              label: lang === "he" ? "טיוטות" : "Drafts",
+              kind: "folder",
+              children: [
+                {
+                  id: "bf-inv-draft-sample",
+                  label: "Draft_GreenLeaf_May.docx",
+                  kind: "file",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "bf-receipts",
+          label: lang === "he" ? "קבלות" : "Receipts",
+          kind: "folder",
+          children: [
+            {
+              id: "bf-rcp-2026",
+              label: "2026",
+              kind: "folder",
+              children: [
+                {
+                  id: "bf-rcp-2026-sample",
+                  label: "RCP-2026-0018.pdf",
+                  kind: "file",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "bf-payment-docs",
+          label: lang === "he" ? "מסמכי תשלום" : "Payment docs",
+          kind: "folder",
+          children: [
+            {
+              id: "bf-pay-requests",
+              label: lang === "he" ? "דרישות תשלום" : "Payment requests",
+              kind: "folder",
+              children: [
+                {
+                  id: "bf-pay-req-sample",
+                  label: "PR-2026-0007.pdf",
+                  kind: "file",
+                },
+              ],
+            },
+            {
+              id: "bf-pay-bank",
+              label: lang === "he" ? "התאמות בנק" : "Bank matches",
+              kind: "folder",
+              children: [],
+            },
+          ],
+        },
+        {
+          id: "bf-archive",
+          label: lang === "he" ? "ארכיון חיוב" : "Billing archive",
+          kind: "folder",
+          children: [
+            {
+              id: "bf-arch-wave",
+              label: lang === "he" ? "היסטוריית Wave" : "Wave history",
+              kind: "folder",
+              children: [
+                {
+                  id: "bf-arch-wave-index",
+                  label: "Wave_export_index.xlsx",
+                  kind: "file",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+}
+
+function workDriveKindLabel(lang: UiLang, kind: WorkDriveKind): string {
+  if (kind === "google") return t(lang, "workDriveKindGoogle");
+  if (kind === "link") return t(lang, "workDriveKindLink");
+  return t(lang, "workDriveKindLocal");
+}
+
+function isCompanyArchiveDrive(drive: WorkDrive): boolean {
+  return (
+    drive.folderTreeId === COMPANY_ARCHIVE_TREE_ID ||
+    drive.id === DEFAULT_WORK_DRIVE_ID
+  );
+}
+
+/** Folder tree for a configured Work drive (archive, link stub, or empty demo). */
+function buildWorkDriveFolderTree(
+  lang: UiLang,
+  drive: WorkDrive,
+): TaxReturnFolderNode[] {
+  if (isCompanyArchiveDrive(drive)) {
+    return buildCompanyDriveArchiveTree(lang, drive.name);
+  }
+  const rootId = `${drive.id}-root`;
+  const children: TaxReturnFolderNode[] = [];
+  if (drive.rootPathOrUrl) {
+    children.push({
+      id: `${drive.id}-url`,
+      label: drive.rootPathOrUrl,
+      kind: "file",
+    });
+  }
+  if (drive.kind === "google" || drive.kind === "link") {
+    children.push({
+      id: `${drive.id}-link-note`,
+      label: t(lang, "workDriveLinkStub"),
+      kind: "file",
+    });
+  } else {
+    children.push({
+      id: `${drive.id}-empty`,
+      label: t(lang, "workDriveEmptyFolder"),
+      kind: "folder",
+      children: [],
+    });
+  }
+  return [
+    {
+      id: rootId,
+      label: drive.name,
+      kind: "folder",
+      children,
+    },
+  ];
+}
+
+function demoBookkeepingChecklist(client: DemoRow): WorkspaceChecklistItem[] {
+  const settings = defaultBkClientSettings(client);
+  const done = defaultBkMonthChecklistDone(client.id, "2026", settings);
+  return demoBookkeepingMonthChecklist("en", "01", done, settings);
 }
 
 function demoBookkeepingNotes(client: DemoRow): WorkspaceNote[] {
@@ -29806,11 +31197,22 @@ function demoTaxReturnChecklist(
   ];
   return rows.map((row) => {
     const autoDone = taxReturnProcessIndex(row.stageId) < activeIdx;
+    const doneInApp: ChecklistDoneInAppId =
+      row.stageId === "materials"
+        ? "portal"
+        : row.stageId === "filing"
+          ? "excel"
+          : row.stageId === "client-signature"
+            ? "portal"
+            : row.stageId === "transmission"
+              ? "shaam"
+              : "crm";
     return {
       id: row.id,
       stageId: row.stageId,
       label: t(lang, row.labelKey),
       done: doneOverrides[row.id] ?? autoDone,
+      doneInApp,
     };
   });
 }
@@ -30054,7 +31456,8 @@ function demoMessagesForPanel(
  */
 /**
  * Tools sidebar + catalog tile images (same ModuleTileIcon path).
- * sumit-dapi / section46: Windows app static/icon.png.
+ * sumit-dapi / section46: Windows app static/icon.png (local Intertax tools —
+ * NOT the Sumit.co.il vendor brand; never use sumit-dapi for checklist "done in Sumit").
  * masav: no native icon.ico/png in the app (exe uses PyInstaller default) —
  * chrome brand mark from masav_prepration_app/static/icon.png (מס״ב / teal UI).
  */
@@ -30258,6 +31661,36 @@ function ModuleTileIcon({
           <rect x="3.5" y="5" width="5" height="14" rx="1.2" fill={p} />
           <rect x="9.5" y="5" width="5" height="9" rx="1.2" fill={s} />
           <rect x="15.5" y="5" width="5" height="11" rx="1.2" fill={t} />
+        </svg>
+      );
+    case "drive":
+    case "work-drives":
+      /** Modern company + cloud work-drive (not Windows Explorer HDD chrome). */
+      return (
+        <svg {...box}>
+          <path
+            d="M3.2 19.5V8.4L10.2 4.9l7 3.5V19.5"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M8.6 19.5v-4.4h3.2v4.4" fill={s} stroke="none" />
+          <rect x="5" y="9.1" width="2.1" height="3.3" rx="0.45" fill={t} />
+          <rect
+            x="7.8"
+            y="9.1"
+            width="2.1"
+            height="3.3"
+            rx="0.45"
+            fill="#FFFFFF"
+            opacity={0.92}
+          />
+          <rect x="10.6" y="9.1" width="2.1" height="3.3" rx="0.45" fill={s} />
+          <path
+            d="M14.8 11.1c.3-1.35 1.5-2.3 3-2.3 1.55 0 2.85 1.1 3.05 2.55.9.2 1.55.95 1.55 1.9 0 1.15-.95 2.1-2.1 2.1H15.7c-1.2 0-2.15-.95-2.15-2.15 0-.95.6-1.8 1.25-2.1z"
+            fill={s}
+            stroke="none"
+          />
+          <circle cx="17.3" cy="12.35" r="0.9" fill={t} stroke="none" />
         </svg>
       );
     case "worker-files":
@@ -30524,6 +31957,25 @@ function ModuleTileIcon({
           <path d="M14.5 5.5L17.5 8.5 14.5 11.5" {...stroke(s, 2)} />
           <path d="M17 15.5H6.5" {...stroke(t, 2)} />
           <path d="M9.5 12.5L6.5 15.5 9.5 18.5" {...stroke(p, 2)} />
+        </svg>
+      );
+    case "trust-calc":
+      return (
+        <svg {...box}>
+          <path d="M3.5 3.5h8.5L15.5 7v13H3.5z" fill={p} stroke="none" />
+          <path d="M12 3.5V7h3.5" fill={t} stroke="none" />
+          <path d="M6.2 10.2h5M6.2 13h3.8" {...stroke("#FFFFFF", 1.5)} />
+          <rect x="11" y="11" width="9.8" height="10" rx="1.5" fill={s} />
+          <rect x="12.4" y="12.4" width="7" height="2.6" rx="0.5" fill={p} />
+          <circle cx="13.55" cy="13.2" r="0.55" fill="#FFFFFF" />
+          <circle cx="17.7" cy="14.25" r="0.55" fill="#FFFFFF" />
+          <path d="M17.9 12.55L13.35 14.9" {...stroke("#FFFFFF", 1.35)} />
+          <circle cx="13.5" cy="17.35" r="0.7" fill="#FFFFFF" />
+          <circle cx="16" cy="17.35" r="0.7" fill="#FFFFFF" />
+          <circle cx="18.5" cy="17.35" r="0.7" fill={t} />
+          <circle cx="13.5" cy="19.55" r="0.7" fill="#FFFFFF" />
+          <circle cx="16" cy="19.55" r="0.7" fill="#FFFFFF" />
+          <circle cx="18.5" cy="19.55" r="0.7" fill={t} />
         </svg>
       );
     case "section46":
@@ -31092,6 +32544,7 @@ const TILE_ICON_COLORS: Record<string, string> = {
   tasks: "#5A6CC0",
   work: "#5A6CC0",
   boards: "#3B82C4",
+  drive: "#C4783A",
   "worker-files": "#C4783A",
   "workers-directory": "#2E79B5",
   workers: "#2E79B5",
@@ -31116,12 +32569,14 @@ const TILE_ICON_COLORS: Record<string, string> = {
   "whatsapp-settings": "#25D366",
   "chats-settings": "#C85898",
   "files-root": "#5B9BD5",
+  "work-drives": "#3B82C4",
   "help-feedback": "#70B0D8",
   "ai-maintenance": "#E8923C",
   wave: "#3B9BDB",
   "ai-chat": "#5A6CC0",
   signature: "#C4783A",
   converter: "#0891B2",
+  "trust-calc": "#0D9488",
   section46: "#16A34A",
   masav: "#1B8A5A",
   "sumit-dapi": "#2E79B5",
@@ -31167,6 +32622,7 @@ const TILE_ICON_SECONDARY: Record<string, string> = {
   tasks: "#22A06B",
   work: "#22A06B",
   boards: "#E8923C",
+  drive: "#3B82C4",
   "worker-files": "#2E79B5",
   "workers-directory": "#D4A84B",
   workers: "#D4A84B",
@@ -31191,12 +32647,14 @@ const TILE_ICON_SECONDARY: Record<string, string> = {
   "whatsapp-settings": "#128C7E",
   "chats-settings": "#5A6CC0",
   "files-root": "#94A3B8",
+  "work-drives": "#22A06B",
   "help-feedback": "#F0B429",
   "ai-maintenance": "#5A6CC0",
   wave: "#22A06B",
   "ai-chat": "#E8923C",
   signature: "#3B82C4",
   converter: "#E8923C",
+  "trust-calc": "#F59E0B",
   section46: "#F0B429",
   masav: "#F0B429",
   "sumit-dapi": "#52B896",
@@ -31219,8 +32677,10 @@ const TILE_ICON_TERTIARY: Record<string, string> = {
   services: "#22A06B",
   billing: "#F0B429",
   boards: "#22A06B",
+  drive: "#22A06B",
   workers: "#22A06B",
   tasks: "#F0B429",
+  "trust-calc": "#2E79B5",
   whatsapp: "#075E54",
   chats: "#F0B429",
   admin: "#E8923C",
@@ -31387,6 +32847,7 @@ function FirmDataTable({
   overflow = "auto",
   /** Stretch chrome to fill a flex:1 / minHeight:0 parent (Users & rights). */
   fillHeight = false,
+  onRowContextMenu,
 }: {
   headers: TableProps["headers"];
   rows: TableProps["rows"];
@@ -31399,6 +32860,15 @@ function FirmDataTable({
   /** Use "visible" when an ancestor (ScrollTable) owns overflow for sticky headers. */
   overflow?: CSSProperties["overflow"];
   fillHeight?: boolean;
+  onRowContextMenu?: (
+    rowIndex: number,
+    e: {
+      clientX: number;
+      clientY: number;
+      preventDefault: () => void;
+      stopPropagation?: () => void;
+    },
+  ) => void;
 }) {
   const toneDot = (
     tone: NonNullable<TableProps["rowTone"]>[number],
@@ -31483,7 +32953,16 @@ function FirmDataTable({
             rows.map((row, ri) => {
               const rowBg = ri % 2 === 1 ? CHROME_TABLE_ZEBRA : CHROME_WHITE;
               return (
-              <tr key={`fr-${ri}`}>
+              <tr
+                key={`fr-${ri}`}
+                onContextMenu={
+                  onRowContextMenu
+                    ? (e) => {
+                        onRowContextMenu(ri, e);
+                      }
+                    : undefined
+                }
+              >
                 {headers.map((_, ci) => {
                   const cell = row[ci] ?? null;
                   const tone = rowTone?.[ri];
@@ -31557,8 +33036,9 @@ function chromeWhereKind(
     return "client";
   }
   if (screen === "time-clock" || screen === "worker-files") return "worker";
-  if (screen === "billing") return "billing";
+  if (screen === "billing" || screen === "billing-folders") return "billing";
   if (screen === "boards") return "boards";
+  if (screen === "drive") return "work";
   if (screen === "secretariat") return selectedCategory;
   if (screen === "workers" || screen === "departments") return "workers";
   /** Dual-homed: Admin + Systemadmin secondary both open this screen. */
@@ -31579,7 +33059,8 @@ function chromeWhereKind(
     screen === "trello-import" ||
     screen === "wave-import" ||
     screen === "users-rights" ||
-    screen === "files-root"
+    screen === "files-root" ||
+    screen === "work-drives"
   ) {
     return "systemadmin";
   }
@@ -31898,7 +33379,152 @@ function tilesForCategory(
   return tiles;
 }
 
-/** Gmail primary rail: hamburger + stacked icon/label module switches. */
+/**
+ * Generic SaaS CRM product mark — live gradient tile + geometric hub/orbit
+ * (not firm-specific; no folder/contacts clipart). Shared by app shell header
+ * and ChecklistDoneInAppIcon when done-in app is CRM; company logo upload
+ * stays separate. Pairs with renameable crmProductBrand.v1 name.
+ * Gradient ids are instance-unique so header + checklist marks can coexist.
+ */
+let crmProductBrandIconSeq = 0;
+function CrmProductBrandIcon({
+  size = 32,
+  title,
+}: {
+  size?: number;
+  title?: string;
+}) {
+  const uidRef = useRef(`crmMark${++crmProductBrandIconSeq}`);
+  const uid = uidRef.current;
+  const gradId = `${uid}-grad`;
+  const sheenId = `${uid}-sheen`;
+  const depthId = `${uid}-depth`;
+  const hubGlowId = `${uid}-hubGlow`;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="none"
+      role={title ? "img" : "presentation"}
+      aria-label={title}
+      aria-hidden={title ? undefined : true}
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      <defs>
+        {/* Live product gradient — cyan → azure → violet → rose */}
+        <linearGradient
+          id={gradId}
+          x1="2"
+          y1="0"
+          x2="30"
+          y2="32"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#2AF0D0" />
+          <stop offset="28%" stopColor="#3B9BFF" />
+          <stop offset="62%" stopColor="#7B5CFF" />
+          <stop offset="100%" stopColor="#FF4D8D" />
+        </linearGradient>
+        <linearGradient
+          id={sheenId}
+          x1="8"
+          y1="0"
+          x2="22"
+          y2="14"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.52" />
+          <stop offset="55%" stopColor="#FFFFFF" stopOpacity="0.14" />
+          <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient
+          id={depthId}
+          x1="16"
+          y1="18"
+          x2="16"
+          y2="31"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#1A0A4A" stopOpacity="0" />
+          <stop offset="100%" stopColor="#1A0A4A" stopOpacity="0.22" />
+        </linearGradient>
+        <radialGradient
+          id={hubGlowId}
+          cx="16"
+          cy="16"
+          r="7.5"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {/* Product tile */}
+      <rect
+        x="1"
+        y="1"
+        width="30"
+        height="30"
+        rx="8.5"
+        fill={`url(#${gradId})`}
+      />
+      {/* Bottom depth wash */}
+      <path
+        d="M1 22.5V23.5A8.5 8.5 0 0 0 9.5 31h13A8.5 8.5 0 0 0 31 23.5V22.5H1z"
+        fill={`url(#${depthId})`}
+      />
+      {/* Soft top-left sheen */}
+      <path
+        d="M1 12.5V9.5A8.5 8.5 0 0 1 9.5 1h12A8.5 8.5 0 0 1 30 9.5V11.5C24 8.5 16 7 1 12.5z"
+        fill={`url(#${sheenId})`}
+      />
+      {/* Soft hub backlight */}
+      <circle cx="16" cy="16" r="7.5" fill={`url(#${hubGlowId})`} />
+      {/* Geometric hub — core module */}
+      <rect
+        x="11.35"
+        y="11.35"
+        width="9.3"
+        height="9.3"
+        rx="2.75"
+        fill="#FFFFFF"
+      />
+      {/* Subtle hub face highlight */}
+      <rect
+        x="12.2"
+        y="12.2"
+        width="7.6"
+        height="2.9"
+        rx="1.35"
+        fill="#E8F7FF"
+        opacity="0.55"
+      />
+      {/* Orbit arcs — connectivity without people / folder silhouettes */}
+      <path
+        d="M8.05 14.85a8.05 8.05 0 0 1 8.05-8.05"
+        stroke="#FFFFFF"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.98"
+      />
+      <path
+        d="M23.95 17.15a8.05 8.05 0 0 1-8.05 8.05"
+        stroke="#FFFFFF"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.72"
+      />
+      {/* Tiny orbital nodes for premium detail at logo scale */}
+      <circle cx="16.1" cy="6.8" r="1.15" fill="#FFFFFF" opacity="0.95" />
+      <circle cx="25.2" cy="17.15" r="1.05" fill="#FFFFFF" opacity="0.7" />
+    </svg>
+  );
+}
+
+/** Gmail primary rail: brand + hamburger + stacked icon/label module switches. */
 function AppPrimaryRail({
   role,
   deptIds,
@@ -32367,6 +33993,23 @@ type SecondaryNavRow = {
   badge?: number;
   /** ModuleTileIcon / RailIcon id — Clients-style secondary rows with glyphs. */
   iconId?: string;
+  /** Nest under a parent row (e.g. Drive Quick Access shortcuts). */
+  indent?: number;
+  /** Non-clickable section label (e.g. Clients Quick access above All clients). */
+  sectionHeader?: boolean;
+  /** Soft top rule + spacing before a section header (Explorer-style group split). */
+  sectionRule?: boolean;
+  /** Muted empty-state line under a section header (not clickable). */
+  sectionHint?: boolean;
+  /** Double-click / context-menu rename (e.g. Work drive tab names). */
+  renamable?: boolean;
+  onRename?: (next: string) => void;
+  /** Full label for rename draft when `label` is truncated (Quick Access). */
+  renameLabel?: string;
+  /** Quick Access: unpin this pin from the per-worker store. */
+  onUnpin?: () => void;
+  /** Folder Quick Access: copy explorer-style path. */
+  onCopyPath?: () => void;
 };
 
 /** Clients filter flyout / secondary → ModuleTileIcon id (aligned to primary modules). */
@@ -32734,6 +34377,46 @@ function AppSecondarySidebar({
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   /** Clip: secondary row hover gets a light wash without changing selection. */
   const [hoverRowId, setHoverRowId] = useState<string | null>(null);
+  const [renamingRowId, setRenamingRowId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [ctxMenu, setCtxMenu] = useState<{
+    rowId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!renamingRowId) return;
+    const el = renameInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [renamingRowId]);
+
+  const rowDisplayName = (row: SecondaryNavRow) =>
+    (row.renameLabel ?? row.label).trim();
+
+  const rowHasCtxMenu = (row: SecondaryNavRow) =>
+    Boolean(
+      (row.renamable && row.onRename) || row.onUnpin || row.onCopyPath,
+    );
+
+  const commitRename = (row: SecondaryNavRow) => {
+    const next = renameDraft.trim();
+    const prevLabel = rowDisplayName(row);
+    setRenamingRowId(null);
+    setRenameDraft("");
+    if (!next || next === prevLabel) return;
+    row.onRename?.(next);
+  };
+
+  const startRename = (row: SecondaryNavRow) => {
+    if (!row.renamable || !row.onRename) return;
+    setCtxMenu(null);
+    setRenamingRowId(row.id);
+    setRenameDraft(rowDisplayName(row));
+  };
 
   return (
     <div
@@ -32742,6 +34425,9 @@ function AppSecondarySidebar({
       onMouseLeave={() => {
         setHoverRowId(null);
         onMouseLeave?.();
+      }}
+      onClick={() => {
+        if (ctxMenu) setCtxMenu(null);
       }}
       style={{
         ...SHELL_RAIL,
@@ -32839,6 +34525,65 @@ function AppSecondarySidebar({
         }}
       >
         {rows.map((row) => {
+          if (row.sectionHeader) {
+            return (
+              <div
+                key={row.id}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  marginTop: row.sectionRule ? 8 : 2,
+                  paddingTop: row.sectionRule ? 10 : 8,
+                  paddingBottom: 4,
+                  paddingInlineEnd: 14,
+                  paddingInlineStart:
+                    14 + Math.max(0, row.indent ?? 0) * 14,
+                  borderTop: row.sectionRule
+                    ? `1px solid ${chromeBorder(theme)}`
+                    : "none",
+                }}
+              >
+                <ChromeText
+                  size="small"
+                  weight="semibold"
+                  tone="secondary"
+                  style={{
+                    color: theme.text.secondary,
+                    letterSpacing: 0.02,
+                    textTransform: "none",
+                  }}
+                >
+                  {row.label}
+                </ChromeText>
+              </div>
+            );
+          }
+          if (row.sectionHint) {
+            return (
+              <div
+                key={row.id}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "2px 14px 10px",
+                  paddingInlineStart:
+                    14 + Math.max(0, row.indent ?? 0) * 14,
+                }}
+              >
+                <ChromeText
+                  size="small"
+                  tone="secondary"
+                  style={{
+                    color: theme.text.tertiary ?? theme.text.secondary,
+                    fontWeight: 400,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {row.label}
+                </ChromeText>
+              </div>
+            );
+          }
           const rowHovered = hoverRowId === row.id && !row.active;
           const iconAccent = row.iconId
             ? chromeIconAccent(row.iconId, theme.category)
@@ -32850,16 +34595,37 @@ function AppSecondarySidebar({
             : rowHovered
               ? chromeHoverFill(theme)
               : "transparent";
+          const isRenaming = renamingRowId === row.id;
           return (
             <button
               key={row.id}
               type="button"
-              onClick={row.onClick}
+              onClick={() => {
+                if (isRenaming) return;
+                row.onClick();
+              }}
+              onDoubleClick={(e) => {
+                if (!row.renamable || !row.onRename) return;
+                e.preventDefault();
+                e.stopPropagation();
+                startRename(row);
+              }}
+              onContextMenu={(e) => {
+                if (!rowHasCtxMenu(row)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                setCtxMenu({ rowId: row.id, x: e.clientX, y: e.clientY });
+              }}
               onMouseEnter={() => setHoverRowId(row.id)}
               onMouseLeave={() =>
                 setHoverRowId((id) => (id === row.id ? null : id))
               }
               aria-current={row.active ? "page" : undefined}
+              title={
+                row.renamable
+                  ? `${rowDisplayName(row)} — ${t(uiLang, "workDriveRename")}`
+                  : rowDisplayName(row)
+              }
               style={{
                 all: "unset",
                 cursor: "pointer",
@@ -32867,6 +34633,8 @@ function AppSecondarySidebar({
                 width: "100%",
                 boxSizing: "border-box",
                 padding: "9px 14px",
+                paddingInlineStart:
+                  14 + Math.max(0, row.indent ?? 0) * 14,
                 borderStartStartRadius: 0,
                 borderEndStartRadius: 0,
                 borderStartEndRadius: 20,
@@ -32889,21 +34657,55 @@ function AppSecondarySidebar({
                     <ModuleTileIcon
                       tileId={row.iconId}
                       color={iconAccent}
-                      size={28}
+                      size={row.indent ? 22 : 28}
                     />
                   </span>
                 ) : null}
-                <ChromeText
-                  weight={row.active ? "semibold" : "normal"}
-                  style={{
-                    color: row.active ? selectAccent : theme.text.primary,
-                    flex: 1,
-                    minWidth: 0,
-                  }}
-                >
-                  {row.label}
-                </ChromeText>
-                {row.badge != null && row.badge > 0 ? (
+                {isRenaming ? (
+                  <input
+                    ref={renameInputRef}
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitRename(row);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setRenamingRowId(null);
+                        setRenameDraft("");
+                      }
+                    }}
+                    onBlur={() => commitRename(row)}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: theme.text.primary,
+                      background: chromeSoftFill(theme),
+                      border: `1px solid ${theme.accent.primary}`,
+                      borderRadius: 6,
+                      padding: "2px 6px",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                ) : (
+                  <ChromeText
+                    weight={row.active ? "semibold" : "normal"}
+                    size={row.indent ? "small" : undefined}
+                    style={{
+                      color: row.active ? selectAccent : theme.text.primary,
+                      flex: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    {row.label}
+                  </ChromeText>
+                )}
+                {row.badge != null && row.badge > 0 && !isRenaming ? (
                   <span
                     style={{
                       minWidth: 18,
@@ -32928,6 +34730,130 @@ function AppSecondarySidebar({
           );
         })}
       </div>
+
+      {ctxMenu
+        ? (() => {
+            const ctxRow = rows.find((r) => r.id === ctxMenu.rowId);
+            if (!ctxRow || !rowHasCtxMenu(ctxRow)) return null;
+            const canRename = Boolean(ctxRow.renamable && ctxRow.onRename);
+            const isQuickAccessPin = Boolean(
+              ctxRow.onUnpin || ctxRow.onCopyPath,
+            );
+            const menuPos = clampFolderExplorerCtxMenuPos(
+              ctxMenu.x,
+              ctxMenu.y,
+              {
+                estW: 220,
+                estH: isQuickAccessPin ? 168 : 56,
+              },
+            );
+            const itemBtn = (
+              key: string,
+              label: string,
+              onClick: () => void,
+            ) => (
+              <button
+                key={key}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setCtxMenu(null);
+                  onClick();
+                }}
+                style={{
+                  all: "unset",
+                  cursor: "pointer",
+                  display: "block",
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "7px 10px",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  color: theme.text.primary,
+                  userSelect: "none",
+                }}
+              >
+                {label}
+              </button>
+            );
+            const sep = (key: string) => (
+              <div
+                key={key}
+                style={{
+                  height: 1,
+                  margin: "4px 6px",
+                  background: chromeBorder(theme),
+                }}
+              />
+            );
+            return (
+              <>
+                <div
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    zIndex: 79,
+                  }}
+                  onClick={() => setCtxMenu(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setCtxMenu(null);
+                  }}
+                />
+                <div
+                  role="menu"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: "fixed",
+                    left: menuPos.x,
+                    top: menuPos.y,
+                    zIndex: 80,
+                    minWidth: 168,
+                    maxWidth: 240,
+                    maxHeight: menuPos.maxHeight,
+                    overflowY: "auto",
+                    overscrollBehavior: "contain",
+                    padding: 4,
+                    borderRadius: 8,
+                    background: CHROME_WHITE,
+                    border: `1px solid ${chromeBorder(theme)}`,
+                    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  {isQuickAccessPin
+                    ? itemBtn("open", t(uiLang, "quickAccessCtxOpen"), () =>
+                        ctxRow.onClick(),
+                      )
+                    : null}
+                  {ctxRow.onUnpin
+                    ? itemBtn(
+                        "unpin",
+                        t(uiLang, "quickAccessCtxUnpin"),
+                        () => ctxRow.onUnpin?.(),
+                      )
+                    : null}
+                  {isQuickAccessPin && canRename ? sep("sep-rename") : null}
+                  {canRename
+                    ? itemBtn("rename", t(uiLang, "workDriveRename"), () =>
+                        startRename(ctxRow),
+                      )
+                    : null}
+                  {ctxRow.onCopyPath ? (
+                    <>
+                      {sep("sep-copy")}
+                      {itemBtn(
+                        "copy-path",
+                        t(uiLang, "quickAccessCtxCopyPath"),
+                        () => ctxRow.onCopyPath?.(),
+                      )}
+                    </>
+                  ) : null}
+                </div>
+              </>
+            );
+          })()
+        : null}
 
       {/**
        * Pin identity chip to the bottom edge of the secondary column.
@@ -33146,6 +35072,61 @@ function TempTabPopup({
         }}
       >
         {rows.map((row) => {
+          if (row.sectionHeader) {
+            return (
+              <div
+                key={row.id}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  marginTop: row.sectionRule ? 6 : 0,
+                  paddingTop: row.sectionRule ? 8 : 6,
+                  paddingBottom: 2,
+                  paddingInlineEnd: 12,
+                  paddingInlineStart:
+                    12 + Math.max(0, row.indent ?? 0) * 12,
+                  borderTop: row.sectionRule
+                    ? `1px solid ${chromeBorder(theme)}`
+                    : "none",
+                }}
+              >
+                <ChromeText
+                  size="small"
+                  weight="semibold"
+                  tone="secondary"
+                  style={{ color: theme.text.secondary }}
+                >
+                  {row.label}
+                </ChromeText>
+              </div>
+            );
+          }
+          if (row.sectionHint) {
+            return (
+              <div
+                key={row.id}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "2px 12px 8px",
+                  paddingInlineStart:
+                    12 + Math.max(0, row.indent ?? 0) * 12,
+                }}
+              >
+                <ChromeText
+                  size="small"
+                  tone="secondary"
+                  style={{
+                    color: theme.text.tertiary ?? theme.text.secondary,
+                    fontWeight: 400,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {row.label}
+                </ChromeText>
+              </div>
+            );
+          }
           const rowHovered = hoverRowId === row.id;
           const rowAccent = row.iconId
             ? chromeIconAccent(row.iconId, theme.category)
@@ -33167,6 +35148,8 @@ function TempTabPopup({
                 width: "100%",
                 boxSizing: "border-box",
                 padding: "9px 12px",
+                paddingInlineStart:
+                  12 + Math.max(0, row.indent ?? 0) * 12,
                 borderRadius: 8,
                 background:
                   row.active || rowHovered
@@ -33185,12 +35168,13 @@ function TempTabPopup({
                     <ModuleTileIcon
                       tileId={row.iconId}
                       color={rowAccent}
-                      size={28}
+                      size={row.indent ? 22 : 28}
                     />
                   </span>
                 ) : null}
                 <ChromeText
                   weight={row.active || rowHovered ? "semibold" : "normal"}
+                  size={row.indent ? "small" : undefined}
                   style={{
                     color:
                       row.active || rowHovered
@@ -36769,6 +38753,12 @@ function ClientsScreen({
   const [optionsDeleteConfirmId, setOptionsDeleteConfirmId] = useState<
     string | null
   >(null);
+  /** Right-click Pin/Unpin on Clients list/grid rows (not Quick Access sidebar). */
+  const [clientListCtxMenu, setClientListCtxMenu] = useState<{
+    rowId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [listColumnVisibility] = useCanvasState<ListColumnVisibility>(
     "crmListColumnVisibility.v4",
     DEFAULT_LIST_COLUMN_VISIBILITY,
@@ -36793,12 +38783,22 @@ function ClientsScreen({
     "firmDepartments.v3",
     DEFAULT_FIRM_DEPARTMENTS,
   );
+  const [signedInWorkerId] = useCanvasState(
+    "signedInWorkerId.v1",
+    DEMO_WORKER.id,
+  );
+  const [quickAccessByWorker, setQuickAccessByWorker] =
+    useCanvasState<QuickAccessByWorker>(CRM_QUICK_ACCESS_BY_WORKER_KEY, {});
   const workersList = normalizeFirmWorkers(
     Array.isArray(firmWorkers) ? firmWorkers : DEMO_STAFF,
   );
   const departmentsList = Array.isArray(firmDepartments)
     ? firmDepartments
     : DEFAULT_FIRM_DEPARTMENTS;
+  const myClientsPins = pinsForQuickAccessSidebar(
+    workerQuickAccessPins(quickAccessByWorker, signedInWorkerId, uiLang),
+    "clients",
+  );
 
   const companyNameById = (id: string | undefined): DemoRow | undefined =>
     id ? rows.find((r) => r.id === id) : undefined;
@@ -37060,8 +39060,17 @@ function ClientsScreen({
       );
     } else {
       const clientIsOnHold = isClientOnHoldStatus(row.status);
+      const clientPinned = myClientsPins.some((p) =>
+        quickAccessPinMatches(p, row.id, "clients", "client"),
+      );
       const actionOptions: { value: string; label: string }[] = [
         { value: "edit", label: t(uiLang, "editClient") },
+        {
+          value: clientPinned ? "unpin_client" : "pin_client",
+          label: clientPinned
+            ? t(uiLang, "unpinClient")
+            : t(uiLang, "pinClient"),
+        },
         {
           value: "on_hold",
           label: clientIsOnHold
@@ -37085,6 +39094,37 @@ function ClientsScreen({
                 if (action === "edit") {
                   setOptionsDeleteConfirmId(null);
                   onEditClient(row.id);
+                  return;
+                }
+                if (action === "pin_client") {
+                  setOptionsDeleteConfirmId(null);
+                  setQuickAccessByWorker((prev) =>
+                    upsertWorkerQuickAccessPin(
+                      prev ?? {},
+                      signedInWorkerId,
+                      {
+                        id: row.id,
+                        label: displayClientName(row, uiLang),
+                        sidebar: "clients",
+                        kind: "client",
+                      },
+                      uiLang,
+                    ),
+                  );
+                  return;
+                }
+                if (action === "unpin_client") {
+                  setOptionsDeleteConfirmId(null);
+                  setQuickAccessByWorker((prev) =>
+                    removeWorkerQuickAccessPin(
+                      prev ?? {},
+                      signedInWorkerId,
+                      row.id,
+                      "clients",
+                      uiLang,
+                      "client",
+                    ),
+                  );
                   return;
                 }
                 if (action === "on_hold") {
@@ -37307,6 +39347,21 @@ function ClientsScreen({
             striped
             emptyMessage={t(uiLang, "emptyFilterRows")}
             columnMinWidths={tableColumnMinWidths}
+            onRowContextMenu={
+              isPotentialList
+                ? undefined
+                : (ri, e) => {
+                    const row = visible[ri];
+                    if (!row) return;
+                    e.preventDefault();
+                    e.stopPropagation?.();
+                    setClientListCtxMenu({
+                      rowId: row.id,
+                      x: e.clientX,
+                      y: e.clientY,
+                    });
+                  }
+            }
           />
 
           {showEntityLinkHint && (
@@ -37324,6 +39379,110 @@ function ClientsScreen({
           )}
         </Stack>
       </Row>
+
+      {clientListCtxMenu && !isPotentialList
+        ? (() => {
+            const ctxRow = visible.find(
+              (r) => r.id === clientListCtxMenu.rowId,
+            );
+            if (!ctxRow) return null;
+            const pinned = myClientsPins.some((p) =>
+              quickAccessPinMatches(p, ctxRow.id, "clients", "client"),
+            );
+            const menuPos = clampFolderExplorerCtxMenuPos(
+              clientListCtxMenu.x,
+              clientListCtxMenu.y,
+              { estW: 200, estH: 56 },
+            );
+            return (
+              <>
+                <div
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    zIndex: 79,
+                  }}
+                  onClick={() => setClientListCtxMenu(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setClientListCtxMenu(null);
+                  }}
+                />
+                <div
+                  role="menu"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: "fixed",
+                    left: menuPos.x,
+                    top: menuPos.y,
+                    zIndex: 80,
+                    minWidth: 168,
+                    maxWidth: 240,
+                    maxHeight: menuPos.maxHeight,
+                    overflowY: "auto",
+                    overscrollBehavior: "contain",
+                    padding: 4,
+                    borderRadius: 8,
+                    background: CHROME_WHITE,
+                    border: `1px solid ${chromeBorder(theme)}`,
+                    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setClientListCtxMenu(null);
+                      if (pinned) {
+                        setQuickAccessByWorker((prev) =>
+                          removeWorkerQuickAccessPin(
+                            prev ?? {},
+                            signedInWorkerId,
+                            ctxRow.id,
+                            "clients",
+                            uiLang,
+                            "client",
+                          ),
+                        );
+                      } else {
+                        setQuickAccessByWorker((prev) =>
+                          upsertWorkerQuickAccessPin(
+                            prev ?? {},
+                            signedInWorkerId,
+                            {
+                              id: ctxRow.id,
+                              label: displayClientName(ctxRow, uiLang),
+                              sidebar: "clients",
+                              kind: "client",
+                            },
+                            uiLang,
+                          ),
+                        );
+                      }
+                    }}
+                    style={{
+                      all: "unset",
+                      cursor: "pointer",
+                      display: "block",
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "7px 10px",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: theme.text.primary,
+                      userSelect: "none",
+                    }}
+                  >
+                    {pinned
+                      ? t(uiLang, "unpinClient")
+                      : t(uiLang, "pinClient")}
+                  </button>
+                </div>
+              </>
+            );
+          })()
+        : null}
     </Stack>
   );
 }
@@ -37480,6 +39639,158 @@ function SyncedClientDeptNotesSection({
   );
 }
 
+const CHECKLIST_DONE_IN_APP_IDS: ChecklistDoneInAppId[] = [
+  "sumit",
+  "excel",
+  "shaam",
+  "masav",
+  "banana",
+  "konto",
+  "crm",
+  "portal",
+];
+
+const CHECKLIST_DONE_IN_APP_STORE_KEY = "checklistDoneInApp.v1";
+
+function isChecklistDoneInAppId(v: unknown): v is ChecklistDoneInAppId {
+  return (
+    typeof v === "string" &&
+    (CHECKLIST_DONE_IN_APP_IDS as readonly string[]).includes(v)
+  );
+}
+
+function checklistDoneInAppLabel(
+  lang: UiLang,
+  app: ChecklistDoneInAppId,
+): string {
+  if (app === "sumit") return t(lang, "checklistAppSumit");
+  if (app === "excel") return t(lang, "checklistAppExcel");
+  if (app === "shaam") return t(lang, "checklistAppShaam");
+  if (app === "masav") return t(lang, "checklistAppMasav");
+  if (app === "banana") return t(lang, "checklistAppBanana");
+  if (app === "konto") return t(lang, "checklistAppKonto");
+  if (app === "portal") return t(lang, "checklistAppPortal");
+  return t(lang, "checklistAppCrm");
+}
+
+/**
+ * Tiny (~14px) destination-app marks for ChecklistDoneInAppIcon.
+ * Sumit / Banana: faithful recreations of the public product desktop icons
+ * (Sumit.co.il navy circle + white summit peaks; Banana Accounting+ yellow
+ * document + white smile band). Never use TOOLS_APP_ICON_SRC["sumit-dapi"]
+ * or CRM favicon for Sumit. CRM uses shared CrmProductBrandIcon (orbit-hub).
+ * Masav falls back to Tools PNG. Demo marks only — not claimed as official
+ * trademark assets.
+ */
+const CHECKLIST_DONE_IN_APP_ICON_SRC: Partial<
+  Record<ChecklistDoneInAppId, string>
+> = {
+  /** SUMIT (sumit.co.il) — dark navy circle, white twin-peak / summit line. */
+  sumit:
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <circle cx="16" cy="16" r="16" fill="#0B1F3A"/>
+  <path fill="none" stroke="#FFFFFF" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"
+    d="M6.2 22.6h19.6M7 22.6c.4-3.4 2.4-7.5 4.4-7.5 1.7 0 2.4 2.5 3.3 2.5 1.5 0 4.4-9.6 6.8-9.6 1.7 0 3.4 6.2 4 14.6"/>
+</svg>`,
+    ),
+  shaam:
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB8AAAAsCAYAAACdQGM6AAAC1klEQVRYheWYQVYaQRCGv5p5oCaYN9yAZXaBEwRPIDkBuMiTuJGcQLwBbiK+LEJOEHOC4AnCDZwbMHmCQSJTWUAEnOme4ems8i+rpuqbHqqquxGyVmvoMcm1UeqIeCB9uDugW/Qlc3hzfA2U1mxKQKh7brbgUQOkEbEL2zjOaydTuMi+0adazhau+svmzhYeMjD6hMvsC+5w/HOhvGZTDRC3ku3KAe6me2h4huoA8EH7iFuhu+NnzrYpm89+eHuMUAMtgfgwO6W7288e3hyfAO2IXWbvOH91mR28OSxB/jrWpwRcvCyump634MJczegTPN6P1qo++2pflatednBHzUMF/MdF97zw7m4f9GusL9Szx6ZsWq150wanDpQQBuB0ON+Jf6n/UvPP3rypgnsCWl1YB9zrAZ8LtgJa6vD2GNEWyxNLD6andIu+Hf5hXEP5FvEoATKtJCVYnFa+xHh8tqcVOsXAFOoQ6onhtTzItazg+YPx8VBikrfGO4iUjV6VOq2hZ/Q3b6o8Phyuy5ybeZ/7Rq/gcZtrmMNjDodrUnNuwEHD79Z4x4k/BDaHJZC6nZ37YYcLl7YHQKs0f5ei9lzVHofPxZZ1Yc58JErfnidsRN+JY2uISsKiHmZ7aB99j0FHo7K1UAFEIrM8Ht4t9FCM/YjgLSp7rpCkFuylOSAudzUJE97UXelneZuQ9jQJDKu7WmPosZW/ng8Xg7anRSa5mmGi/UvZp/tiLw18ufJeMUj87Sf51mKrtLCllwa8DgdwEwKF/YfNJ17+Jvv2OvxTYWBtO7WPS8RppwVH4QDMUhVLjHyUq6fBUw2dWPU3vX/FHyDDhHkfn2rjLxYPn/6xD52oUg2VdPBeMUgeOqtKaNGN4ACT+07KHJHLwNPhvWJgvACsasP2SgcHmJG0+o2Gymbwz4UBoh9jfaoBOKlmuEnprktHozIhLZQ3i6grcDtP/V/lLyV/4tHQW0eLAAAAAElFTkSuQmCC",
+  /** Banana Accounting+ — yellow document with folded corner + white smile band. */
+  banana:
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <path fill="#F5C400" d="M3.5 1.5h17.5l7.5 7.5V30.5H3.5z"/>
+  <path fill="#E0AE00" d="M21 1.5v7.5h7.5z"/>
+  <path fill="#FFFFFF" d="M5 13.2c6.2 4.6 15.2 5 22 1.2v5.2c-7.2 4-16.2 3.5-22-1.4z"/>
+</svg>`,
+    ),
+  excel:
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#217346"/><path fill="#fff" d="M3.2 3.2h4.2v9.6H3.2zm5.4 0H12.8v2.2H8.6zm0 3.7H12.8v2.2H8.6zm0 3.7H12.8v2.2H8.6z"/></svg>',
+    ),
+  konto:
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#4f46e5"/><text x="8" y="11.5" text-anchor="middle" fill="#fff" font-size="8" font-family="Arial,sans-serif" font-weight="700">K</text></svg>',
+    ),
+  portal:
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#0284c7"/><rect x="3" y="3.5" width="10" height="9" rx="1.2" fill="none" stroke="#fff" stroke-width="1.4"/><path stroke="#fff" stroke-width="1.3" d="M3 6.5h10M6.5 3.5v9"/></svg>',
+    ),
+};
+
+function ChecklistDoneInAppIcon({
+  app,
+  size = 14,
+}: {
+  app: ChecklistDoneInAppId;
+  size?: number;
+}) {
+  const theme = useHostTheme();
+  if (app === "crm") {
+    return <CrmProductBrandIcon size={size} />;
+  }
+  const src =
+    CHECKLIST_DONE_IN_APP_ICON_SRC[app] ??
+    (app === "masav" ? TOOLS_APP_ICON_SRC["masav"] : undefined);
+  if (src) {
+    return (
+      <img
+        src={src}
+        width={size}
+        height={size}
+        alt=""
+        aria-hidden
+        style={{
+          width: size,
+          height: size,
+          objectFit: "contain",
+          display: "block",
+          borderRadius: app === "sumit" ? "50%" : 2,
+          flexShrink: 0,
+        }}
+      />
+    );
+  }
+  const mark =
+    app === "excel"
+      ? { bg: theme.category.green, letter: "X" }
+      : app === "shaam"
+        ? { bg: theme.category.blue, letter: "ש" }
+        : app === "konto"
+          ? { bg: theme.accent.primary, letter: "K" }
+          : app === "portal"
+            ? { bg: theme.category.blue, letter: "P" }
+            : { bg: theme.text.secondary, letter: "C" };
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 3,
+        background: mark.bg,
+        color: theme.bg.chrome,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: Math.max(8, size - 5),
+        fontWeight: 700,
+        lineHeight: 1,
+        flexShrink: 0,
+      }}
+    >
+      {mark.letter}
+    </span>
+  );
+}
+
+
 function applyChecklistLabelOverrides(
   items: WorkspaceChecklistItem[],
   labels: Record<string, string>,
@@ -37514,6 +39825,10 @@ function ChecklistBlock({
   const [editDraft, setEditDraft] = useState("");
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
+  const [pickingDoneInId, setPickingDoneInId] = useState<string | null>(null);
+  const [doneInOverrides, setDoneInOverrides] = useCanvasState<
+    Record<string, ChecklistDoneInAppId>
+  >(CHECKLIST_DONE_IN_APP_STORE_KEY, {});
 
   const commitRename = (id: string) => {
     const next = editDraft.trim();
@@ -37535,6 +39850,21 @@ function ChecklistBlock({
     setAdding(false);
   };
 
+  const resolveDoneInApp = (item: WorkspaceChecklistItem): ChecklistDoneInAppId => {
+    const override = doneInOverrides[item.id];
+    if (isChecklistDoneInAppId(override)) return override;
+    if (isChecklistDoneInAppId(item.doneInApp)) return item.doneInApp;
+    return "crm";
+  };
+
+  const setDoneInAppForItem = (id: string, app: ChecklistDoneInAppId) => {
+    setDoneInOverrides((prev) => ({
+      ...(prev && typeof prev === "object" ? prev : {}),
+      [id]: app,
+    }));
+    setPickingDoneInId(null);
+  };
+
   return (
     <Stack gap={8}>
       <ChromeText size="small" weight="semibold" tone="secondary">
@@ -37552,6 +39882,14 @@ function ChecklistBlock({
             !!item.stageId &&
             item.stageId === focusStageId;
           const isEditing = editingId === item.id;
+          const doneInApp = resolveDoneInApp(item);
+          const doneInLabel = checklistDoneInAppLabel(uiLang, doneInApp);
+          const doneInTitle = t(uiLang, "checklistDoneIn").replace(
+            "{app}",
+            doneInLabel,
+          );
+          const showActions = !!(onRename || onToggle || item.doneInApp);
+          const isPicking = pickingDoneInId === item.id;
           return (
             <div key={item.id} data-stage={item.stageId ?? undefined}>
               <Row
@@ -37621,43 +39959,109 @@ function ChecklistBlock({
                     </ChromeText>
                   )}
                 </div>
-                {onRename ? (
-                  isEditing ? (
-                    <Row gap={4} style={{ flexShrink: 0 }}>
-                      <Button
-                        variant="primary"
-                        onClick={() => commitRename(item.id)}
-                        disabled={!editDraft.trim()}
-                      >
-                        {t(uiLang, "save")}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setEditingId(null);
-                          setEditDraft("");
-                        }}
-                      >
-                        {t(uiLang, "cancel")}
-                      </Button>
-                    </Row>
-                  ) : (
+                {isEditing && onRename ? (
+                  <Row gap={4} style={{ flexShrink: 0 }}>
+                    <Button
+                      variant="primary"
+                      onClick={() => commitRename(item.id)}
+                      disabled={!editDraft.trim()}
+                    >
+                      {t(uiLang, "save")}
+                    </Button>
                     <Button
                       variant="ghost"
                       onClick={() => {
-                        setEditingId(item.id);
-                        setEditDraft(item.label);
+                        setEditingId(null);
+                        setEditDraft("");
                       }}
                     >
-                      {t(uiLang, "checklistEditName")}
+                      {t(uiLang, "cancel")}
                     </Button>
-                  )
+                  </Row>
+                ) : showActions ? (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      flexShrink: 0,
+                      whiteSpace: "nowrap",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {onRename ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingId(item.id);
+                          setEditDraft(item.label);
+                        }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          margin: 0,
+                          font: "inherit",
+                          fontSize: 12,
+                          lineHeight: 1.2,
+                          color: theme.accent.primary,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {t(uiLang, "checklistEditName")}
+                      </button>
+                    ) : null}
+                    {isPicking ? (
+                      <Select
+                        value={doneInApp}
+                        onChange={(next) => {
+                          if (isChecklistDoneInAppId(next)) {
+                            setDoneInAppForItem(item.id, next);
+                          } else {
+                            setPickingDoneInId(null);
+                          }
+                        }}
+                        options={CHECKLIST_DONE_IN_APP_IDS.map((appId) => ({
+                          value: appId,
+                          label: checklistDoneInAppLabel(uiLang, appId),
+                        }))}
+                        style={{ maxWidth: 148, fontSize: 11 }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        title={doneInTitle}
+                        aria-label={`${doneInTitle}. ${t(uiLang, "checklistChooseDoneIn")}`}
+                        onClick={() => setPickingDoneInId(item.id)}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 16,
+                          height: 16,
+                          padding: 0,
+                          margin: 0,
+                          border: "none",
+                          borderRadius: 0,
+                          background: "transparent",
+                          cursor: "pointer",
+                          flexShrink: 0,
+                          lineHeight: 0,
+                        }}
+                      >
+                        <ChecklistDoneInAppIcon app={doneInApp} size={14} />
+                      </button>
+                    )}
+                  </div>
                 ) : null}
               </Row>
             </div>
           );
         })}
       </Stack>
+
       {onAdd ? (
         adding ? (
           <Stack gap={8}>
@@ -37694,6 +40098,1835 @@ function ChecklistBlock({
     </Stack>
   );
 }
+
+type TrustDocStatus =
+  | "not-requested"
+  | "requested"
+  | "received"
+  | "reviewed"
+  | "missing";
+
+type TrustDoc = {
+  id: string;
+  label: string;
+  status: TrustDocStatus;
+  requestDate: string;
+  followUp: string;
+  contact: string;
+  period: string;
+};
+
+type TrustFiler =
+  | "trustee-1327"
+  | "settlor-1301"
+  | "beneficiary-1301"
+  | "rep-settlor"
+  | "rep-beneficiary"
+  | "assessed-settlor"
+  | "assessed-beneficiary";
+
+type TrustPayChannel = "email" | "whatsapp" | "portal" | "phone";
+
+type TrustCaseState = {
+  dueDate: string;
+  filer: TrustFiler;
+  form151Mode: "date-only" | "new-version";
+  formVersion: string;
+  forms: Record<string, boolean>;
+  showOptional: boolean;
+  docs: TrustDoc[];
+  bananaFormat: string;
+  bananaImported: boolean;
+  bananaApproved: boolean;
+  signature: "none" | "sent" | "reminded" | "signed";
+  signatureException: string;
+  filingRef: string;
+  filingError: string;
+  filingOwner: string;
+  payPath: "" | "client-transfer" | "we-transfer";
+  payChannel: TrustPayChannel;
+  channelSent: boolean;
+  clientPaid: boolean;
+  bankDetailsSent: boolean;
+  paymentReceived: boolean;
+  shaamOpened: boolean;
+  closed: boolean;
+};
+
+type TrustCalcLine = {
+  id: string;
+  kind: "income" | "expense";
+  label: string;
+  amount: string;
+  fxRate: string;
+  taxRate: string;
+};
+
+type TrustCalcState = {
+  trustPct: string;
+  personalRate: string;
+  capitalGain: string;
+  capitalLoss: string;
+  ftc: string;
+  lines: TrustCalcLine[];
+};
+
+const TRUST_SHAAM_URL = "https://www.gov.il/en/service/connect-to-shaam";
+const TRUST_CORE_FORMS = ["1327", "1322", "1324", "151ח"] as const;
+const TRUST_OPTIONAL_FORMS = ["141", "142", "143", "144", "147", "148", "149"];
+
+function trustTr(lang: UiLang, en: string, he: string): string {
+  return lang === "he" ? he : en;
+}
+
+function trustNum(raw: string): number {
+  const n = Number(String(raw).replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Free-entry trust share % — digits/decimal only, clamped 0–100 when numeric. */
+function trustClampPctInput(raw: string): string {
+  const cleaned = String(raw).replace(/[^\d.]/g, "");
+  if (cleaned === "" || cleaned === ".") return cleaned;
+  const firstDot = cleaned.indexOf(".");
+  const normalized =
+    firstDot === -1
+      ? cleaned
+      : `${cleaned.slice(0, firstDot + 1)}${cleaned
+          .slice(firstDot + 1)
+          .replace(/\./g, "")}`;
+  const n = Number(normalized);
+  if (!Number.isFinite(n)) return normalized;
+  if (n > 100) return "100";
+  if (n < 0) return "0";
+  return normalized;
+}
+
+function trustMoney(n: number): string {
+  return n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function trustDefaultDocs(): TrustDoc[] {
+  const labels = [
+    ["bank", "Bank statements"],
+    ["portfolio", "Portfolio / investment reports"],
+    ["vouchers", "Tax vouchers and certificates"],
+    ["banana", "Banana income figures"],
+    ["fx", "Exchange-rate sheet"],
+    ["cgt", "Capital-gains lots"],
+    ["dist", "Distributions"],
+    ["contrib", "Contributions since creation"],
+  ] as const;
+  return labels.map(([id, label]) => ({
+    id,
+    label,
+    status: "not-requested" as TrustDocStatus,
+    requestDate: "",
+    followUp: "",
+    contact: "",
+    period: "",
+  }));
+}
+
+function trustDefaultCase(year: string): TrustCaseState {
+  const forms: Record<string, boolean> = {};
+  for (const id of TRUST_CORE_FORMS) forms[id] = false;
+  for (const id of TRUST_OPTIONAL_FORMS) forms[id] = false;
+  return {
+    dueDate: `${Number(year) + 1}-04-30`,
+    filer: "trustee-1327",
+    form151Mode: "date-only",
+    formVersion: "",
+    forms,
+    showOptional: false,
+    docs: trustDefaultDocs(),
+    bananaFormat: "",
+    bananaImported: false,
+    bananaApproved: false,
+    signature: "none",
+    signatureException: "",
+    filingRef: "",
+    filingError: "",
+    filingOwner: "",
+    payPath: "",
+    payChannel: "email",
+    channelSent: false,
+    clientPaid: false,
+    bankDetailsSent: false,
+    paymentReceived: false,
+    shaamOpened: false,
+    closed: false,
+  };
+}
+
+/** Demo figures so trust/personal share % changes are visibly interactive. */
+function trustBlankCalc(): TrustCalcState {
+  return {
+    trustPct: "100",
+    personalRate: "25",
+    capitalGain: "12000",
+    capitalLoss: "0",
+    ftc: "500",
+    lines: [
+      {
+        id: "i1",
+        kind: "income",
+        label: "Interest / dividends",
+        amount: "85000",
+        fxRate: "1",
+        taxRate: "25",
+      },
+      {
+        id: "e1",
+        kind: "expense",
+        label: "Trustee fees",
+        amount: "4500",
+        fxRate: "1",
+        taxRate: "0",
+      },
+    ],
+  };
+}
+
+function trustLineIls(line: TrustCalcLine): number {
+  const rate = trustNum(line.fxRate);
+  return trustNum(line.amount) * (rate === 0 ? 1 : rate);
+}
+
+function trustCalcSummary(calc: TrustCalcState) {
+  const income = calc.lines.filter((l) => l.kind === "income");
+  const expense = calc.lines.filter((l) => l.kind === "expense");
+  const incomeIls = income.reduce((s, l) => s + trustLineIls(l), 0);
+  const expenseIls = expense.reduce((s, l) => s + trustLineIls(l), 0);
+  const gain = trustNum(calc.capitalGain);
+  const loss = trustNum(calc.capitalLoss);
+  const net = incomeIls - expenseIls + gain - loss;
+  const trustPct = Math.min(100, Math.max(0, trustNum(calc.trustPct)));
+  const trustSlice = net * (trustPct / 100);
+  const personalSlice = net - trustSlice;
+  const weight = incomeIls > 0 ? incomeIls : 1;
+  const blended =
+    income.reduce((s, l) => s + trustLineIls(l) * trustNum(l.taxRate), 0) / weight;
+  const trustTax = Math.max(0, trustSlice) * (blended / 100);
+  const personalTax =
+    Math.max(0, personalSlice) * (trustNum(calc.personalRate) / 100);
+  const estimated = Math.max(0, trustTax + personalTax - trustNum(calc.ftc));
+  return {
+    incomeIls,
+    expenseIls,
+    gain,
+    loss,
+    net,
+    trustPct,
+    personalPct: 100 - trustPct,
+    trustSlice,
+    personalSlice,
+    blended,
+    trustTax,
+    personalTax,
+    estimated,
+  };
+}
+
+function trustDocStatusLabel(lang: UiLang, status: TrustDocStatus): string {
+  if (status === "not-requested") return trustTr(lang, "Not requested", "לא התבקש");
+  if (status === "requested") return trustTr(lang, "Requested", "התבקש");
+  if (status === "received") return trustTr(lang, "Received", "התקבל");
+  if (status === "reviewed") return trustTr(lang, "Reviewed", "נבדק");
+  return trustTr(lang, "Missing", "חסר");
+}
+
+function trustFilerLabel(lang: UiLang, filer: TrustFiler): string {
+  switch (filer) {
+    case "trustee-1327":
+      return trustTr(lang, "Trustee files 1327", "הנאמן מגיש 1327");
+    case "settlor-1301":
+      return trustTr(lang, "Settlor files 1301", "היוצר מגיש 1301");
+    case "beneficiary-1301":
+      return trustTr(lang, "Beneficiary files 1301", "הנהנה מגיש 1301");
+    case "rep-settlor":
+      return trustTr(lang, "Representative settlor", "יוצר מייצג");
+    case "rep-beneficiary":
+      return trustTr(lang, "Representative beneficiary", "נהנה מייצג");
+    case "assessed-settlor":
+      return trustTr(lang, "Assessed settlor", "יוצר נישום");
+    default:
+      return trustTr(lang, "Assessed beneficiary", "נהנה נישום");
+  }
+}
+
+const TRUST_FILERS: TrustFiler[] = [
+  "trustee-1327",
+  "settlor-1301",
+  "beneficiary-1301",
+  "rep-settlor",
+  "rep-beneficiary",
+  "assessed-settlor",
+  "assessed-beneficiary",
+];
+
+const TRUST_DOC_STATUSES: TrustDocStatus[] = [
+  "not-requested",
+  "requested",
+  "received",
+  "reviewed",
+  "missing",
+];
+
+type TrustProcessStage =
+  | "intake"
+  | "documents"
+  | "banana"
+  | "forms"
+  | "signature"
+  | "filing"
+  | "payment"
+  | "close";
+
+const TRUST_PROCESS_STEPS: TrustProcessStage[] = [
+  "intake",
+  "documents",
+  "banana",
+  "forms",
+  "signature",
+  "filing",
+  "payment",
+  "close",
+];
+
+function isTrustProcessStage(v: unknown): v is TrustProcessStage {
+  return (
+    typeof v === "string" &&
+    (TRUST_PROCESS_STEPS as readonly string[]).includes(v)
+  );
+}
+
+function trustProcessLabel(lang: UiLang, stage: TrustProcessStage): string {
+  switch (stage) {
+    case "intake":
+      return trustTr(lang, "Intake", "קליטה");
+    case "documents":
+      return trustTr(lang, "Documents", "מסמכים");
+    case "banana":
+      return trustTr(lang, "Banana", "באננה");
+    case "forms":
+      return trustTr(lang, "Forms", "טפסים");
+    case "signature":
+      return trustTr(lang, "Signature", "חתימה");
+    case "filing":
+      return trustTr(lang, "Filing", "הגשה");
+    case "payment":
+      return trustTr(lang, "Tax payment", "תשלום המס");
+    case "close":
+      return trustTr(lang, "Close", "סגירה");
+    default:
+      return stage;
+  }
+}
+
+function trustProcessBarLabel(lang: UiLang, stage: TrustProcessStage): string {
+  switch (stage) {
+    case "intake":
+      return trustTr(lang, "Intake", "קליטה");
+    case "documents":
+      return trustTr(lang, "Docs", "מסמכים");
+    case "banana":
+      return trustTr(lang, "Banana", "באננה");
+    case "forms":
+      return trustTr(lang, "Forms", "טפסים");
+    case "signature":
+      return trustTr(lang, "Sign", "חתימה");
+    case "filing":
+      return trustTr(lang, "File", "הגשה");
+    case "payment":
+      return trustTr(lang, "Pay", "תשלום");
+    case "close":
+      return trustTr(lang, "Done", "סיום");
+    default:
+      return stage;
+  }
+}
+
+function trustProcessIndex(stage: TrustProcessStage): number {
+  const i = TRUST_PROCESS_STEPS.indexOf(stage);
+  return i >= 0 ? i : 0;
+}
+
+function trustSignatureReady(
+  trustCase: TrustCaseState,
+): boolean {
+  return (
+    trustCase.signature === "signed" ||
+    trustCase.signatureException.trim().length > 0
+  );
+}
+
+function trustPayDone(trustCase: TrustCaseState): boolean {
+  const clientTransferDone =
+    trustCase.payPath === "client-transfer" &&
+    trustCase.channelSent &&
+    trustCase.clientPaid;
+  const weTransferDone =
+    trustCase.payPath === "we-transfer" &&
+    trustCase.channelSent &&
+    trustCase.bankDetailsSent &&
+    trustCase.paymentReceived &&
+    trustCase.shaamOpened;
+  return clientTransferDone || weTransferDone;
+}
+
+function trustDocsDone(trustCase: TrustCaseState): boolean {
+  return trustCase.docs.every(
+    (doc) => doc.status === "received" || doc.status === "reviewed",
+  );
+}
+
+function trustFormsDone(trustCase: TrustCaseState): boolean {
+  return TRUST_CORE_FORMS.every((id) => trustCase.forms[id]);
+}
+
+function trustCanClose(trustCase: TrustCaseState): boolean {
+  return (
+    trustDocsDone(trustCase) &&
+    trustCase.bananaApproved &&
+    trustFormsDone(trustCase) &&
+    trustSignatureReady(trustCase) &&
+    trustCase.filingRef.trim().length > 0 &&
+    trustPayDone(trustCase)
+  );
+}
+
+/** Mark every checklist row for a Trust pipeline stage as done (Completed button). */
+function markTrustStageChecklistDone(
+  stage: TrustProcessStage,
+  trustCase: TrustCaseState,
+  patch: (partial: Partial<TrustCaseState>) => void,
+  uiLang: UiLang,
+  year: string,
+): void {
+  switch (stage) {
+    case "intake":
+      patch({
+        filer: trustCase.filer || "trustee-1327",
+        dueDate: trustCase.dueDate.trim() || trustDefaultCase(year).dueDate,
+      });
+      break;
+    case "documents":
+      patch({
+        docs: trustCase.docs.map((doc) =>
+          doc.status === "received" || doc.status === "reviewed"
+            ? doc
+            : { ...doc, status: "received" as TrustDocStatus },
+        ),
+      });
+      break;
+    case "banana":
+      patch({ bananaImported: true, bananaApproved: true });
+      break;
+    case "forms": {
+      const forms = { ...trustCase.forms };
+      for (const id of TRUST_CORE_FORMS) forms[id] = true;
+      if (trustCase.showOptional) {
+        for (const id of TRUST_OPTIONAL_FORMS) forms[id] = true;
+      }
+      patch({ forms });
+      break;
+    }
+    case "signature":
+      if (!trustSignatureReady(trustCase)) patch({ signature: "signed" });
+      break;
+    case "filing":
+      if (!trustCase.filingRef.trim()) {
+        patch({ filingRef: trustTr(uiLang, "DEMO-REF", "DEMO-REF") });
+      }
+      break;
+    case "payment":
+      if (trustPayDone(trustCase)) break;
+      if (trustCase.payPath === "we-transfer") {
+        patch({
+          channelSent: true,
+          bankDetailsSent: true,
+          paymentReceived: true,
+          shaamOpened: true,
+        });
+      } else {
+        patch({
+          payPath: trustCase.payPath || "client-transfer",
+          channelSent: true,
+          clientPaid: true,
+        });
+      }
+      break;
+    case "close":
+      patch({ closed: true });
+      break;
+    default:
+      break;
+  }
+}
+
+function demoTrustChecklist(
+  lang: UiLang,
+  trustCase: TrustCaseState,
+): WorkspaceChecklistItem[] {
+  const filingOpen = trustSignatureReady(trustCase);
+  const payDone = trustPayDone(trustCase);
+  return [
+    {
+      id: "trust-c-intake",
+      label: trustTr(lang, "Confirm who files and due date", "אשר מי מגיש ותאריך יעד"),
+      done: !!trustCase.filer && trustCase.dueDate.trim().length > 0,
+      stageId: "intake",
+      doneInApp: "crm",
+    },
+    ...trustCase.docs.map((doc) => ({
+      id: `trust-doc-${doc.id}`,
+      label: doc.label,
+      done: doc.status === "received" || doc.status === "reviewed",
+      stageId: "documents" as const,
+      doneInApp: "portal" as ChecklistDoneInAppId,
+    })),
+    {
+      id: "trust-c-banana-import",
+      label: trustTr(lang, "Imported in Banana", "יובא לבאננה"),
+      done: trustCase.bananaImported,
+      stageId: "banana",
+      doneInApp: "banana" as ChecklistDoneInAppId,
+    },
+    {
+      id: "trust-c-banana-approve",
+      label: trustTr(lang, "Person approved the reconciliation", "אדם אישר את ההתאמה"),
+      done: trustCase.bananaApproved,
+      stageId: "banana",
+      doneInApp: "banana" as ChecklistDoneInAppId,
+    },
+    ...TRUST_CORE_FORMS.map((id) => ({
+      id: `trust-form-${id}`,
+      label: id,
+      done: !!trustCase.forms[id],
+      stageId: "forms" as const,
+      doneInApp: "excel" as ChecklistDoneInAppId,
+    })),
+    {
+      id: "trust-c-signature",
+      label: trustTr(lang, "Signed or manager exception", "נחתם או חריג מנהל"),
+      done: filingOpen,
+      stageId: "signature",
+      doneInApp: "crm" as ChecklistDoneInAppId,
+    },
+    {
+      id: "trust-c-filing",
+      label: trustTr(lang, "Filing confirmation saved", "מספר הגשה נשמר"),
+      done: trustCase.filingRef.trim().length > 0,
+      stageId: "filing",
+      doneInApp: "crm" as ChecklistDoneInAppId,
+    },
+    {
+      id: "trust-c-payment",
+      label: trustTr(lang, "Chosen payment path finished", "מסלול התשלום שנבחר הסתיים"),
+      done: payDone,
+      stageId: "payment",
+      doneInApp: "crm" as ChecklistDoneInAppId,
+    },
+    {
+      id: "trust-c-close",
+      label: trustTr(lang, "Mark case closed", "סמן תיק כסגור"),
+      done: trustCase.closed,
+      stageId: "close",
+      doneInApp: "crm" as ChecklistDoneInAppId,
+    },
+  ];
+}
+
+function trustStageFillRatios(
+  checklist: WorkspaceChecklistItem[],
+): number[] {
+  return TRUST_PROCESS_STEPS.map((stage) => {
+    const rows = checklist.filter((item) => item.stageId === stage);
+    if (rows.length === 0) return 0;
+    const done = rows.filter((item) => item.done).length;
+    return done / rows.length;
+  });
+}
+
+function trustChecklistProgressPercent(
+  checklist: WorkspaceChecklistItem[],
+): number {
+  if (checklist.length === 0) return 0;
+  const done = checklist.filter((item) => item.done).length;
+  return Math.round((done / checklist.length) * 100);
+}
+
+function resolveTrustProcessStage(
+  checklist: WorkspaceChecklistItem[],
+  stored: string | undefined,
+): TrustProcessStage {
+  if (isTrustProcessStage(stored)) return stored;
+  for (const stage of TRUST_PROCESS_STEPS) {
+    const rows = checklist.filter((item) => item.stageId === stage);
+    if (rows.length === 0) continue;
+    if (!rows.every((item) => item.done)) return stage;
+  }
+  return "close";
+}
+
+/** Side-tab order including Calculation (after Forms). */
+const TRUST_STAGE_NAV_CHAIN: Array<TrustProcessStage | "calc"> = [
+  "intake",
+  "documents",
+  "banana",
+  "forms",
+  "calc",
+  "signature",
+  "filing",
+  "payment",
+  "close",
+];
+
+function TrustProcessStageBar({
+  stage,
+  progressPct,
+  stageFillRatios,
+  onChange,
+}: {
+  stage: TrustProcessStage;
+  progressPct: number;
+  stageFillRatios: number[];
+  onChange?: (next: TrustProcessStage) => void;
+}) {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const dir = uiDir(uiLang);
+  const activeIdx = trustProcessIndex(stage);
+  const pct = Math.max(0, Math.min(100, Math.round(progressPct)));
+  const blobStatus = progressPctToWorkFlowStatus(pct);
+  const n = TRUST_PROCESS_STEPS.length;
+  return (
+    <Stack gap={8} style={{ width: "100%" }}>
+      <Row align="center" gap={8} wrap>
+        <ChromeText size="small" weight="semibold" tone="secondary">
+          {trustTr(uiLang, "Trust reporting process", "תהליך דיווח נאמנות")}
+        </ChromeText>
+        <Spacer />
+        <StatusBlob status={blobStatus} size={8} />
+        <ChromeText
+          size="small"
+          weight="semibold"
+          style={{ color: workFlowColor(theme, blobStatus) }}
+        >
+          {trustProcessLabel(uiLang, stage)}
+        </ChromeText>
+        <ChromeText size="small" tone="tertiary">
+          {trustTr(uiLang, "{pct}% complete", "{pct}% הושלם").replace(
+            "{pct}",
+            String(pct),
+          )}
+        </ChromeText>
+      </Row>
+      <div
+        role="group"
+        aria-label={trustTr(uiLang, "Trust reporting process", "תהליך דיווח נאמנות")}
+        dir={dir}
+        style={chevronRowStyle(dir, n)}
+      >
+        {TRUST_PROCESS_STEPS.map((step, i) => {
+          const active = i === activeIdx;
+          const color = stageBarSolidColor(theme, i);
+          const fill = Math.max(0, Math.min(1, stageFillRatios[i] ?? 0));
+          const reached = fill > 0.001;
+          const fillPctLabel = Math.round(fill * 100);
+          return (
+            <button
+              key={step}
+              type="button"
+              disabled={!onChange}
+              onClick={() => onChange?.(step)}
+              title={`${trustProcessLabel(uiLang, step)} · ${fillPctLabel}%`}
+              aria-label={`${trustTr(uiLang, "Edit work status", "ערוך סטטוס עבודה")}: ${trustProcessLabel(uiLang, step)} ${fillPctLabel}%`}
+              aria-current={active ? "step" : undefined}
+              style={chevronStageButtonStyle(i, n, {
+                cursor: onChange ? "pointer" : "default",
+                gap: 6,
+              })}
+            >
+              <ChevronBarSegment
+                dir={dir}
+                kind={chevronKindForIndex(i, n)}
+                tipPct={chevronTipPctForCount(n)}
+                height={STAGE_CHEVRON_BAR_HEIGHT}
+                color={color}
+                fillRatio={fill}
+                empty={!reached}
+                active={active}
+                stroke={
+                  active ? theme.stroke.primary : chromeBorder(theme)
+                }
+                trackBg={chromeSoftFill(theme)}
+              />
+              <ChromeText
+                size="small"
+                weight={active ? "semibold" : "normal"}
+                tone={reached || active ? "primary" : "tertiary"}
+                style={chevronStageLabelStyle({
+                  color: active ? color : undefined,
+                  fontSize: 10,
+                  lineHeight: "13px",
+                })}
+              >
+                {trustProcessBarLabel(uiLang, step)}
+              </ChromeText>
+            </button>
+          );
+        })}
+      </div>
+    </Stack>
+  );
+}
+
+
+
+function TrustTaxCalcPanel({
+  clientId,
+  year,
+}: {
+  clientId: string;
+  year: string;
+}) {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const theme = useHostTheme();
+  const [calc, setCalc] = useCanvasState<TrustCalcState>(
+    `trustCalc.v2:${clientId}:${year}`,
+    trustBlankCalc(),
+  );
+  const summary = trustCalcSummary(calc);
+  const patchLine = (id: string, partial: Partial<TrustCalcLine>) => {
+    setCalc((prev) => ({
+      ...prev,
+      lines: prev.lines.map((line) =>
+        line.id === id ? { ...line, ...partial } : line,
+      ),
+    }));
+  };
+  const addLine = (kind: "income" | "expense") => {
+    setCalc((prev) => ({
+      ...prev,
+      lines: [
+        ...prev.lines,
+        {
+          id: `l-${Date.now()}`,
+          kind,
+          label: kind === "income" ? "Income" : "Expense",
+          amount: "0",
+          fxRate: "1",
+          taxRate: kind === "income" ? "25" : "0",
+        },
+      ],
+    }));
+  };
+
+  return (
+    <Stack gap={12}>
+      <ChromeText size="small" tone="secondary">
+        {trustTr(
+          uiLang,
+          "Figures stay editable. This does not file or replace the workbook until a reviewer accepts the total.",
+          "הסכומים ניתנים לעריכה. זה לא מגיש דוח ולא מחליף את חוברת האקסל עד שמאשר בודק את הסכום.",
+        )}
+      </ChromeText>
+      <Stack gap={6}>
+        <Row gap={12} wrap align="end">
+          <Stack gap={4}>
+            <ChromeText size="small" tone="secondary">
+              {trustTr(
+                uiLang,
+                "Trust share % (any 0–100)",
+                "חלק הנאמנות % (כל ערך 0–100)",
+              )}
+            </ChromeText>
+            <TextInput
+              value={calc.trustPct}
+              onChange={(value) =>
+                setCalc((prev) => ({
+                  ...prev,
+                  trustPct: trustClampPctInput(value),
+                }))
+              }
+              style={{ width: 96 }}
+            />
+          </Stack>
+          <Stack gap={2}>
+            <ChromeText size="small" tone="secondary">
+              {trustTr(uiLang, "Personal share", "חלק אישי")}{" "}
+              {summary.personalPct}%
+            </ChromeText>
+            <ChromeText size="small" weight="semibold">
+              {trustTr(uiLang, "Trust", "נאמנות")} {trustMoney(summary.trustSlice)}{" "}
+              · {trustTr(uiLang, "Personal", "אישי")}{" "}
+              {trustMoney(summary.personalSlice)}
+            </ChromeText>
+          </Stack>
+          <Row gap={6} wrap align="center">
+            <ChromeText size="small" tone="tertiary">
+              {trustTr(uiLang, "Quick", "מהיר")}
+            </ChromeText>
+            <Button
+              variant={summary.trustPct === 100 ? "primary" : "secondary"}
+              onClick={() => setCalc((prev) => ({ ...prev, trustPct: "100" }))}
+            >
+              100%
+            </Button>
+            <Button
+              variant={summary.trustPct === 50 ? "primary" : "secondary"}
+              onClick={() => setCalc((prev) => ({ ...prev, trustPct: "50" }))}
+            >
+              50 / 50
+            </Button>
+            <Button
+              variant={summary.trustPct === 20 ? "primary" : "secondary"}
+              onClick={() => setCalc((prev) => ({ ...prev, trustPct: "20" }))}
+            >
+              20 / 80
+            </Button>
+          </Row>
+        </Row>
+        <ChromeText size="small" tone="tertiary">
+          {trustTr(
+            uiLang,
+            "Type any trust share percentage. Quick buttons update the split amounts above immediately.",
+            "הקלידו כל אחוז לחלק הנאמנות. כפתורי המהיר מעדכנים מיד את פיצול הסכומים למעלה.",
+          )}
+        </ChromeText>
+      </Stack>
+      <Row gap={12} wrap>
+        <Stack gap={4}>
+          <ChromeText size="small" tone="secondary">
+            {trustTr(uiLang, "Personal rate %", "שיעור אישי %")}
+          </ChromeText>
+          <TextInput
+            value={calc.personalRate}
+            onChange={(value) =>
+              setCalc((prev) => ({ ...prev, personalRate: value }))
+            }
+          />
+        </Stack>
+        <Stack gap={4}>
+          <ChromeText size="small" tone="secondary">
+            {trustTr(uiLang, "Capital gain (ILS)", "רווח הון (ש״ח)")}
+          </ChromeText>
+          <TextInput
+            value={calc.capitalGain}
+            onChange={(value) =>
+              setCalc((prev) => ({ ...prev, capitalGain: value }))
+            }
+          />
+        </Stack>
+        <Stack gap={4}>
+          <ChromeText size="small" tone="secondary">
+            {trustTr(uiLang, "Capital loss (ILS)", "הפסד הון (ש״ח)")}
+          </ChromeText>
+          <TextInput
+            value={calc.capitalLoss}
+            onChange={(value) =>
+              setCalc((prev) => ({ ...prev, capitalLoss: value }))
+            }
+          />
+        </Stack>
+        <Stack gap={4}>
+          <ChromeText size="small" tone="secondary">
+            {trustTr(uiLang, "Foreign tax credit", "זיכוי מס זר")}
+          </ChromeText>
+          <TextInput
+            value={calc.ftc}
+            onChange={(value) => setCalc((prev) => ({ ...prev, ftc: value }))}
+          />
+        </Stack>
+      </Row>
+      {calc.lines.map((line) => (
+        <Row key={line.id} gap={8} wrap align="center">
+          <Pill size="sm" tone="neutral">
+            {line.kind === "income"
+              ? trustTr(uiLang, "Income", "הכנסה")
+              : trustTr(uiLang, "Expense", "הוצאה")}
+          </Pill>
+          <TextInput
+            value={line.label}
+            onChange={(value) => patchLine(line.id, { label: value })}
+            style={{ minWidth: 180, flex: 1 }}
+          />
+          <TextInput
+            value={line.amount}
+            onChange={(value) => patchLine(line.id, { amount: value })}
+            style={{ width: 120 }}
+          />
+          <TextInput
+            value={line.fxRate}
+            onChange={(value) => patchLine(line.id, { fxRate: value })}
+            style={{ width: 80 }}
+          />
+          {line.kind === "income" ? (
+            <TextInput
+              value={line.taxRate}
+              onChange={(value) => patchLine(line.id, { taxRate: value })}
+              style={{ width: 70 }}
+            />
+          ) : null}
+          <ChromeText size="small" tone="secondary">
+            {trustMoney(trustLineIls(line))}
+          </ChromeText>
+        </Row>
+      ))}
+      <Row gap={8} wrap>
+        <Button variant="secondary" onClick={() => addLine("income")}>
+          {trustTr(uiLang, "Add income line", "הוסף שורת הכנסה")}
+        </Button>
+        <Button variant="secondary" onClick={() => addLine("expense")}>
+          {trustTr(uiLang, "Add expense line", "הוסף שורת הוצאה")}
+        </Button>
+      </Row>
+      <Stack
+        gap={4}
+        style={{
+          padding: 12,
+          borderRadius: 8,
+          border: `1px solid ${theme.stroke.secondary}`,
+          background: theme.fill.tertiary,
+        }}
+      >
+        <ChromeText>
+          {trustTr(uiLang, "Income", "הכנסה")} {trustMoney(summary.incomeIls)} ·{" "}
+          {trustTr(uiLang, "Expenses", "הוצאות")} {trustMoney(summary.expenseIls)}
+        </ChromeText>
+        <ChromeText>
+          {trustTr(uiLang, "Net", "נטו")} {trustMoney(summary.net)} ·{" "}
+          {trustTr(uiLang, "Trust", "נאמנות")} {summary.trustPct}% (
+          {trustMoney(summary.trustSlice)}) ·{" "}
+          {trustTr(uiLang, "Personal", "אישי")} {summary.personalPct}% (
+          {trustMoney(summary.personalSlice)})
+        </ChromeText>
+        <ChromeText weight="semibold">
+          {trustTr(uiLang, "Estimated tax", "מס משוער")} {trustMoney(summary.estimated)}{" "}
+          {trustTr(uiLang, "ILS", "ש״ח")}
+        </ChromeText>
+        <ChromeText size="small" tone="tertiary">
+          {trustTr(
+            uiLang,
+            "Income lines convert with the rate, expenses and the capital loss reduce the net, the trust share uses the weighted income rate, the personal share uses the personal rate, then foreign tax credit is subtracted.",
+            "שורות הכנסה מוכפלות בשער, הוצאות והפסד הון מקטינים את הנטו, חלק הנאמנות לפי שיעור משוקלל, החלק האישי לפי השיעור האישי, ואז מפחיתים זיכוי מס זר.",
+          )}
+        </ChromeText>
+      </Stack>
+    </Stack>
+  );
+}
+
+function TrustReportingWorkspace({
+  client,
+  processPopOutActive,
+  onToggleProcessPopOut,
+}: {
+  client: DemoRow;
+  processPopOutActive?: boolean;
+  onToggleProcessPopOut?: () => void;
+}) {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const theme = useHostTheme();
+  const [services] = useCanvasState<string[]>("services", DEFAULT_SERVICES);
+  const [added, setAdded] = useCanvasState<string[]>(
+    `trustAddedServices.v1:${client.id}`,
+    [],
+  );
+  const [addPick, setAddPick] = useState("");
+  const [year, setYear] = useCanvasState(`trustYear.v1:${client.id}`, "2025");
+  const yearScope = `${client.id}:${year}`;
+  const [trustCase, setTrustCase] = useCanvasState<TrustCaseState>(
+    `trustCase.v1:${client.id}:${year}`,
+    trustDefaultCase(year),
+  );
+  const [, setPortalNotice] = useCanvasState(
+    `trustPortalNotice.v1:${client.id}`,
+    false,
+  );
+  const [processStageStored, setProcessStageStored] = useCanvasState<string>(
+    `trustProcessStage.v1:${yearScope}`,
+    "",
+  );
+  type TrustSection =
+    | "overview"
+    | "checklist"
+    | TrustProcessStage
+    | "calc";
+  const [sectionStored, setSection] = useCanvasState<string>(
+    `trustSection.v1:${yearScope}`,
+    "overview",
+  );
+  const patch = (partial: Partial<TrustCaseState>) => {
+    setTrustCase((prev) => ({ ...prev, ...partial }));
+  };
+  const filingOpen = trustSignatureReady(trustCase);
+  const payDone = trustPayDone(trustCase);
+  const docsDone = trustDocsDone(trustCase);
+  const formsDone = trustFormsDone(trustCase);
+  const canClose = trustCanClose(trustCase);
+  const checklist = demoTrustChecklist(uiLang, trustCase);
+  const stageFillRatios = trustStageFillRatios(checklist);
+  const progressPct = trustChecklistProgressPercent(checklist);
+  const processStage = resolveTrustProcessStage(checklist, processStageStored);
+  const status = progressPctToWorkFlowStatus(progressPct);
+  const available = services.filter(
+    (svc) => !added.some((name) => name.toLowerCase() === svc.toLowerCase()),
+  );
+
+  const section: TrustSection =
+    sectionStored === "overview" ||
+    sectionStored === "checklist" ||
+    sectionStored === "calc" ||
+    isTrustProcessStage(sectionStored)
+      ? (sectionStored as TrustSection)
+      : "overview";
+
+  const jumpToStage = (stage: TrustProcessStage) => {
+    setProcessStageStored(stage);
+    setSection(stage);
+  };
+
+  const jumpToNavSection = (id: TrustProcessStage | "calc") => {
+    if (id === "calc") {
+      setSection("calc");
+      setProcessStageStored("forms");
+      return;
+    }
+    jumpToStage(id);
+  };
+
+  const footerNavIdx = TRUST_STAGE_NAV_CHAIN.indexOf(
+    section === "calc"
+      ? "calc"
+      : isTrustProcessStage(section)
+        ? section
+        : ("" as TrustProcessStage | "calc"),
+  );
+  const showStageFooter = footerNavIdx >= 0;
+  const footerPrev =
+    footerNavIdx > 0 ? (TRUST_STAGE_NAV_CHAIN[footerNavIdx - 1] ?? null) : null;
+  const footerNext =
+    footerNavIdx >= 0 && footerNavIdx < TRUST_STAGE_NAV_CHAIN.length - 1
+      ? (TRUST_STAGE_NAV_CHAIN[footerNavIdx + 1] ?? null)
+      : null;
+  const completeFooterStage =
+    section === "calc"
+      ? ("forms" as TrustProcessStage)
+      : isTrustProcessStage(section)
+        ? section
+        : null;
+
+  const markCurrentStageCompleted = () => {
+    if (!completeFooterStage) return;
+    markTrustStageChecklistDone(
+      completeFooterStage,
+      trustCase,
+      patch,
+      uiLang,
+      year,
+    );
+  };
+
+  const toggleChecklistItem = (id: string) => {
+    if (id === "trust-c-intake") return;
+    if (id.startsWith("trust-doc-")) {
+      const docId = id.slice("trust-doc-".length);
+      patch({
+        docs: trustCase.docs.map((row) => {
+          if (row.id !== docId) return row;
+          const done = row.status === "received" || row.status === "reviewed";
+          return {
+            ...row,
+            status: done ? ("not-requested" as TrustDocStatus) : ("received" as TrustDocStatus),
+          };
+        }),
+      });
+      return;
+    }
+    if (id === "trust-c-banana-import") {
+      patch({ bananaImported: !trustCase.bananaImported });
+      return;
+    }
+    if (id === "trust-c-banana-approve") {
+      patch({ bananaApproved: !trustCase.bananaApproved });
+      return;
+    }
+    if (id.startsWith("trust-form-")) {
+      const formId = id.slice("trust-form-".length);
+      patch({ forms: { ...trustCase.forms, [formId]: !trustCase.forms[formId] } });
+      return;
+    }
+    if (id === "trust-c-signature") {
+      if (filingOpen) {
+        patch({ signature: "none", signatureException: "" });
+      } else {
+        patch({ signature: "signed" });
+      }
+      return;
+    }
+    if (id === "trust-c-filing") {
+      if (trustCase.filingRef.trim()) {
+        patch({ filingRef: "" });
+      } else if (filingOpen) {
+        patch({ filingRef: trustTr(uiLang, "DEMO-REF", "DEMO-REF") });
+      }
+      return;
+    }
+    if (id === "trust-c-payment") {
+      if (payDone) {
+        patch({
+          payPath: "",
+          channelSent: false,
+          clientPaid: false,
+          bankDetailsSent: false,
+          paymentReceived: false,
+          shaamOpened: false,
+        });
+      } else {
+        patch({
+          payPath: "client-transfer",
+          channelSent: true,
+          clientPaid: true,
+        });
+      }
+      return;
+    }
+    if (id === "trust-c-close") {
+      if (trustCase.closed) {
+        patch({ closed: false });
+      } else if (canClose) {
+        patch({ closed: true });
+      }
+    }
+  };
+
+  const navItems: {
+    id: TrustSection;
+    label: string;
+    status?: WorkFlowStatus;
+    icon?: ModuleSectionTabIconId;
+  }[] = [
+    { id: "overview", label: trustTr(uiLang, "Overview", "סקירה") },
+    { id: "checklist", label: trustTr(uiLang, "Checklist", "רשימת בדיקה") },
+    ...TRUST_PROCESS_STEPS.flatMap((stage) => {
+      const rows = checklist.filter((item) => item.stageId === stage);
+      const fill =
+        rows.length === 0
+          ? 0
+          : rows.filter((item) => item.done).length / rows.length;
+      const stageTab = {
+        id: stage as TrustSection,
+        label: trustProcessLabel(uiLang, stage),
+        status: progressPctToWorkFlowStatus(Math.round(fill * 100)),
+      };
+      if (stage !== "forms") return [stageTab];
+      return [
+        stageTab,
+        {
+          id: "calc" as TrustSection,
+          label: trustTr(uiLang, "Calculation", "חישוב"),
+          icon: "trust-calc" as const,
+        },
+      ];
+    }),
+  ];
+
+  const renderStageBody = (stage: TrustProcessStage) => {
+    if (stage === "intake") {
+      return (
+        <Stack gap={6}>
+          <H3>{trustTr(uiLang, "Who files", "מי מגיש")}</H3>
+          <Select
+            value={trustCase.filer}
+            onChange={(value) => patch({ filer: value as TrustFiler })}
+            options={TRUST_FILERS.map((id) => ({
+              value: id,
+              label: trustFilerLabel(uiLang, id),
+            }))}
+          />
+          <Row gap={8} wrap align="center">
+            <ChromeText size="small" tone="secondary">
+              {trustTr(uiLang, "Due date", "תאריך יעד")}
+            </ChromeText>
+            <TextInput
+              value={trustCase.dueDate}
+              onChange={(value) => patch({ dueDate: value })}
+              style={{ width: 160 }}
+            />
+            <ChromeText size="small" tone="tertiary">
+              {trustTr(
+                uiLang,
+                "Starts at 30 April. Change it on this case.",
+                "מתחיל ב-30 באפריל. אפשר לשנות בתיק.",
+              )}
+            </ChromeText>
+          </Row>
+        </Stack>
+      );
+    }
+    if (stage === "documents") {
+      return (
+        <Stack gap={8}>
+          <H3>{trustTr(uiLang, "Documents", "מסמכים")}</H3>
+          {trustCase.docs.map((doc) => (
+            <Stack
+              key={doc.id}
+              gap={6}
+              style={{
+                padding: 10,
+                borderRadius: 8,
+                border: `1px solid ${theme.stroke.tertiary}`,
+              }}
+            >
+              <Row gap={8} wrap align="center">
+                <ChromeText weight="semibold">{doc.label}</ChromeText>
+                <Select
+                  value={doc.status}
+                  onChange={(value) =>
+                    patch({
+                      docs: trustCase.docs.map((row) =>
+                        row.id === doc.id
+                          ? { ...row, status: value as TrustDocStatus }
+                          : row,
+                      ),
+                    })
+                  }
+                  options={TRUST_DOC_STATUSES.map((status) => ({
+                    value: status,
+                    label: trustDocStatusLabel(uiLang, status),
+                  }))}
+                />
+              </Row>
+              <Row gap={8} wrap>
+                <TextInput
+                  value={doc.contact}
+                  placeholder={trustTr(uiLang, "Contact", "איש קשר")}
+                  onChange={(value) =>
+                    patch({
+                      docs: trustCase.docs.map((row) =>
+                        row.id === doc.id ? { ...row, contact: value } : row,
+                      ),
+                    })
+                  }
+                />
+                <TextInput
+                  value={doc.period}
+                  placeholder={trustTr(uiLang, "Period", "תקופה")}
+                  onChange={(value) =>
+                    patch({
+                      docs: trustCase.docs.map((row) =>
+                        row.id === doc.id ? { ...row, period: value } : row,
+                      ),
+                    })
+                  }
+                />
+              </Row>
+            </Stack>
+          ))}
+        </Stack>
+      );
+    }
+    if (stage === "banana") {
+      return (
+        <Stack gap={8}>
+          <H3>{trustTr(uiLang, "Banana import", "ייבוא לבאננה")}</H3>
+          <ChromeText size="small" tone="secondary">
+            {trustTr(
+              uiLang,
+              "Staff open Banana themselves. Record the format, that the import was done, and a person’s approval.",
+              "הצוות פותח את באננה בעצמו. רושמים את הפורמט, שהייבוא בוצע, ואישור של אדם.",
+            )}
+          </ChromeText>
+          <TextInput
+            value={trustCase.bananaFormat}
+            placeholder={trustTr(uiLang, "Statement format", "פורמט הדף")}
+            onChange={(value) => patch({ bananaFormat: value })}
+          />
+          <Checkbox
+            checked={trustCase.bananaImported}
+            onChange={(checked) => patch({ bananaImported: checked })}
+            label={trustTr(uiLang, "Imported in Banana", "יובא לבאננה")}
+          />
+          <Checkbox
+            checked={trustCase.bananaApproved}
+            onChange={(checked) => patch({ bananaApproved: checked })}
+            label={trustTr(
+              uiLang,
+              "Person approved the reconciliation",
+              "אדם אישר את ההתאמה",
+            )}
+          />
+        </Stack>
+      );
+    }
+    if (stage === "forms") {
+      return (
+        <Stack gap={8}>
+          <H3>{trustTr(uiLang, "Forms", "טפסים")}</H3>
+          <Row gap={8} wrap>
+            <Button
+              variant={trustCase.form151Mode === "date-only" ? "primary" : "secondary"}
+              onClick={() => patch({ form151Mode: "date-only" })}
+            >
+              {trustTr(uiLang, "151ח — change the date", "151ח — משנים את התאריך")}
+            </Button>
+            <Button
+              variant={
+                trustCase.form151Mode === "new-version" ? "primary" : "secondary"
+              }
+              onClick={() => patch({ form151Mode: "new-version" })}
+            >
+              {trustTr(uiLang, "151ח — new version", "151ח — גרסה חדשה")}
+            </Button>
+          </Row>
+          {trustCase.form151Mode === "new-version" ? (
+            <TextInput
+              value={trustCase.formVersion}
+              placeholder={trustTr(uiLang, "Form version", "גרסת הטופס")}
+              onChange={(value) => patch({ formVersion: value })}
+            />
+          ) : null}
+          {TRUST_CORE_FORMS.map((id) => (
+            <Checkbox
+              key={id}
+              checked={!!trustCase.forms[id]}
+              onChange={(checked) =>
+                patch({ forms: { ...trustCase.forms, [id]: checked } })
+              }
+              label={id}
+            />
+          ))}
+          <Checkbox
+            checked={trustCase.showOptional}
+            onChange={(checked) => patch({ showOptional: checked })}
+            label={trustTr(
+              uiLang,
+              "This trust needs extra forms",
+              "לנאמנות הזו דרושים טפסים נוספים",
+            )}
+          />
+          {trustCase.showOptional
+            ? TRUST_OPTIONAL_FORMS.map((id) => (
+                <Checkbox
+                  key={id}
+                  checked={!!trustCase.forms[id]}
+                  onChange={(checked) =>
+                    patch({ forms: { ...trustCase.forms, [id]: checked } })
+                  }
+                  label={id}
+                />
+              ))
+            : null}
+        </Stack>
+      );
+    }
+    if (stage === "signature") {
+      return (
+        <Stack gap={8}>
+          <H3>{trustTr(uiLang, "Signature", "חתימה")}</H3>
+          <Select
+            value={trustCase.signature}
+            onChange={(value) =>
+              patch({
+                signature: value as TrustCaseState["signature"],
+              })
+            }
+            options={[
+              { value: "none", label: trustTr(uiLang, "Not sent", "לא נשלח") },
+              { value: "sent", label: trustTr(uiLang, "Sent", "נשלח") },
+              { value: "reminded", label: trustTr(uiLang, "Reminded", "תזכורת") },
+              { value: "signed", label: trustTr(uiLang, "Signed", "נחתם") },
+            ]}
+          />
+          <TextInput
+            value={trustCase.signatureException}
+            placeholder={trustTr(
+              uiLang,
+              "Manager exception reason",
+              "חריג מנהל — סיבה",
+            )}
+            onChange={(value) => patch({ signatureException: value })}
+          />
+          {!filingOpen ? (
+            <Callout tone="warning">
+              {trustTr(
+                uiLang,
+                "Filing stays locked until the form is signed, unless a manager writes an exception.",
+                "ההגשה נעולה עד שיש חתימה, אלא אם מנהל רושם חריג.",
+              )}
+            </Callout>
+          ) : null}
+        </Stack>
+      );
+    }
+    if (stage === "filing") {
+      return (
+        <Stack gap={8}>
+          <H3>{trustTr(uiLang, "Filing", "הגשה")}</H3>
+          <TextInput
+            value={trustCase.filingRef}
+            placeholder={trustTr(uiLang, "Confirmation number", "מספר אישור")}
+            onChange={(value) => {
+              if (!filingOpen) return;
+              patch({ filingRef: value });
+            }}
+          />
+          <TextInput
+            value={trustCase.filingError}
+            placeholder={trustTr(uiLang, "Error, if it failed", "שגיאה, אם נכשל")}
+            onChange={(value) => patch({ filingError: value })}
+          />
+          <TextInput
+            value={trustCase.filingOwner}
+            placeholder={trustTr(uiLang, "Owner if it failed", "אחראי אם נכשל")}
+            onChange={(value) => patch({ filingOwner: value })}
+          />
+        </Stack>
+      );
+    }
+    if (stage === "payment") {
+      return (
+        <Stack gap={8}>
+          <H3>{trustTr(uiLang, "Tax payment", "תשלום המס")}</H3>
+          <Row gap={8} wrap>
+            <Button
+              variant={
+                trustCase.payPath === "client-transfer" ? "primary" : "secondary"
+              }
+              onClick={() =>
+                patch({
+                  payPath: "client-transfer",
+                  channelSent: false,
+                  clientPaid: false,
+                  bankDetailsSent: false,
+                  paymentReceived: false,
+                  shaamOpened: false,
+                })
+              }
+            >
+              {trustTr(uiLang, "Client transfer", "העברת הלקוח")}
+            </Button>
+            <Button
+              variant={
+                trustCase.payPath === "we-transfer" ? "primary" : "secondary"
+              }
+              onClick={() =>
+                patch({
+                  payPath: "we-transfer",
+                  channelSent: false,
+                  clientPaid: false,
+                  bankDetailsSent: false,
+                  paymentReceived: false,
+                  shaamOpened: false,
+                })
+              }
+            >
+              {trustTr(uiLang, "We transfer", "אנחנו מעבירים")}
+            </Button>
+          </Row>
+          {trustCase.payPath ? (
+            <Stack gap={8}>
+              <Select
+                value={trustCase.payChannel}
+                onChange={(value) =>
+                  patch({
+                    payChannel: value as TrustPayChannel,
+                    channelSent: false,
+                  })
+                }
+                options={[
+                  { value: "email", label: trustTr(uiLang, "Email", "אימייל") },
+                  { value: "whatsapp", label: "WhatsApp" },
+                  {
+                    value: "portal",
+                    label: trustTr(uiLang, "Portal", "פורטל"),
+                  },
+                  { value: "phone", label: trustTr(uiLang, "Phone", "טלפון") },
+                ]}
+              />
+              {!trustCase.channelSent ? (
+                <Button
+                  variant="primary"
+                  onClick={() => patch({ channelSent: true })}
+                >
+                  {trustTr(uiLang, "Send", "שלח")}
+                </Button>
+              ) : trustCase.payPath === "client-transfer" ? (
+                <Stack gap={8}>
+                  <ChromeText size="small" tone="secondary">
+                    {trustTr(
+                      uiLang,
+                      "Sent. Next: the client paid.",
+                      "נשלח. הבא: הלקוח שילם.",
+                    )}
+                  </ChromeText>
+                  <Checkbox
+                    checked={trustCase.clientPaid}
+                    onChange={(checked) => patch({ clientPaid: checked })}
+                    label={trustTr(uiLang, "Client paid", "הלקוח שילם")}
+                  />
+                </Stack>
+              ) : (
+                <Stack gap={8}>
+                  <Checkbox
+                    checked={trustCase.bankDetailsSent}
+                    onChange={(checked) => patch({ bankDetailsSent: checked })}
+                    label={trustTr(uiLang, "Bank details sent", "פרטי בנק נשלחו")}
+                  />
+                  <Checkbox
+                    checked={trustCase.paymentReceived}
+                    onChange={(checked) => {
+                      patch({ paymentReceived: checked });
+                      setPortalNotice(checked);
+                    }}
+                    label={trustTr(uiLang, "Payment received", "התשלום התקבל")}
+                  />
+                  {trustCase.paymentReceived ? (
+                    <Stack gap={6}>
+                      <ChromeText size="small" tone="secondary">
+                        {trustTr(
+                          uiLang,
+                          "The client sees Received on the portal tab. Confirm, then open the SHAAM payment link.",
+                          "הלקוח רואה ״התקבל״ בלשונית הפורטל. מאשרים, ואז פותחים את קישור התשלום בשע״ם.",
+                        )}
+                      </ChromeText>
+                      <a
+                        href={TRUST_SHAAM_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {trustTr(
+                          uiLang,
+                          "Pay the tax in SHAAM",
+                          "שלם את המס בשע״ם",
+                        )}
+                      </a>
+                      <Checkbox
+                        checked={trustCase.shaamOpened}
+                        onChange={(checked) => patch({ shaamOpened: checked })}
+                        label={trustTr(
+                          uiLang,
+                          "SHAAM payment opened and confirmed",
+                          "תשלום שע״ם נפתח ואושר",
+                        )}
+                      />
+                    </Stack>
+                  ) : null}
+                </Stack>
+              )}
+            </Stack>
+          ) : null}
+        </Stack>
+      );
+    }
+    return (
+      <Stack gap={8}>
+        <H3>{trustTr(uiLang, "Close", "סגירה")}</H3>
+        {!canClose ? (
+          <ChromeText size="small" tone="secondary">
+            {trustTr(
+              uiLang,
+              "Closed only when documents are in, Banana is approved, the core forms are checked, signature or an exception is on file, the filing reference is saved, and the chosen payment path is finished. The fee invoice does not block this.",
+              "נסגר רק כשהמסמכים בפנים, באננה אושרה, טפסי הליבה מסומנים, יש חתימה או חריג, נשמר מספר הגשה, ומסלול התשלום שנבחר הסתיים. חשבונית השכר לא חוסמת.",
+            )}
+          </ChromeText>
+        ) : (
+          <Button variant="primary" onClick={() => patch({ closed: true })}>
+            {trustCase.closed
+              ? trustTr(uiLang, "Closed", "סגור")
+              : trustTr(uiLang, "Mark closed", "סמן כסגור")}
+          </Button>
+        )}
+        {trustCase.closed ? (
+          <Pill tone="success">{trustTr(uiLang, "Closed", "סגור")}</Pill>
+        ) : (
+          <Pill tone="neutral">{trustTr(uiLang, "Pending", "ממתין")}</Pill>
+        )}
+        <Stack gap={4}>
+          <ChromeText size="small" tone="secondary">
+            {trustTr(uiLang, "Gate summary", "סיכום שערים")}
+          </ChromeText>
+          <ChromeText size="small">
+            {trustTr(uiLang, "Documents", "מסמכים")}:{" "}
+            {docsDone
+              ? trustTr(uiLang, "Ready", "מוכן")
+              : trustTr(uiLang, "Open", "פתוח")}
+            {" · "}
+            {trustTr(uiLang, "Forms", "טפסים")}:{" "}
+            {formsDone
+              ? trustTr(uiLang, "Ready", "מוכן")
+              : trustTr(uiLang, "Open", "פתוח")}
+            {" · "}
+            {trustTr(uiLang, "Payment", "תשלום")}:{" "}
+            {payDone
+              ? trustTr(uiLang, "Ready", "מוכן")
+              : trustTr(uiLang, "Open", "פתוח")}
+          </ChromeText>
+        </Stack>
+      </Stack>
+    );
+  };
+
+  const renderMain = () => {
+    if (section === "calc") {
+      return <TrustTaxCalcPanel clientId={client.id} year={year} />;
+    }
+    if (section === "checklist") {
+      return (
+        <Stack gap={12}>
+          <Row align="center" gap={8} wrap>
+            <ChromeText size="small" weight="semibold">
+              {trustTr(uiLang, "Checklist", "רשימת בדיקה")}
+            </ChromeText>
+            <Spacer />
+            <Select
+              value={processStage}
+              onChange={(v) => {
+                if (isTrustProcessStage(v)) jumpToStage(v);
+              }}
+              options={TRUST_PROCESS_STEPS.map((stage) => ({
+                value: stage,
+                label: trustProcessLabel(uiLang, stage),
+              }))}
+              style={{ width: 180 }}
+            />
+          </Row>
+          <ChromeText size="small" tone="secondary">
+            {trustProcessLabel(uiLang, processStage)}
+            {" · "}
+            {trustTr(uiLang, "{pct}% complete", "{pct}% הושלם").replace(
+              "{pct}",
+              String(progressPct),
+            )}
+          </ChromeText>
+          <ChecklistBlock
+            items={checklist}
+            focusStageId={processStage}
+            onToggle={toggleChecklistItem}
+          />
+        </Stack>
+      );
+    }
+    if (isTrustProcessStage(section)) {
+      return renderStageBody(section);
+    }
+    return (
+      <Stack gap={12}>
+        <ChromeText size="small" tone="secondary">
+          {trustTr(
+            uiLang,
+            "One reporting case for this tax year. Work the pipeline stages from the side tabs. Invoicing stays on its own tab.",
+            "תיק דיווח אחד לשנת המס. עובדים את שלבי התהליך מהלשוניות הצדדיות. החיוב נשאר בלשונית שלו.",
+          )}
+        </ChromeText>
+        <Row gap={8} wrap align="center">
+          <Pill tone="info">{trustProcessLabel(uiLang, processStage)}</Pill>
+          <Pill tone={trustCase.closed ? "success" : "neutral"}>
+            {trustCase.closed
+              ? trustTr(uiLang, "Closed", "סגור")
+              : trustTr(uiLang, "Pending", "ממתין")}
+          </Pill>
+          <ChromeText size="small" tone="secondary">
+            {trustFilerLabel(uiLang, trustCase.filer)}
+            {" · "}
+            {trustCase.dueDate || "—"}
+          </ChromeText>
+        </Row>
+        <Button variant="secondary" onClick={() => jumpToStage(processStage)}>
+          {trustTr(uiLang, "Open current stage", "פתח את השלב הנוכחי")}
+          {` · ${trustProcessLabel(uiLang, processStage)}`}
+        </Button>
+        <Stack
+          gap={8}
+          style={{
+            minWidth: 220,
+            flex: 1,
+            padding: 12,
+            borderRadius: 10,
+            background: chromeSoftFill(theme),
+            border: `1px solid ${chromeBorder(theme)}`,
+          }}
+        >
+          <ChromeText size="small" weight="semibold" tone="secondary">
+            {t(uiLang, "fees")}
+          </ChromeText>
+          <FeeLinesSummaryList
+            lang={uiLang}
+            lines={resolveClientFeeLines(client)}
+            fallback={client.fees}
+          />
+          <ChromeText size="small" tone="secondary">
+            {trustTr(
+              uiLang,
+              "Trust reporting file",
+              "תיק דיווח נאמנות",
+            )}
+          </ChromeText>
+        </Stack>
+      </Stack>
+    );
+  };
+
+  return (
+    <Stack gap={14}>
+      <Row align="center" gap={8} wrap>
+        <H2>{trustTr(uiLang, "Trust reporting", "דיווח נאמנות")}</H2>
+        <Pill tone="neutral">{year}</Pill>
+        <Row align="center" gap={6}>
+          <StatusBlob status={status} size={8} />
+          <ChromeText
+            size="small"
+            weight="semibold"
+            style={{ color: workFlowColor(theme, status) }}
+          >
+            {workFlowLabel(uiLang, status)}
+          </ChromeText>
+        </Row>
+        <Select
+          value={year}
+          onChange={setYear}
+          options={["2026", "2025", "2024", "2023"].map((y) => ({
+            value: y,
+            label: y,
+          }))}
+        />
+      </Row>
+      <ChromeText size="small" tone="secondary">
+        {trustTr(
+          uiLang,
+          "Process pipeline with side stage tabs and a checklist — same pattern as Bookkeeping. Banana is not opened from here.",
+          "תהליך עם לשוניות שלב צדדיות ורשימת בדיקה — אותו דפוס כמו הנהלת חשבונות. באננה לא נפתחת מכאן.",
+        )}
+      </ChromeText>
+      <Row gap={8} wrap align="center">
+        <Select
+          value={addPick}
+          onChange={setAddPick}
+          placeholder={trustTr(uiLang, "Add a service", "הוסף שירות")}
+          options={available.map((svc) => ({ value: svc, label: svc }))}
+        />
+        <Button
+          variant="secondary"
+          disabled={!addPick}
+          onClick={() => {
+            if (!addPick) return;
+            setAdded((prev) =>
+              prev.includes(addPick) ? prev : [...prev, addPick],
+            );
+            setAddPick("");
+          }}
+        >
+          {trustTr(uiLang, "Add service", "הוסף שירות")}
+        </Button>
+      </Row>
+
+      <div
+        style={{
+          padding: 12,
+          borderRadius: 10,
+          background: chromeSoftFill(theme),
+          border: `1px solid ${chromeBorder(theme)}`,
+        }}
+      >
+        <TrustProcessStageBar
+          stage={processStage}
+          progressPct={progressPct}
+          stageFillRatios={stageFillRatios}
+          onChange={jumpToStage}
+        />
+      </div>
+
+      <ModuleSectionFrame
+        ariaLabel={trustTr(uiLang, "Trust reporting", "דיווח נאמנות")}
+        title={trustTr(uiLang, "Trust reporting", "דיווח נאמנות")}
+        items={navItems}
+        activeId={section}
+        onSelect={(id) => {
+          setSection(id);
+          if (isTrustProcessStage(id)) setProcessStageStored(id);
+          if (id === "calc") setProcessStageStored("forms");
+        }}
+        popOutActive={processPopOutActive}
+        onTogglePopOut={onToggleProcessPopOut}
+        popOutPanelId="stream-trust"
+        contentStyle={{
+          padding: 12,
+          borderRadius: 10,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: CHROME_WHITE,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {renderMain()}
+        </div>
+        {showStageFooter ? (
+          <ProcessStageNavFooter
+            uiLang={uiLang}
+            backDisabled={!footerPrev}
+            forwardDisabled={!footerNext}
+            onBack={() => {
+              if (footerPrev) jumpToNavSection(footerPrev);
+            }}
+            onForward={() => {
+              if (footerNext) jumpToNavSection(footerNext);
+            }}
+            onCompleted={markCurrentStageCompleted}
+          />
+        ) : null}
+      </ModuleSectionFrame>
+    </Stack>
+  );
+}
+
+
+function TrustTaxCalcToolsPanel() {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [rows] = useCanvasState<DemoRow[]>("demoRows.v10", DEFAULT_DEMO_ROWS);
+  const trusts = rows.filter((row) => row.kind === "trust");
+  const [clientId, setClientId] = useCanvasState(
+    "trustCalcToolClient.v1",
+    trusts[0]?.id ?? "",
+  );
+  const [year, setYear] = useCanvasState("trustCalcToolYear.v1", "2025");
+  const picked = clientId || trusts[0]?.id || "sample";
+  return (
+    <Stack gap={12}>
+      <H2>{t(uiLang, "toolsToolTrustCalc")}</H2>
+      <ChromeText size="small" tone="secondary">
+        {t(uiLang, "toolsToolTrustCalcHint")}
+      </ChromeText>
+      <Row gap={8} wrap>
+        <Select
+          value={picked}
+          onChange={setClientId}
+          options={
+            trusts.length
+              ? trusts.map((row) => ({
+                  value: row.id,
+                  label: row.name,
+                }))
+              : [{ value: "sample", label: "Sample" }]
+          }
+        />
+        <Select
+          value={year}
+          onChange={setYear}
+          options={["2026", "2025", "2024"].map((y) => ({ value: y, label: y }))}
+        />
+      </Row>
+      <TrustTaxCalcPanel clientId={picked} year={year} />
+    </Stack>
+  );
+}
+
 
 function GenericServiceWorkspace({
   client,
@@ -37864,16 +42097,23 @@ function BookkeepingWorkspace({
     if (legacyAuditYear !== sharedYear) setLegacyAuditYear(sharedYear);
   }, [sharedYear, bkYear, legacyBkYear, legacyAuditYear]);
   const yearScope = `${client.id}:${bkYear}`;
-  const hasVat = clientHasVatService(client);
+  const bkSettingsDefault = defaultBkClientSettings(client);
+  const [bkSettingsStored, setBkSettingsStored] = useCanvasState<
+    BkClientSettings | null
+  >(`bkClientSettings.v1:${client.id}`, null);
+  const bkSettings = normalizeBkClientSettings(bkSettingsStored, client);
+  const patchBkSettings = (patch: Partial<BkClientSettings>) => {
+    setBkSettingsStored({ ...bkSettings, ...patch });
+  };
   const [activeMonth, setActiveMonth] = useCanvasState<BkMonthKey>(
     `bkActiveMonth.v1:${yearScope}`,
-    defaultBkActiveMonth(client.id, bkYear, hasVat),
+    defaultBkActiveMonth(client.id, bkYear, bkSettingsDefault),
   );
   const [checklistDone, setChecklistDone] = useCanvasState<
     Record<string, boolean>
   >(
-    `bkMonthChecklist.v1:${yearScope}`,
-    defaultBkMonthChecklistDone(client.id, bkYear),
+    `bkMonthChecklist.v2:${yearScope}`,
+    defaultBkMonthChecklistDone(client.id, bkYear, bkSettingsDefault),
   );
   const [bkCustomChecklist, setBkCustomChecklist] = useCanvasState<
     { id: string; label: string; monthKey: string }[]
@@ -37918,7 +42158,7 @@ function BookkeepingWorkspace({
   const monthlyPct = bookkeepingAllMonthsPct(
     checklistDone,
     bkCustomChecklist,
-    hasVat,
+    bkSettings,
   );
   const yearAvg = auditMonthlyYearAverage(monthlyPct);
   const monthPct = monthlyPct[activeMonth] ?? 0;
@@ -37940,7 +42180,7 @@ function BookkeepingWorkspace({
         uiLang,
         activeMonth,
         checklistDone,
-        hasVat,
+        bkSettings,
       ),
       ...monthCustom.map((item) => ({
         id: item.id,
@@ -37952,6 +42192,14 @@ function BookkeepingWorkspace({
     bkChecklistLabels,
   );
   const periodLabel = `${t(uiLang, auditMonthAbbrKey(activeMonth))} ${bkYear}`;
+  const activeMonthIdx = AUDIT_MONTH_KEYS.indexOf(activeMonth);
+  const prevMonthKey: BkMonthKey =
+    activeMonthIdx > 0
+      ? AUDIT_MONTH_KEYS[activeMonthIdx - 1]!
+      : AUDIT_MONTH_KEYS[11]!;
+  const prevPeriodYear =
+    activeMonthIdx > 0 ? bkYear : String(Number(bkYear) - 1);
+  const prevPeriodLabel = `${t(uiLang, auditMonthAbbrKey(prevMonthKey))} ${prevPeriodYear}`;
   const auditSteps = auditProcessStepsForClient(client);
   const hasAudit = clientHasAuditService(client);
   const prepSteps = auditBkPrepSteps(auditSteps);
@@ -37960,7 +42208,7 @@ function BookkeepingWorkspace({
   const yearComplete = bookkeepingYearFullyComplete(
     checklistDone,
     bkCustomChecklist,
-    hasVat,
+    bkSettings,
   );
   const auditProcessStage = resolveAuditProcessStage(
     client.id,
@@ -38052,6 +42300,7 @@ function BookkeepingWorkspace({
 
   type BkSection =
     | "overview"
+    | "settings"
     | "checklist"
     | "requests"
     | "files"
@@ -38069,6 +42318,7 @@ function BookkeepingWorkspace({
   >("bkSectionIntent.v1", {});
   const section: BkSection =
     sectionStored === "overview" ||
+    sectionStored === "settings" ||
     sectionStored === "checklist" ||
     sectionStored === "requests" ||
     sectionStored === "files" ||
@@ -38081,19 +42331,20 @@ function BookkeepingWorkspace({
       : "overview";
   useEffect(() => {
     if (section === "audit-prep" && !hasAudit) setSection("overview");
-  }, [section, hasAudit]);
+    if (section === "vat" && bkSettings.vat === "off") setSection("overview");
+    if (section === "salaries" && !bkSettings.payroll) setSection("overview");
+  }, [section, hasAudit, bkSettings.vat, bkSettings.payroll]);
   useEffect(() => {
     const intent = bkSectionIntents[client.id];
     if (intent !== "vat") return;
-    // VAT is always part of Bookkeeping / Osek Patur — never service-gated away.
-    setSection("vat");
+    if (bkSettings.vat !== "off") setSection("vat");
     setBkSectionIntents((prev) => {
       if (!(client.id in prev)) return prev;
       const next = { ...prev };
       delete next[client.id];
       return next;
     });
-  }, [bkSectionIntents, client.id]);
+  }, [bkSectionIntents, client.id, bkSettings.vat]);
 
   const [docRequests, setDocRequests] = useCanvasState<PortalDocRequest[]>(
     `bkDocRequests.v1:${yearScope}`,
@@ -38105,6 +42356,14 @@ function BookkeepingWorkspace({
   const [folderSelected, setFolderSelected] = useCanvasState<string | null>(
     `bkFolderSelected.v1:${yearScope}`,
     `bk-root-${client.id}-${bkYear}`,
+  );
+  const filesRootId = `bk-files-${client.id}-${bkYear}-${activeMonth}`;
+  const [filesExpanded, setFilesExpanded] = useCanvasState<
+    Record<string, boolean>
+  >(`bkFilesExpanded.v1:${yearScope}`, { [filesRootId]: true });
+  const [filesSelected, setFilesSelected] = useCanvasState<string | null>(
+    `bkFilesSelected.v1:${yearScope}`,
+    filesRootId,
   );
   const [reqDrafts, setReqDrafts] = useCanvasState<BkDocReqDraft[]>(
     `bkReqDrafts.v1:${yearScope}`,
@@ -38348,19 +42607,28 @@ function BookkeepingWorkspace({
     labelKey: CrmUiKey;
     badge?: string;
     status?: WorkFlowStatus;
+    icon?: ModuleSectionTabIconId;
   }[] = [
     { id: "overview", labelKey: "bkNavOverview" },
     { id: "checklist", labelKey: "bkNavChecklist" },
-    {
-      id: "vat" as const,
-      labelKey: "bkNavVat" as CrmUiKey,
-      status: vatStatus,
-    },
-    {
-      id: "salaries" as const,
-      labelKey: "bkNavSalaries" as CrmUiKey,
-      status: salariesStatus,
-    },
+    ...(bkSettings.vat !== "off"
+      ? ([
+          {
+            id: "vat" as const,
+            labelKey: "bkNavVat" as CrmUiKey,
+            status: vatStatus,
+          },
+        ] as const)
+      : []),
+    ...(bkSettings.payroll
+      ? ([
+          {
+            id: "salaries" as const,
+            labelKey: "bkNavSalaries" as CrmUiKey,
+            status: salariesStatus,
+          },
+        ] as const)
+      : []),
     {
       id: "requests",
       labelKey: "bkNavRequests",
@@ -38372,6 +42640,7 @@ function BookkeepingWorkspace({
       ? ([{ id: "audit-prep" as const, labelKey: "bkNavAuditPrep" as CrmUiKey }])
       : []),
     { id: "comments", labelKey: "bkNavComments" },
+    { id: "settings", labelKey: "bkNavSettings", icon: "settings" },
   ];
 
   const folderTree = buildBookkeepingWorkingFolder(
@@ -38379,6 +42648,19 @@ function BookkeepingWorkspace({
     client,
     bkYear,
     docRequests.filter((r) => r.status === "uploaded"),
+  );
+  const relevantFiles = demoBookkeepingFiles(
+    client,
+    periodLabel,
+    activeMonth,
+    prevPeriodLabel,
+  );
+  const filesTree = buildWorkspaceFilesFolderTree(
+    filesRootId,
+    uiLang === "he"
+      ? `${periodLabel} · קבצים רלוונטיים`
+      : `${periodLabel} · Relevant files`,
+    relevantFiles,
   );
 
   const auditPrepChecklist: WorkspaceChecklistItem[] = applyChecklistLabelOverrides(
@@ -38411,6 +42693,109 @@ function BookkeepingWorkspace({
   };
 
   const renderMain = () => {
+    if (section === "settings") {
+      const cycleOptions = [
+        { value: "off", label: t(uiLang, "bkCycleOff") },
+        { value: "monthly", label: t(uiLang, "bkCycleMonthly") },
+        { value: "bimonthly", label: t(uiLang, "bkCycleBimonthly") },
+      ];
+      const transferOptions = [
+        { value: "none", label: t(uiLang, "bkTransferNone") },
+        { value: "manual", label: t(uiLang, "bkTransferManual") },
+        { value: "masav", label: t(uiLang, "bkTransferMasav") },
+      ];
+      return (
+        <Stack gap={14}>
+          <ChromeText size="small" weight="semibold">
+            {t(uiLang, "bkSettingsTitle")}
+          </ChromeText>
+          <ChromeText size="small" tone="secondary">
+            {t(uiLang, "bkSettingsHint")}
+          </ChromeText>
+          <Stack gap={4}>
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "bkSettingsVat")}
+            </ChromeText>
+            <Select
+              value={bkSettings.vat}
+              onChange={(v) => {
+                if (v === "off" || v === "monthly" || v === "bimonthly") {
+                  patchBkSettings({ vat: v });
+                }
+              }}
+              options={cycleOptions}
+              style={{ width: 220 }}
+            />
+          </Stack>
+          <Stack gap={4}>
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "bkSettingsAdvances")}
+            </ChromeText>
+            <Select
+              value={bkSettings.advances}
+              onChange={(v) => {
+                if (v === "off" || v === "monthly" || v === "bimonthly") {
+                  patchBkSettings({ advances: v });
+                }
+              }}
+              options={cycleOptions}
+              style={{ width: 220 }}
+            />
+          </Stack>
+          {(bkSettings.vat === "bimonthly" ||
+            bkSettings.advances === "bimonthly") && (
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "bkSettingsBimonthlyHint")}
+            </ChromeText>
+          )}
+          <Checkbox
+            checked={bkSettings.payroll}
+            onChange={(v) => patchBkSettings({ payroll: v })}
+            label={t(uiLang, "payroll")}
+          />
+          {bkSettings.payroll ? (
+            <Stack gap={4}>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "bkSettingsSalaryTransfer")}
+              </ChromeText>
+              <Select
+                value={bkSettings.salaryTransfer}
+                onChange={(v) => {
+                  if (v === "none" || v === "manual" || v === "masav") {
+                    patchBkSettings({ salaryTransfer: v });
+                  }
+                }}
+                options={transferOptions}
+                style={{ width: 220 }}
+              />
+            </Stack>
+          ) : null}
+          <ChromeText size="small" weight="semibold">
+            {t(uiLang, "bkSettingsRecon")}
+          </ChromeText>
+          <Checkbox
+            checked={bkSettings.reconBanks}
+            onChange={(v) => patchBkSettings({ reconBanks: v })}
+            label={t(uiLang, "bkReconBanks")}
+          />
+          <Checkbox
+            checked={bkSettings.reconCards}
+            onChange={(v) => patchBkSettings({ reconCards: v })}
+            label={t(uiLang, "bkReconCards")}
+          />
+          <Checkbox
+            checked={bkSettings.reconSuppliers}
+            onChange={(v) => patchBkSettings({ reconSuppliers: v })}
+            label={t(uiLang, "bkReconSuppliers")}
+          />
+          <Checkbox
+            checked={bkSettings.reconCustomers}
+            onChange={(v) => patchBkSettings({ reconCustomers: v })}
+            label={t(uiLang, "bkReconCustomers")}
+          />
+        </Stack>
+      );
+    }
     if (section === "checklist") {
       return (
         <Stack gap={12}>
@@ -38436,6 +42821,13 @@ function BookkeepingWorkspace({
             {" · "}
             {t(uiLang, "bkMonthlyStagePct").replace("{pct}", String(monthPct))}
           </ChromeText>
+          {(bkSettings.vat === "bimonthly" ||
+            bkSettings.advances === "bimonthly") &&
+          !bkIsBimonthlyFilingMonth(activeMonth) ? (
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "bkSettingsBimonthlyHint")}
+            </ChromeText>
+          ) : null}
           <ChecklistBlock
             items={checklist}
             focusStageId={activeMonth}
@@ -38457,18 +42849,32 @@ function BookkeepingWorkspace({
     if (section === "files") {
       return (
         <Stack gap={8}>
-          <ChromeText size="small" weight="semibold" tone="secondary">
-            {t(uiLang, "relevantFiles")}
-          </ChromeText>
+          <Row align="center" gap={8} wrap>
+            <ChromeText size="small" weight="semibold" tone="secondary">
+              {t(uiLang, "relevantFiles")}
+            </ChromeText>
+            <Spacer />
+            <Select
+              value={activeMonth}
+              onChange={(v) => {
+                if (isBkMonthKey(v)) setActiveMonth(v);
+              }}
+              options={AUDIT_MONTH_KEYS.map((m) => ({
+                value: m,
+                label: t(uiLang, auditMonthAbbrKey(m)),
+              }))}
+              style={{ width: 140 }}
+            />
+          </Row>
           <ChromeText size="small" tone="secondary">
-            {t(uiLang, "bkWorkingFolderHint")}
+            {periodLabel}
           </ChromeText>
           <TaxReturnFolderBrowser
-            tree={folderTree}
-            expandedIds={folderExpanded}
-            setExpandedIds={setFolderExpanded}
-            selectedId={folderSelected}
-            setSelectedId={setFolderSelected}
+            tree={filesTree}
+            expandedIds={filesExpanded}
+            setExpandedIds={setFilesExpanded}
+            selectedId={filesSelected}
+            setSelectedId={setFilesSelected}
           />
         </Stack>
       );
@@ -39063,6 +43469,7 @@ function BookkeepingWorkspace({
           label: t(uiLang, item.labelKey),
           badge: item.badge,
           status: item.status,
+          icon: item.icon,
         }))}
         activeId={section}
         onSelect={setSection}
@@ -39074,10 +43481,50 @@ function BookkeepingWorkspace({
           borderRadius: 10,
           border: `1px solid ${chromeBorder(theme)}`,
           background: CHROME_WHITE,
-          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
-        {renderMain()}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {renderMain()}
+        </div>
+        {section === "overview" ||
+        section === "checklist" ||
+        section === "files" ||
+        section === "folder" ? (
+          <ProcessStageNavFooter
+            uiLang={uiLang}
+            backDisabled={activeMonthIdx <= 0}
+            forwardDisabled={
+              activeMonthIdx < 0 ||
+              activeMonthIdx >= AUDIT_MONTH_KEYS.length - 1
+            }
+            onBack={() => {
+              if (activeMonthIdx <= 0) return;
+              const prev = AUDIT_MONTH_KEYS[activeMonthIdx - 1];
+              if (prev) setActiveMonth(prev);
+            }}
+            onForward={() => {
+              if (
+                activeMonthIdx < 0 ||
+                activeMonthIdx >= AUDIT_MONTH_KEYS.length - 1
+              ) {
+                return;
+              }
+              const next = AUDIT_MONTH_KEYS[activeMonthIdx + 1];
+              if (next) setActiveMonth(next);
+            }}
+            onCompleted={() => {
+              setChecklistDone((prev) => {
+                const next = { ...prev };
+                for (const item of checklist) {
+                  next[bkChecklistDoneKey(activeMonth, item.id)] = true;
+                }
+                return next;
+              });
+            }}
+          />
+        ) : null}
       </ModuleSectionFrame>
     </Stack>
   );
@@ -39319,18 +43766,25 @@ function TaxReturnFolderBrowser({
   setExpandedIds,
   selectedId,
   setSelectedId,
+  /** Which secondary tab receives Pin to sidebar (default Work / Drive). */
+  quickAccessSidebar = "work",
 }: {
   tree: TaxReturnFolderNode[];
   expandedIds: Record<string, boolean>;
   setExpandedIds: (v: Record<string, boolean>) => void;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
+  quickAccessSidebar?: QuickAccessSidebar;
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [androidPreview] = useCanvasState<boolean>(
     ANDROID_PREVIEW_LS_KEY,
     false,
+  );
+  const [signedInWorkerId] = useCanvasState(
+    "signedInWorkerId.v1",
+    DEMO_WORKER.id,
   );
   const persistScope = tree[0]?.id ?? "folder-browser";
   const [extraFolders, setExtraFolders] = useCanvasState<
@@ -39354,6 +43808,18 @@ function TaxReturnFolderBrowser({
   const [explorerSplitPct, setExplorerSplitPct] = useCanvasState<number>(
     CRM_EXPLORER_SPLIT_PCT_KEY,
     CRM_EXPLORER_SPLIT_DEFAULT,
+  );
+  /** Per-worker Quick Access pins — Pin to sidebar lands on Work or Billing. */
+  const [quickAccessByWorker, setQuickAccessByWorker] =
+    useCanvasState<QuickAccessByWorker>(CRM_QUICK_ACCESS_BY_WORKER_KEY, {});
+  const myQuickAccess = workerQuickAccessPins(
+    quickAccessByWorker,
+    signedInWorkerId,
+    uiLang,
+  );
+  const sidebarPins = pinsForQuickAccessSidebar(
+    myQuickAccess,
+    quickAccessSidebar,
   );
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewPaneTab, setPreviewPaneTab] = useState<"details" | "page">(
@@ -39752,6 +44218,58 @@ function TaxReturnFolderBrowser({
         () => openTarget(ctxMenu.targetId, ctxMenu.targetKind),
       ),
     );
+    if (isFolderish && actionId) {
+      const pinNode = findTaxReturnFolderNode(liveTree, actionId);
+      const pinLabel =
+        pinNode?.kind === "folder"
+          ? pinNode.label
+          : findTaxReturnFolderNode(liveTree, actionId)?.label ?? actionId;
+      const isPinned = sidebarPins.some((p) =>
+        quickAccessPinMatches(p, actionId, quickAccessSidebar, "folder"),
+      );
+      items.push(
+        renderCtxItem(
+          isPinned ? "unpin-quick-access" : "pin-quick-access",
+          t(
+            uiLang,
+            isPinned
+              ? "taxReturnFolderCtxUnpinQuickAccess"
+              : "taxReturnFolderCtxPinQuickAccess",
+          ),
+          () => {
+            if (isPinned) {
+              setQuickAccessByWorker((prev) =>
+                removeWorkerQuickAccessPin(
+                  prev ?? {},
+                  signedInWorkerId,
+                  actionId,
+                  quickAccessSidebar,
+                  uiLang,
+                  "folder",
+                ),
+              );
+              flash(t(uiLang, "taxReturnFolderUnpinFlash"));
+            } else {
+              setQuickAccessByWorker((prev) =>
+                upsertWorkerQuickAccessPin(
+                  prev ?? {},
+                  signedInWorkerId,
+                  {
+                    id: actionId,
+                    label: pinLabel,
+                    sidebar: quickAccessSidebar,
+                    kind: "folder",
+                  },
+                  uiLang,
+                ),
+              );
+              flash(t(uiLang, "taxReturnFolderPinFlash"));
+            }
+            closeCtxMenu();
+          },
+        ),
+      );
+    }
     items.push(
       <div
         key="sep-open"
@@ -39922,9 +44440,9 @@ function TaxReturnFolderBrowser({
 
     // x/y are click client coords; clamp at render so New-submenu growth re-fits.
     const menuPos = clampFolderExplorerCtxMenuPos(ctxMenu.x, ctxMenu.y, {
-      estW: 196,
-      // +1 row for Download / Zip and download near Open / after New.
-      estH: ctxNewOpen ? 448 : isFolderish ? 388 : 348,
+      estW: 220,
+      // +1 row for Pin to Quick access near Open / Expand.
+      estH: ctxNewOpen ? 480 : isFolderish ? 420 : 348,
     });
 
     return (
@@ -41641,9 +46159,21 @@ function AuditProcessWorkspace({
     Record<string, string>
   >(`auditChecklistLabels.v1:${scopeKey}`, {});
   /** Read Bookkeeping tab month checklist (shared key) for reporting-stage %. */
+  const [bkSettingsForAuditRaw] = useCanvasState<BkClientSettings | null>(
+    `bkClientSettings.v1:${client.id}`,
+    null,
+  );
+  const bkSettingsForAudit = normalizeBkClientSettings(
+    bkSettingsForAuditRaw,
+    client,
+  );
   const [bkMonthChecklistDone] = useCanvasState<Record<string, boolean>>(
-    `bkMonthChecklist.v1:${client.id}:${auditYear}`,
-    defaultBkMonthChecklistDone(client.id, auditYear),
+    `bkMonthChecklist.v2:${client.id}:${auditYear}`,
+    defaultBkMonthChecklistDone(
+      client.id,
+      auditYear,
+      defaultBkClientSettings(client),
+    ),
   );
   const [bkCustomChecklistForAudit] = useCanvasState<
     { id: string; label: string; monthKey: string }[]
@@ -41735,13 +46265,13 @@ function AuditProcessWorkspace({
   const bkMonthlyPct = bookkeepingAllMonthsPct(
     bkMonthChecklistDone,
     bkCustomChecklistForAudit,
-    clientHasVatService(client),
+    bkSettingsForAudit,
   );
   const gateStage = auditBkMonthGateStage(steps);
   const bkYearComplete = bookkeepingYearFullyComplete(
     bkMonthChecklistDone,
     bkCustomChecklistForAudit,
-    clientHasVatService(client),
+    bkSettingsForAudit,
   );
   const stageFillRatios = auditProcessStageFillRatios(
     processStage,
@@ -42920,47 +47450,27 @@ function AuditProcessWorkspace({
             {renderMain()}
           </div>
           {showStageFooter ? (
-            <div
-              dir={uiDir(uiLang)}
-              style={{
-                flexShrink: 0,
-                marginTop: 12,
-                paddingTop: 10,
-                borderTop: `1px solid ${chromeBorder(theme)}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-                flexWrap: "wrap",
+            <ProcessStageNavFooter
+              uiLang={uiLang}
+              backDisabled={!footerPrevStage}
+              forwardDisabled={!footerNextStage}
+              onBack={() => {
+                if (footerPrevStage) onStageChange(footerPrevStage);
               }}
-            >
-              <Button
-                variant="secondary"
-                disabled={!footerPrevStage}
-                onClick={() => {
-                  if (footerPrevStage) onStageChange(footerPrevStage);
-                }}
-              >
-                {`${navBackArrow(uiLang)} ${t(uiLang, "auditPrevStage")}${
-                  footerPrevStage
-                    ? ` · ${auditProcessBarLabel(uiLang, footerPrevStage)}`
-                    : ""
-                }`}
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={!footerNextStage}
-                onClick={() => {
-                  if (footerNextStage) onStageChange(footerNextStage);
-                }}
-              >
-                {`${t(uiLang, "auditNextStage")}${
-                  footerNextStage
-                    ? ` · ${auditProcessBarLabel(uiLang, footerNextStage)}`
-                    : ""
-                } ${flowArrow(uiLang)}`}
-              </Button>
-            </div>
+              onForward={() => {
+                if (footerNextStage) onStageChange(footerNextStage);
+              }}
+              onCompleted={() => {
+                setChecklistDoneOverrides((prev) => {
+                  const next = { ...prev };
+                  next[auditChecklistIdForStage(processStage)] = true;
+                  for (const item of checklist) {
+                    if (item.stageId === processStage) next[item.id] = true;
+                  }
+                  return next;
+                });
+              }}
+            />
           ) : null}
               </ModuleSectionFrame>
     </Stack>
@@ -43844,6 +48354,10 @@ function ClientCardPanelView({
   const [workStatusOverrides] = useCanvasState<
     Partial<Record<string, WorkFlowStatus>>
   >(`clientWorkStatus.v1:${client.id}`, {});
+  const [trustPortalNotice] = useCanvasState(
+    `trustPortalNotice.v1:${client.id}`,
+    false,
+  );
   const flowStatus = isStatusPanel(panel)
     ? resolveClientWorkStatus(client.id, panel, workStatusOverrides)
     : null;
@@ -43876,6 +48390,11 @@ function ClientCardPanelView({
           </Row>
         ) : null}
       </Row>
+      {isPortal && trustPortalNotice ? (
+        <Callout tone="success" title={t(uiLang, "portal")}>
+          {uiLang === "he" ? "התשלום התקבל" : "Payment received"}
+        </Callout>
+      ) : null}
       <ChromeText size="small" tone="secondary">
         {clientPanelSubtitle(uiLang, panel, client.name)}
       </ChromeText>
@@ -44002,12 +48521,22 @@ function ClientCardScreen({
     "firmDepartments.v3",
     DEFAULT_FIRM_DEPARTMENTS,
   );
+  const [signedInWorkerId] = useCanvasState(
+    "signedInWorkerId.v1",
+    DEMO_WORKER.id,
+  );
+  const [quickAccessByWorker, setQuickAccessByWorker] =
+    useCanvasState<QuickAccessByWorker>(CRM_QUICK_ACCESS_BY_WORKER_KEY, {});
   const workersList = normalizeFirmWorkers(
     Array.isArray(firmWorkers) ? firmWorkers : DEMO_STAFF,
   );
   const departmentsList = Array.isArray(firmDepartments)
     ? firmDepartments
     : DEFAULT_FIRM_DEPARTMENTS;
+  const clientPinnedToSidebar = pinsForQuickAccessSidebar(
+    workerQuickAccessPins(quickAccessByWorker, signedInWorkerId, uiLang),
+    "clients",
+  ).some((p) => quickAccessPinMatches(p, client.id, "clients", "client"));
   const overviewAssignedTo = assignedToCellLabel(
     uiLang,
     client,
@@ -44058,10 +48587,15 @@ function ClientCardScreen({
   const linkedCompany = client.companyId
     ? allClients.find((r) => r.id === client.companyId)
     : undefined;
+  const [trustAddedServices] = useCanvasState<string[]>(
+    `trustAddedServices.v1:${client.id}`,
+    [],
+  );
   const streams = streamsForClient(
     client.services,
     firmServices,
     client.kind,
+    client.kind === "trust" ? trustAddedServices : undefined,
   );
   const fileTodos = demoFileTodos(client);
   const docsRootId = `ccd-root-${client.id}`;
@@ -44349,9 +48883,21 @@ function ClientCardScreen({
     taxReturnWorkingYear,
     isTaxReturnProcessStage,
   );
+  const [bkSettingsForOverviewRaw] = useCanvasState<BkClientSettings | null>(
+    `bkClientSettings.v1:${client.id}`,
+    null,
+  );
+  const bkSettingsForOverview = normalizeBkClientSettings(
+    bkSettingsForOverviewRaw,
+    client,
+  );
   const [bkMonthChecklistForOverview] = useCanvasState<Record<string, boolean>>(
-    `bkMonthChecklist.v1:${client.id}:${bkAuditYear}`,
-    defaultBkMonthChecklistDone(client.id, bkAuditYear),
+    `bkMonthChecklist.v2:${client.id}:${bkAuditYear}`,
+    defaultBkMonthChecklistDone(
+      client.id,
+      bkAuditYear,
+      defaultBkClientSettings(client),
+    ),
   );
   const [bkCustomChecklistForOverview] = useCanvasState<
     { id: string; label: string; monthKey: string }[]
@@ -44359,7 +48905,7 @@ function ClientCardScreen({
   const [processImportant, setProcessImportant] = useCanvasState<
     Record<string, boolean>
   >(`clientProcessImportant.v1:${client.id}`, {});
-  const clientHasVat = clientHasVatService(client);
+  const clientHasVat = bkSettingsForOverview.vat !== "off";
   const [, setBkSectionIntents] = useCanvasState<Record<string, string>>(
     "bkSectionIntent.v1",
     {},
@@ -44381,7 +48927,7 @@ function ClientCardScreen({
         bookkeepingAllMonthsPct(
           bkMonthChecklistForOverview,
           bkCustomChecklistForOverview,
-          clientHasVat,
+          bkSettingsForOverview,
         ),
       );
       let status = progressPctToWorkFlowStatus(yearAvg);
@@ -45288,6 +49834,23 @@ function ClientCardScreen({
       );
     }
 
+    if (tabId === "stream-trust") {
+      return (
+        <TrustReportingWorkspace
+          client={client}
+          processPopOutActive={effectivePopOut === "stream-trust"}
+          onToggleProcessPopOut={() => {
+            if (effectivePopOut === "stream-trust") {
+              setPopOutPanel(null);
+              setPopOutDraft("");
+              return;
+            }
+            togglePopOut("stream-trust");
+          }}
+        />
+      );
+    }
+
     if (tabId === "stream-tax-return") {
       return (
         <TaxReturnWorkspace
@@ -45357,6 +49920,7 @@ function ClientCardScreen({
             setExpandedIds={setDocsFolderExpanded}
             selectedId={docsFolderSelected}
             setSelectedId={setDocsFolderSelected}
+            quickAccessSidebar="clients"
           />
         </Stack>
       );
@@ -45802,6 +50366,12 @@ function ClientCardScreen({
       ? [{ value: "edit", label: t(uiLang, "editClient") }]
       : []),
     {
+      value: clientPinnedToSidebar ? "unpin_client" : "pin_client",
+      label: clientPinnedToSidebar
+        ? t(uiLang, "unpinClient")
+        : t(uiLang, "pinClient"),
+    },
+    {
       value: "on_hold",
       label: clientIsOnHold
         ? t(uiLang, "clientResumeFromHold")
@@ -45885,6 +50455,37 @@ function ClientCardScreen({
                   if (action === "edit") {
                     setHeaderDeleteConfirm(false);
                     onEditClient?.();
+                    return;
+                  }
+                  if (action === "pin_client") {
+                    setHeaderDeleteConfirm(false);
+                    setQuickAccessByWorker((prev) =>
+                      upsertWorkerQuickAccessPin(
+                        prev ?? {},
+                        signedInWorkerId,
+                        {
+                          id: client.id,
+                          label: displayClientName(client, uiLang),
+                          sidebar: "clients",
+                          kind: "client",
+                        },
+                        uiLang,
+                      ),
+                    );
+                    return;
+                  }
+                  if (action === "unpin_client") {
+                    setHeaderDeleteConfirm(false);
+                    setQuickAccessByWorker((prev) =>
+                      removeWorkerQuickAccessPin(
+                        prev ?? {},
+                        signedInWorkerId,
+                        client.id,
+                        "clients",
+                        uiLang,
+                        "client",
+                      ),
+                    );
                     return;
                   }
                   if (action === "on_hold") {
@@ -47683,6 +52284,15 @@ function CompanySettingsScreen() {
     DEFAULT_COMPANY_SETTINGS,
   );
   const settings = normalizeCompanySettings(settingsRaw);
+  const [productBrandRaw, setProductBrand] = useCanvasState<CrmProductBrand>(
+    CRM_PRODUCT_BRAND_KEY,
+    DEFAULT_CRM_PRODUCT_BRAND,
+  );
+  const productBrand = normalizeCrmProductBrand(productBrandRaw);
+  const productBrandNameDraft =
+    productBrandRaw && typeof productBrandRaw.name === "string"
+      ? productBrandRaw.name
+      : productBrand.name;
   const [saveFlash, setSaveFlash] = useCanvasState(
     "crmCompanySettingsFlash.v1",
     "",
@@ -47693,6 +52303,14 @@ function CompanySettingsScreen() {
     setSettings((prev) => ({
       ...normalizeCompanySettings(prev),
       ...partial,
+    }));
+  };
+
+  /** Rename product label only — never clears sibling-owned `iconId`. */
+  const patchProductBrandName = (name: string) => {
+    setProductBrand((prev) => ({
+      ...normalizeCrmProductBrand(prev),
+      name,
     }));
   };
 
@@ -47709,6 +52327,15 @@ function CompanySettingsScreen() {
   };
 
   const onSave = () => {
+    setProductBrand((prev) => {
+      const base = normalizeCrmProductBrand(prev);
+      const trimmed =
+        typeof prev?.name === "string" ? prev.name.trim() : base.name;
+      return {
+        ...base,
+        name: trimmed || DEFAULT_CRM_PRODUCT_BRAND_NAME,
+      };
+    });
     setSaveFlash(t(uiLang, "companySettingsSaved"));
   };
 
@@ -47729,6 +52356,36 @@ function CompanySettingsScreen() {
           {saveFlash}
         </Callout>
       ) : null}
+
+      <FormSection
+        title={t(uiLang, "companyProductBrandSection")}
+        hint={t(uiLang, "companyProductBrandHint")}
+      >
+        <Stack gap={8}>
+          <Stack gap={4} style={{ maxWidth: 360 }}>
+            <FieldLabel>{t(uiLang, "companyProductBrandName")}</FieldLabel>
+            <ChromeTextInput
+              value={productBrandNameDraft}
+              onChange={patchProductBrandName}
+              placeholder={DEFAULT_CRM_PRODUCT_BRAND_NAME}
+            />
+          </Stack>
+          <Row gap={8} wrap>
+            <Button
+              variant="ghost"
+              disabled={
+                crmProductBrandDisplayName(productBrand) ===
+                DEFAULT_CRM_PRODUCT_BRAND_NAME
+              }
+              onClick={() =>
+                patchProductBrandName(DEFAULT_CRM_PRODUCT_BRAND_NAME)
+              }
+            >
+              {t(uiLang, "companyProductBrandReset")}
+            </Button>
+          </Row>
+        </Stack>
+      </FormSection>
 
       <FormSection title={t(uiLang, "companyProfileSection")}>
         <Grid columns={2} gap={12}>
@@ -50209,6 +54866,10 @@ function UsersRightsScreen() {
     "crmStaffInviteRole.v1",
     "worker",
   );
+  const [invitePhotoUrl, setInvitePhotoUrl] = useCanvasState(
+    "crmStaffInvitePhotoUrl.v1",
+    "",
+  );
 
   const roster = normalizeFirmWorkers(
     Array.isArray(workers) && workers.length > 0 ? workers : DEMO_STAFF,
@@ -50329,6 +54990,7 @@ function UsersRightsScreen() {
       phone: "",
       emailSignatureName: deriveWorkerSignatureName(pretty),
       emailSignatureBody: deriveWorkerSignatureBody(pretty, pretty, email),
+      photoUrl: invitePhotoUrl.trim(),
     });
     setWorkers((prev) => [
       ...normalizeFirmWorkers(Array.isArray(prev) ? prev : DEMO_STAFF),
@@ -50347,6 +55009,7 @@ function UsersRightsScreen() {
       },
     }));
     setInviteEmail("");
+    setInvitePhotoUrl("");
     setInviteOpen(false);
     beginEdit(id);
     setFlash(t(uiLang, "usersRightsInviteFlash"));
@@ -50406,6 +55069,19 @@ function UsersRightsScreen() {
           <ChromeText size="small" weight="semibold">
             {t(uiLang, "usersRightsInvite")}
           </ChromeText>
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "usersRightsInvitePhoto")}</FieldLabel>
+            <StaffAvatarUploadField
+              photoUrl={invitePhotoUrl}
+              initials={initialsFromLabel(
+                inviteEmail.trim().split("@")[0]?.replace(/[._-]+/g, " ") ||
+                  "?",
+              )}
+              uiLang={uiLang}
+              onChange={setInvitePhotoUrl}
+              hintKey="usersRightsInvitePhotoHint"
+            />
+          </Stack>
           <Grid columns={2} gap={12}>
             <Stack gap={4}>
               <FieldLabel>{t(uiLang, "usersRightsInviteEmail")}</FieldLabel>
@@ -50437,6 +55113,7 @@ function UsersRightsScreen() {
               onClick={() => {
                 setInviteOpen(false);
                 setInviteEmail("");
+                setInvitePhotoUrl("");
               }}
             >
               {t(uiLang, "usersRightsInviteCancel")}
@@ -56541,7 +61218,325 @@ function ClientFoldersScreen() {
         setExpandedIds={setExpandedIds}
         selectedId={selectedId}
         setSelectedId={setSelectedId}
+        quickAccessSidebar="clients"
       />
+    </Stack>
+  );
+}
+
+/** Work → Drive — configured firm drive explorer (TaxReturnFolderBrowser). */
+function DriveScreen() {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [drivesRaw] = useCanvasState<WorkDrive[]>(
+    CRM_WORK_DRIVES_KEY,
+    seedWorkDrives(),
+  );
+  const drives = normalizeWorkDrives(drivesRaw);
+  const archiveDrive = companyArchiveWorkDrive(drives);
+  const [activeDriveId, setActiveDriveId] = useCanvasState<string>(
+    CRM_WORK_ACTIVE_DRIVE_KEY,
+    archiveDrive.id,
+  );
+  const activeDrive =
+    drives.find((d) => d.id === activeDriveId) ?? archiveDrive;
+  useEffect(() => {
+    if (!drives.some((d) => d.id === activeDriveId)) {
+      setActiveDriveId(archiveDrive.id);
+    }
+  }, [drives, activeDriveId, archiveDrive.id, setActiveDriveId]);
+
+  const tree = buildWorkDriveFolderTree(uiLang, activeDrive);
+  const isArchive = isCompanyArchiveDrive(activeDrive);
+  const rootId = tree[0]?.id ?? "drive-root";
+  const companiesId = "drive-companies";
+  const defaultSelected = isArchive ? companiesId : rootId;
+  const [expandedIds, setExpandedIds] = useCanvasState<Record<string, boolean>>(
+    "workDrive.expanded.v1",
+    { [rootId]: true, ...(isArchive ? { [companiesId]: true } : {}) },
+  );
+  const [selectedId, setSelectedId] = useCanvasState<string | null>(
+    "workDrive.selected.v1",
+    defaultSelected,
+  );
+
+  return (
+    <Stack gap={12} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
+      <Stack gap={4}>
+        <H1>{activeDrive.name}</H1>
+        <ChromeText tone="secondary">
+          {isArchive
+            ? t(uiLang, "driveHint")
+            : activeDrive.rootPathOrUrl ||
+              workDriveKindLabel(uiLang, activeDrive.kind)}
+        </ChromeText>
+      </Stack>
+      {!isArchive && (activeDrive.kind === "google" || activeDrive.kind === "link") ? (
+        <Callout tone="info" title={workDriveKindLabel(uiLang, activeDrive.kind)}>
+          {activeDrive.rootPathOrUrl
+            ? `${activeDrive.rootPathOrUrl} — ${t(uiLang, "workDriveUrlHint")}`
+            : t(uiLang, "workDriveUrlHint")}
+        </Callout>
+      ) : null}
+      <TaxReturnFolderBrowser
+        tree={tree}
+        expandedIds={expandedIds}
+        setExpandedIds={setExpandedIds}
+        selectedId={selectedId}
+        setSelectedId={setSelectedId}
+        quickAccessSidebar="work"
+      />
+    </Stack>
+  );
+}
+
+/** Billing → Billing folders — firm billing docs Explorer (Pin → sidebar "billing"). */
+function BillingFoldersScreen() {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const tree = buildBillingFoldersArchiveTree(uiLang);
+  const rootId = tree[0]?.id ?? "bf-root";
+  const [expandedIds, setExpandedIds] = useCanvasState<Record<string, boolean>>(
+    "billingFolders.expanded.v1",
+    { [rootId]: true, "bf-invoices": true },
+  );
+  const [selectedId, setSelectedId] = useCanvasState<string | null>(
+    "billingFolders.selected.v1",
+    "bf-invoices",
+  );
+
+  return (
+    <Stack gap={12} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
+      <Stack gap={4}>
+        <H1>{t(uiLang, "billingFoldersTitle")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "billingFoldersHint")}</ChromeText>
+      </Stack>
+      <TaxReturnFolderBrowser
+        tree={tree}
+        expandedIds={expandedIds}
+        setExpandedIds={setExpandedIds}
+        selectedId={selectedId}
+        setSelectedId={setSelectedId}
+        quickAccessSidebar="billing"
+      />
+    </Stack>
+  );
+}
+
+/** Systemadmin → Work drives — add / rename / remove Work sidebar drives. */
+function WorkDrivesScreen() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [drivesRaw, setDrives] = useCanvasState<WorkDrive[]>(
+    CRM_WORK_DRIVES_KEY,
+    seedWorkDrives(),
+  );
+  const drives = normalizeWorkDrives(drivesRaw);
+  const [activeDriveId, setActiveDriveId] = useCanvasState<string>(
+    CRM_WORK_ACTIVE_DRIVE_KEY,
+    companyArchiveWorkDrive(drives).id,
+  );
+  const [flash, setFlash] = useCanvasState("crmWorkDrivesFlash.v1", "");
+  const [draftName, setDraftName] = useState("");
+  const [draftKind, setDraftKind] = useState<WorkDriveKind>("local");
+  const [draftUrl, setDraftUrl] = useState("");
+
+  const persist = (next: WorkDrive[]) => {
+    const normalized = normalizeWorkDrives(next);
+    setDrives(normalized);
+    if (!normalized.some((d) => d.id === activeDriveId)) {
+      setActiveDriveId(companyArchiveWorkDrive(normalized).id);
+    }
+  };
+
+  const renameDrive = (id: string, name: string) => {
+    const nextName = name.trim();
+    if (!nextName) return;
+    persist(drives.map((d) => (d.id === id ? { ...d, name: nextName } : d)));
+  };
+
+  const patchDrive = (id: string, partial: Partial<WorkDrive>) => {
+    persist(drives.map((d) => (d.id === id ? { ...d, ...partial } : d)));
+  };
+
+  const removeDrive = (id: string) => {
+    if (drives.length <= 1) return;
+    if (isCompanyArchiveDrive(drives.find((d) => d.id === id) ?? drives[0])) {
+      /** Keep at least the company archive when present; allow remove only if another archive exists. */
+      const remaining = drives.filter((d) => d.id !== id);
+      if (!remaining.some(isCompanyArchiveDrive) && remaining.length === 0) {
+        return;
+      }
+    }
+    persist(drives.filter((d) => d.id !== id));
+  };
+
+  const addDrive = () => {
+    const name = draftName.trim() || t(uiLang, "drive");
+    const id = `wd-${Date.now().toString(36)}`;
+    const next: WorkDrive = {
+      id,
+      name,
+      kind: draftKind,
+      rootPathOrUrl:
+        draftKind === "local"
+          ? draftUrl.trim() || undefined
+          : draftUrl.trim() || undefined,
+      folderTreeId: undefined,
+    };
+    persist([...drives, next]);
+    setDraftName("");
+    setDraftUrl("");
+    setDraftKind("local");
+    setFlash(t(uiLang, "workDriveSaved"));
+  };
+
+  return (
+    <Stack gap={16} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
+      <Row align="center" gap={12} wrap>
+        <Spacer />
+        <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
+      </Row>
+
+      <Stack gap={4}>
+        <H1>{t(uiLang, "workDrivesTitle")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "workDrivesHint")}</ChromeText>
+      </Stack>
+
+      {flash ? (
+        <Callout tone="success" title={t(uiLang, "save")}>
+          {flash}
+        </Callout>
+      ) : null}
+
+      <FormSection title={t(uiLang, "workDrives")}>
+        <Stack gap={12}>
+          {drives.map((drive) => (
+            <Stack
+              key={drive.id}
+              gap={8}
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                border: `1px solid ${chromeBorder(theme)}`,
+                background: chromeSoftFill(theme),
+              }}
+            >
+              <Row gap={8} wrap align="center">
+                <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+                  <FieldLabel>{t(uiLang, "workDriveNameLabel")}</FieldLabel>
+                  <ChromeTextInput
+                    value={drive.name}
+                    onChange={(v) => renameDrive(drive.id, v)}
+                  />
+                </Stack>
+                <Stack gap={4} style={{ minWidth: 160 }}>
+                  <FieldLabel>{t(uiLang, "workDriveTypeLabel")}</FieldLabel>
+                  <Select
+                    value={drive.kind}
+                    onChange={(v) =>
+                      patchDrive(drive.id, {
+                        kind: (v as WorkDriveKind) || "local",
+                      })
+                    }
+                    options={[
+                      {
+                        value: "local",
+                        label: t(uiLang, "workDriveKindLocal"),
+                      },
+                      {
+                        value: "google",
+                        label: t(uiLang, "workDriveKindGoogle"),
+                      },
+                      {
+                        value: "link",
+                        label: t(uiLang, "workDriveKindLink"),
+                      },
+                    ]}
+                  />
+                </Stack>
+              </Row>
+              {drive.kind === "google" || drive.kind === "link" ? (
+                <Stack gap={4}>
+                  <FieldLabel>{t(uiLang, "workDriveUrlLabel")}</FieldLabel>
+                  <ChromeText size="small" tone="tertiary">
+                    {t(uiLang, "workDriveUrlHint")}
+                  </ChromeText>
+                  <ChromeTextInput
+                    value={drive.rootPathOrUrl ?? ""}
+                    onChange={(v) =>
+                      patchDrive(drive.id, { rootPathOrUrl: v })
+                    }
+                    placeholder="https://drive.google.com/…"
+                  />
+                </Stack>
+              ) : null}
+              {isCompanyArchiveDrive(drive) ? (
+                <ChromeText size="small" tone="secondary">
+                  {t(uiLang, "workDriveArchiveNote")}
+                </ChromeText>
+              ) : null}
+              <Row gap={8} wrap>
+                <Button
+                  variant="secondary"
+                  disabled={drives.length <= 1}
+                  onClick={() => removeDrive(drive.id)}
+                >
+                  {t(uiLang, "workDriveRemove")}
+                </Button>
+              </Row>
+            </Stack>
+          ))}
+        </Stack>
+      </FormSection>
+
+      <FormSection title={t(uiLang, "workDriveAdd")}>
+        <Grid columns={2} gap={12}>
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "workDriveNameLabel")}</FieldLabel>
+            <ChromeTextInput
+              value={draftName}
+              onChange={setDraftName}
+              placeholder={t(uiLang, "drive")}
+            />
+          </Stack>
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "workDriveTypeLabel")}</FieldLabel>
+            <Select
+              value={draftKind}
+              onChange={(v) =>
+                setDraftKind(((v as WorkDriveKind) || "local") as WorkDriveKind)
+              }
+              options={[
+                { value: "local", label: t(uiLang, "workDriveKindLocal") },
+                { value: "google", label: t(uiLang, "workDriveKindGoogle") },
+                { value: "link", label: t(uiLang, "workDriveKindLink") },
+              ]}
+            />
+          </Stack>
+          {draftKind === "google" || draftKind === "link" ? (
+            <Stack gap={4} style={{ gridColumn: "1 / -1" }}>
+              <FieldLabel>{t(uiLang, "workDriveUrlLabel")}</FieldLabel>
+              <ChromeTextInput
+                value={draftUrl}
+                onChange={setDraftUrl}
+                placeholder="https://drive.google.com/…"
+              />
+            </Stack>
+          ) : null}
+        </Grid>
+        <Row gap={8} style={{ marginTop: 12 }}>
+          <Button variant="primary" onClick={addDrive}>
+            {t(uiLang, "workDriveAdd")}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setFlash(t(uiLang, "workDriveSaved"));
+            }}
+          >
+            {t(uiLang, "save")}
+          </Button>
+        </Row>
+      </FormSection>
     </Stack>
   );
 }
@@ -72894,7 +77889,8 @@ type ToolsModuleId =
   | "converter"
   | "sumit-dapi"
   | "section46"
-  | "masav";
+  | "masav"
+  | "trust-calc";
 type ToolsNavId = "prepare" | "waiting" | "sent" | "signed";
 type ConverterMode = "files" | "voice";
 type ConvertFileKind = "image" | "pdf" | "excel" | "word" | "csv";
@@ -72937,6 +77933,11 @@ const TOOLS_MODULES: {
     id: "masav",
     labelKey: "toolsToolMasav",
     hintKey: "toolsToolMasavHint",
+  },
+  {
+    id: "trust-calc",
+    labelKey: "toolsToolTrustCalc",
+    hintKey: "toolsToolTrustCalcHint",
   },
 ];
 
@@ -72998,6 +77999,7 @@ function toolsModuleLabel(lang: UiLang, id: ToolsModuleId): string {
   if (id === "sumit-dapi") return t(lang, "toolsToolSumitDapi");
   if (id === "section46") return t(lang, "toolsToolSection46");
   if (id === "masav") return t(lang, "toolsToolMasav");
+  if (id === "trust-calc") return t(lang, "toolsToolTrustCalc");
   return t(lang, "toolsCatalogTitle");
 }
 
@@ -73008,6 +78010,7 @@ function toolsModuleHint(lang: UiLang, id: ToolsModuleId): string {
   if (id === "sumit-dapi") return t(lang, "toolsToolSumitDapiHint");
   if (id === "section46") return t(lang, "toolsToolSection46Hint");
   if (id === "masav") return t(lang, "toolsToolMasavHint");
+  if (id === "trust-calc") return t(lang, "toolsToolTrustCalcHint");
   return t(lang, "toolsCatalogHint");
 }
 
@@ -75323,6 +80326,8 @@ function ToolsScreen({
         <Section46ToolsPanel uiLang={uiLang} />
       ) : toolsModule === "masav" ? (
         <MasavToolsPanel uiLang={uiLang} />
+      ) : toolsModule === "trust-calc" ? (
+        <TrustTaxCalcToolsPanel />
       ) : (
         <Stack gap={12}>
           <RaisedTabBar
@@ -85871,6 +90876,13 @@ function guessConvertKind(services: string): ClientFilter {
 export default function CrmModulesHome() {
   const theme = useHostTheme();
   const [uiLang, setUiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  /** Renameable product name — overrides legacy Intertax `appBrand` in chrome. */
+  const [productBrandRaw] = useCanvasState<CrmProductBrand>(
+    CRM_PRODUCT_BRAND_KEY,
+    DEFAULT_CRM_PRODUCT_BRAND,
+  );
+  const productBrand = normalizeCrmProductBrand(productBrandRaw);
+  const productBrandName = crmProductBrandDisplayName(productBrand);
   const [role, setRole] = useCanvasState<Role>("role", "worker");
   const [firmWorkers, setFirmWorkers] = useCanvasState<FirmWorker[]>(
     "firmWorkers.v3",
@@ -86312,6 +91324,74 @@ export default function CrmModulesHome() {
     "workModule.v1",
     "tasks",
   );
+  /** Per-worker Quick Access only — crmQuickAccessByWorker.v1[signedInWorkerId]. */
+  const [quickAccessByWorkerShell, setQuickAccessByWorkerShell] =
+    useCanvasState<QuickAccessByWorker>(CRM_QUICK_ACCESS_BY_WORKER_KEY, {});
+  const myQuickAccessPinsShell = workerQuickAccessPins(
+    quickAccessByWorkerShell,
+    signedInWorkerId,
+    uiLang,
+  );
+  const workQuickAccessPins = pinsForQuickAccessSidebar(
+    myQuickAccessPinsShell,
+    "work",
+  );
+  const clientsQuickAccessPins = pinsForQuickAccessSidebar(
+    myQuickAccessPinsShell,
+    "clients",
+  );
+  const billingQuickAccessPins = pinsForQuickAccessSidebar(
+    myQuickAccessPinsShell,
+    "billing",
+  );
+  const [driveSelectedId, setDriveSelectedId] = useCanvasState<string | null>(
+    "workDrive.selected.v1",
+    "drive-companies",
+  );
+  const [driveExpandedIds, setDriveExpandedIds] = useCanvasState<
+    Record<string, boolean>
+  >("workDrive.expanded.v1", {
+    "drive-root": true,
+    "drive-companies": true,
+  });
+  /** Firm Work drives — Systemadmin-managed; Work secondary rows use drive.name. */
+  const [workDrivesRaw, setWorkDrives] = useCanvasState<WorkDrive[]>(
+    CRM_WORK_DRIVES_KEY,
+    seedWorkDrives(),
+  );
+  const workDrives = normalizeWorkDrives(workDrivesRaw);
+  const archiveWorkDrive = companyArchiveWorkDrive(workDrives);
+  const [workActiveDriveId, setWorkActiveDriveId] = useCanvasState<string>(
+    CRM_WORK_ACTIVE_DRIVE_KEY,
+    archiveWorkDrive.id,
+  );
+  const activeWorkDrive =
+    workDrives.find((d) => d.id === workActiveDriveId) ?? archiveWorkDrive;
+  const renameWorkDrive = (id: string, name: string) => {
+    const nextName = name.trim();
+    if (!nextName) return;
+    setWorkDrives(
+      normalizeWorkDrives(
+        workDrives.map((d) => (d.id === id ? { ...d, name: nextName } : d)),
+      ),
+    );
+  };
+  /** Shared with ClientFoldersScreen — Quick Access folder pins land here. */
+  const [clientFoldersSelectedId, setClientFoldersSelectedId] =
+    useCanvasState<string | null>("clientFolders.selected.v1", "cf-root-active");
+  const [clientFoldersExpandedIds, setClientFoldersExpandedIds] =
+    useCanvasState<Record<string, boolean>>("clientFolders.expanded.v1", {
+      "client-folders-root": true,
+      "cf-root-active": true,
+    });
+  /** Shared with BillingFoldersScreen — Billing QA folder pins land here. */
+  const [billingFoldersSelectedId, setBillingFoldersSelectedId] =
+    useCanvasState<string | null>("billingFolders.selected.v1", "bf-invoices");
+  const [billingFoldersExpandedIds, setBillingFoldersExpandedIds] =
+    useCanvasState<Record<string, boolean>>("billingFolders.expanded.v1", {
+      "bf-root": true,
+      "bf-invoices": true,
+    });
   const [myBoardsStateRaw] = useCanvasState<MyBoardsState>(
     myBoardsStateKey(signedInWorkerId),
     defaultMyBoardsStateForWorker(signedInWorkerId, firmWorkers),
@@ -86804,6 +91884,12 @@ export default function CrmModulesHome() {
       setScreen("files-root");
       return;
     }
+    if (tile.opens === "work-drives") {
+      setSelectedCategory("systemadmin");
+      setNavSecondaryOpen(true);
+      setScreen("work-drives");
+      return;
+    }
     if (tile.opens === "client-folders") {
       setSelectedCategory("client");
       setNavSecondaryOpen(true);
@@ -86913,6 +91999,14 @@ export default function CrmModulesHome() {
       );
       setNavSecondaryOpen(true);
       setScreen("boards");
+      return;
+    }
+    if (tile.opens === "drive") {
+      setSelectedCategory("work");
+      setWorkModule("drive");
+      setWorkActiveDriveId(archiveWorkDrive.id);
+      setNavSecondaryOpen(true);
+      setScreen("drive");
       return;
     }
     setPlaceholderLabel(tile.label);
@@ -87226,14 +92320,18 @@ export default function CrmModulesHome() {
                                               ? t(uiLang, "usersRights")
                                               : screen === "files-root"
                                                 ? t(uiLang, "filesRoot")
-                                                : screen === "client-folders"
-                                                  ? t(uiLang, "clientFolders")
-                                                  : screen === "placeholder"
-                                                    ? placeholderLabel
-                                                    : primaryRailLabel(
-                                                        uiLang,
-                                                        selectedCategory,
-                                                      );
+                                                : screen === "work-drives"
+                                                  ? t(uiLang, "workDrives")
+                                                  : screen === "client-folders"
+                                                    ? t(uiLang, "clientFolders")
+                                                    : screen === "drive"
+                                                      ? activeWorkDrive.name
+                                                      : screen === "placeholder"
+                                                        ? placeholderLabel
+                                                        : primaryRailLabel(
+                                                            uiLang,
+                                                            selectedCategory,
+                                                          );
 
   const topChrome = (
     <Stack gap={4} style={{ width: "100%", overflow: "visible" }}>
@@ -87246,17 +92344,36 @@ export default function CrmModulesHome() {
           alignItems: "center",
           gap: 8,
           width: "100%",
-          minHeight: 30,
+          minHeight: 36,
           boxSizing: "border-box",
           overflow: "visible",
         }}
       >
-        <ChromeText
-          weight="semibold"
-          style={{ fontSize: 14, lineHeight: 1.2, whiteSpace: "nowrap", flexShrink: 0 }}
+        <div
+          data-chrome="crm-product-brand-header"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            flexShrink: 0,
+            minWidth: 0,
+            paddingRight: 2,
+          }}
         >
-          {t(uiLang, "appBrand")}
-        </ChromeText>
+          <CrmProductBrandIcon size={32} title={productBrandName} />
+          <ChromeText
+            weight="bold"
+            style={{
+              fontSize: 17,
+              letterSpacing: "-0.02em",
+              lineHeight: 1.15,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            {productBrandName}
+          </ChromeText>
+        </div>
         <div
           data-chrome="surface-toggle-row"
           style={{
@@ -87599,16 +92716,29 @@ export default function CrmModulesHome() {
       setScreen("tools");
       return;
     }
-    if (id === "work" || id === "tasks" || id === "boards") {
+    if (
+      id === "work" ||
+      id === "tasks" ||
+      id === "boards" ||
+      id === "drive"
+    ) {
       setSelectedCategory("work");
       const mod: WorkModuleId =
-        id === "boards" ? "boards" : id === "tasks" ? "tasks" : workModule;
+        id === "boards"
+          ? "boards"
+          : id === "tasks"
+            ? "tasks"
+            : id === "drive"
+              ? "drive"
+              : workModule;
       setWorkModule(mod);
       if (mod === "boards") {
         setMyBoardsViewShell(
           preferredBoardsViewForWorker(signedInWorkerId, firmWorkers),
         );
         setScreen("boards");
+      } else if (mod === "drive") {
+        setScreen("drive");
       } else {
         setScreen("home");
       }
@@ -87750,10 +92880,129 @@ export default function CrmModulesHome() {
           setScreen("clients");
         },
       }));
+      /**
+       * Explorer-style Quick access — always visible above All clients
+       * (after New prospect / New client / Services topActions). Per-worker
+       * pins only; empty workers still see the section + short hint.
+       */
+      const clientsQaRows: SecondaryNavRow[] = [
+        {
+          id: "qa-clients-section",
+          label: t(uiLang, "driveQuickAccess"),
+          active: false,
+          onClick: () => {},
+          sectionHeader: true,
+        },
+      ];
+      if (clientsQuickAccessPins.length === 0) {
+        clientsQaRows.push({
+          id: "qa-clients-empty",
+          label: t(uiLang, "clientsQuickAccessEmpty"),
+          active: false,
+          onClick: () => {},
+          sectionHint: true,
+          indent: 1,
+        });
+      } else {
+        for (const pin of clientsQuickAccessPins) {
+          const pinKind = pin.kind ?? "folder";
+          clientsQaRows.push({
+            id: `qa-clients-${pinKind}-${pin.id}`,
+            label: shortQuickAccessLabel(pin.label),
+            renameLabel: pin.label,
+            iconId: pinKind === "client" ? "clients" : "client-folders",
+            indent: 1,
+            active:
+              showActiveMarks &&
+              (pinKind === "client"
+                ? screen === "client-card" && selectedClientId === pin.id
+                : screen === "client-folders" &&
+                  clientFoldersSelectedId === pin.id),
+            onClick: () => {
+              clearHoverLeaveTimer();
+              setHoverKey(null);
+              setSelectedCategory("client");
+              setNavSecondaryOpen(true);
+              if (pinKind === "client") {
+                openClient(pin.id);
+                return;
+              }
+              const foldersTree = buildClientFoldersArchiveTree(uiLang);
+              const inTree = Boolean(
+                findTaxReturnFolderNode(foldersTree, pin.id),
+              );
+              const targetId = inTree
+                ? pin.id
+                : (foldersTree[0]?.id ?? "client-folders-root");
+              const ancestors = inTree
+                ? taxReturnFolderAncestorIds(foldersTree, targetId)
+                : ["client-folders-root", "cf-root-active"];
+              const nextExpanded: Record<string, boolean> = {
+                ...clientFoldersExpandedIds,
+              };
+              for (const aid of ancestors) nextExpanded[aid] = true;
+              nextExpanded[targetId] = true;
+              setClientFoldersExpandedIds(nextExpanded);
+              setClientFoldersSelectedId(targetId);
+              setScreen("client-folders");
+            },
+            renamable: true,
+            onRename: (next) => {
+              setQuickAccessByWorkerShell((prev) =>
+                renameWorkerQuickAccessPin(
+                  prev ?? {},
+                  signedInWorkerId,
+                  pin.id,
+                  "clients",
+                  next,
+                  uiLang,
+                  pinKind,
+                ),
+              );
+            },
+            onUnpin: () => {
+              setQuickAccessByWorkerShell((prev) =>
+                removeWorkerQuickAccessPin(
+                  prev ?? {},
+                  signedInWorkerId,
+                  pin.id,
+                  "clients",
+                  uiLang,
+                  pinKind,
+                ),
+              );
+            },
+            onCopyPath:
+              pinKind === "folder"
+                ? () => {
+                    const foldersTree = buildClientFoldersArchiveTree(uiLang);
+                    copyTextToClipboard(
+                      taxReturnFolderNodePath(foldersTree, pin.id) ||
+                        pin.label,
+                    );
+                  }
+                : undefined,
+          });
+        }
+      }
       return {
         title: t(uiLang, "clients"),
-        /** Actions above; filter list in pinned secondary + hover flyout. */
-        rows: clientFilterRows,
+        /**
+         * Explorer-style groups: Quick access block, soft rule, then Modules
+         * (All clients / Potential / …). New prospect / client / Services in topActions.
+         */
+        rows: [
+          ...clientsQaRows,
+          {
+            id: "clients-modules-section",
+            label: t(uiLang, "modules"),
+            active: false,
+            onClick: () => {},
+            sectionHeader: true,
+            sectionRule: true,
+          },
+          ...clientFilterRows,
+        ],
         topActions: (
           <Stack gap={8} style={{ width: "100%" }}>
             {shellModuleVisible("potential") ? (
@@ -87806,27 +93055,124 @@ export default function CrmModulesHome() {
       };
     }
     if (categoryId === "billing") {
+      const billingRows: SecondaryNavRow[] = BILLING_SIDEBAR.map((id) => ({
+        id,
+        label: billingNavLabel(uiLang, id),
+        iconId: billingSecondaryIconId(id),
+        active:
+          showActiveMarks &&
+          screen === "billing" &&
+          (billingNavShell === id ||
+            (id === "all" &&
+              (billingNavShell === "outstanding" ||
+                billingNavShell === "overdue"))),
+        onClick: () => {
+          clearHoverLeaveTimer();
+          setHoverKey(null);
+          setSelectedCategory("billing");
+          selectBillingNavShell(id);
+          setNavSecondaryOpen(true);
+          setScreen("billing");
+        },
+      }));
+      billingRows.push({
+        id: "billing-folders",
+        label: t(uiLang, "billingFolders"),
+        iconId: "billing-all",
+        active:
+          showActiveMarks &&
+          screen === "billing-folders" &&
+          !billingQuickAccessPins.some(
+            (p) => p.id === billingFoldersSelectedId,
+          ),
+        onClick: () => {
+          clearHoverLeaveTimer();
+          setHoverKey(null);
+          setSelectedCategory("billing");
+          setNavSecondaryOpen(true);
+          setScreen("billing-folders");
+        },
+      });
+      if (billingQuickAccessPins.length > 0) {
+        billingRows.push({
+          id: "qa-billing-section",
+          label: t(uiLang, "driveQuickAccess"),
+          active: false,
+          onClick: () => {},
+          sectionHeader: true,
+          sectionRule: true,
+        });
+        for (const pin of billingQuickAccessPins) {
+          billingRows.push({
+            id: `qa-billing-${pin.id}`,
+            label: shortQuickAccessLabel(pin.label),
+            renameLabel: pin.label,
+            iconId: "billing-all",
+            indent: 1,
+            active:
+              showActiveMarks &&
+              screen === "billing-folders" &&
+              billingFoldersSelectedId === pin.id,
+            onClick: () => {
+              clearHoverLeaveTimer();
+              setHoverKey(null);
+              setSelectedCategory("billing");
+              setNavSecondaryOpen(true);
+              const billingTree = buildBillingFoldersArchiveTree(uiLang);
+              const inTree = Boolean(
+                findTaxReturnFolderNode(billingTree, pin.id),
+              );
+              const targetId = inTree ? pin.id : "bf-invoices";
+              const ancestors = inTree
+                ? taxReturnFolderAncestorIds(billingTree, targetId)
+                : ["bf-root", "bf-invoices"];
+              const nextExpanded: Record<string, boolean> = {
+                ...billingFoldersExpandedIds,
+              };
+              for (const aid of ancestors) nextExpanded[aid] = true;
+              nextExpanded[targetId] = true;
+              setBillingFoldersExpandedIds(nextExpanded);
+              setBillingFoldersSelectedId(targetId);
+              setScreen("billing-folders");
+            },
+            renamable: true,
+            onRename: (next) => {
+              setQuickAccessByWorkerShell((prev) =>
+                renameWorkerQuickAccessPin(
+                  prev ?? {},
+                  signedInWorkerId,
+                  pin.id,
+                  "billing",
+                  next,
+                  uiLang,
+                  "folder",
+                ),
+              );
+            },
+            onUnpin: () => {
+              setQuickAccessByWorkerShell((prev) =>
+                removeWorkerQuickAccessPin(
+                  prev ?? {},
+                  signedInWorkerId,
+                  pin.id,
+                  "billing",
+                  uiLang,
+                  "folder",
+                ),
+              );
+            },
+            onCopyPath: () => {
+              const billingTree = buildBillingFoldersArchiveTree(uiLang);
+              copyTextToClipboard(
+                taxReturnFolderNodePath(billingTree, pin.id) || pin.label,
+              );
+            },
+          });
+        }
+      }
       return {
         title: t(uiLang, "billing"),
-        rows: BILLING_SIDEBAR.map((id) => ({
-          id,
-          label: billingNavLabel(uiLang, id),
-          iconId: billingSecondaryIconId(id),
-          active:
-            showActiveMarks &&
-            (billingNavShell === id ||
-              (id === "all" &&
-                (billingNavShell === "outstanding" ||
-                  billingNavShell === "overdue"))),
-          onClick: () => {
-            clearHoverLeaveTimer();
-            setHoverKey(null);
-            setSelectedCategory("billing");
-            selectBillingNavShell(id);
-            setNavSecondaryOpen(true);
-            setScreen("billing");
-          },
-        })),
+        rows: billingRows,
         topActions: (
           <Stack gap={8} style={{ width: "100%" }}>
             <Button
@@ -87952,7 +93298,8 @@ export default function CrmModulesHome() {
     if (
       categoryId === "work" ||
       categoryId === "tasks" ||
-      categoryId === "boards"
+      categoryId === "boards" ||
+      categoryId === "drive"
     ) {
       const workRows: SecondaryNavRow[] = [];
       if (shellModuleVisible("tasks")) {
@@ -87993,6 +93340,124 @@ export default function CrmModulesHome() {
             setScreen("boards");
           },
         });
+      }
+      if (shellModuleVisible("drive")) {
+        const qaParentDriveId = archiveWorkDrive.id;
+        for (const drive of workDrives) {
+          const nestsQuickAccess = drive.id === qaParentDriveId;
+          workRows.push({
+            id: `work-drive-${drive.id}`,
+            label: drive.name,
+            iconId: "drive",
+            renamable: true,
+            onRename: (next) => renameWorkDrive(drive.id, next),
+            active:
+              showActiveMarks &&
+              screen === "drive" &&
+              workActiveDriveId === drive.id &&
+              !(
+                nestsQuickAccess &&
+                workQuickAccessPins.some((p) => p.id === driveSelectedId)
+              ),
+            onClick: () => {
+              clearHoverLeaveTimer();
+              setHoverKey(null);
+              setSelectedCategory("work");
+              setWorkModule("drive");
+              setWorkActiveDriveId(drive.id);
+              setNavSecondaryOpen(true);
+              setScreen("drive");
+            },
+          });
+          if (nestsQuickAccess) {
+            if (workQuickAccessPins.length > 0) {
+              workRows.push({
+                id: "qa-work-section",
+                label: t(uiLang, "driveQuickAccess"),
+                active: false,
+                onClick: () => {},
+                sectionHeader: true,
+                indent: 1,
+              });
+            }
+            for (const pin of workQuickAccessPins) {
+              workRows.push({
+                id: `qa-work-${pin.id}`,
+                label: shortQuickAccessLabel(pin.label),
+                renameLabel: pin.label,
+                iconId: "worker-files",
+                indent: 1,
+                active:
+                  showActiveMarks &&
+                  screen === "drive" &&
+                  workActiveDriveId === drive.id &&
+                  driveSelectedId === pin.id,
+                onClick: () => {
+                  clearHoverLeaveTimer();
+                  setHoverKey(null);
+                  setSelectedCategory("work");
+                  setWorkModule("drive");
+                  setWorkActiveDriveId(drive.id);
+                  setNavSecondaryOpen(true);
+                  const driveTree = buildCompanyDriveArchiveTree(
+                    uiLang,
+                    drive.name,
+                  );
+                  const inDrive = Boolean(
+                    findTaxReturnFolderNode(driveTree, pin.id),
+                  );
+                  const targetId = inDrive ? pin.id : "drive-companies";
+                  const ancestors = inDrive
+                    ? taxReturnFolderAncestorIds(driveTree, targetId)
+                    : ["drive-root", "drive-companies"];
+                  const nextExpanded: Record<string, boolean> = {
+                    ...driveExpandedIds,
+                  };
+                  for (const aid of ancestors) nextExpanded[aid] = true;
+                  nextExpanded[targetId] = true;
+                  setDriveExpandedIds(nextExpanded);
+                  setDriveSelectedId(targetId);
+                  setScreen("drive");
+                },
+                renamable: true,
+                onRename: (next) => {
+                  setQuickAccessByWorkerShell((prev) =>
+                    renameWorkerQuickAccessPin(
+                      prev ?? {},
+                      signedInWorkerId,
+                      pin.id,
+                      "work",
+                      next,
+                      uiLang,
+                      "folder",
+                    ),
+                  );
+                },
+                onUnpin: () => {
+                  setQuickAccessByWorkerShell((prev) =>
+                    removeWorkerQuickAccessPin(
+                      prev ?? {},
+                      signedInWorkerId,
+                      pin.id,
+                      "work",
+                      uiLang,
+                      "folder",
+                    ),
+                  );
+                },
+                onCopyPath: () => {
+                  const driveTree = buildCompanyDriveArchiveTree(
+                    uiLang,
+                    drive.name,
+                  );
+                  copyTextToClipboard(
+                    taxReturnFolderNodePath(driveTree, pin.id) || pin.label,
+                  );
+                },
+              });
+            }
+          }
+        }
       }
       return {
         title: t(uiLang, "work"),
@@ -88255,35 +93720,17 @@ export default function CrmModulesHome() {
         openTile(tile);
       },
     }));
-  } else if (screen === "billing") {
-    secondaryTitle = t(uiLang, "billing");
-    secondaryRows = BILLING_SIDEBAR.map((id) => ({
-      id,
-      label: billingNavLabel(uiLang, id),
-      iconId: billingSecondaryIconId(id),
-      active:
-        billingNavShell === id ||
-        (id === "all" &&
-          (billingNavShell === "outstanding" ||
-            billingNavShell === "overdue")),
-      onClick: () => selectBillingNavShell(id),
-    }));
-    secondaryTopActions = (
-      <Stack gap={8} style={{ width: "100%" }}>
-        <Button
-          variant="primary"
-          onClick={() => selectBillingNavShell("create")}
-        >
-          {t(uiLang, "createInvoice")}
-        </Button>
-      </Stack>
-    );
+  } else if (screen === "billing" || screen === "billing-folders") {
+    const billingSec = fillSecondaryForCategory("billing");
+    secondaryTitle = billingSec.title;
+    secondaryRows = billingSec.rows;
+    secondaryTopActions = billingSec.topActions;
   } else if (screen === "tools") {
     const toolsSec = fillSecondaryForCategory("tools");
     secondaryTitle = toolsSec.title;
     secondaryRows = toolsSec.rows;
     secondaryTopActions = toolsSec.topActions;
-  } else if (screen === "boards") {
+  } else if (screen === "boards" || screen === "drive") {
     const workSec = fillSecondaryForCategory("work");
     secondaryTitle = workSec.title;
     secondaryRows = workSec.rows;
@@ -88456,6 +93903,15 @@ export default function CrmModulesHome() {
           <FilesRootScreen />
         </Stack>
       )}
+      {screen === "work-drives" && (
+        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
+          <ModuleChromeBar
+            pill={t(uiLang, "workDrives")}
+            onSecondaryBack={onSecondaryBack}
+          />
+          <WorkDrivesScreen />
+        </Stack>
+      )}
       {screen === "client-folders" && (
         <Stack gap={12} style={{ ...SHELL_SCROLL }}>
           <ModuleChromeBar
@@ -88463,6 +93919,15 @@ export default function CrmModulesHome() {
             onSecondaryBack={onSecondaryBack}
           />
           <ClientFoldersScreen />
+        </Stack>
+      )}
+      {screen === "drive" && (
+        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
+          <ModuleChromeBar
+            pill={activeWorkDrive.name}
+            onSecondaryBack={onSecondaryBack}
+          />
+          <DriveScreen />
         </Stack>
       )}
       {screen === "help-feedback" && (
@@ -88529,6 +93994,15 @@ export default function CrmModulesHome() {
           hideSideRail={hideContentSideRail}
           onSecondaryBack={onSecondaryBack}
         />
+      )}
+      {screen === "billing-folders" && (
+        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
+          <ModuleChromeBar
+            pill={t(uiLang, "billingFolders")}
+            onSecondaryBack={onSecondaryBack}
+          />
+          <BillingFoldersScreen />
+        </Stack>
       )}
       {screen === "tools" && (
         <ToolsScreen
@@ -88921,6 +94395,49 @@ export default function CrmModulesHome() {
                         ) : null}
                         <Stack gap={6}>
                           {secondaryRows.map((row) => {
+                            if (row.sectionHeader) {
+                              return (
+                                <div
+                                  key={`sec-${screen}-${row.id}`}
+                                  style={{
+                                    width: "100%",
+                                    boxSizing: "border-box",
+                                    marginTop: row.sectionRule ? 8 : 2,
+                                    paddingTop: row.sectionRule ? 10 : 4,
+                                    borderTop: row.sectionRule
+                                      ? `1px solid ${CHROME_BORDER_BLUE}`
+                                      : "none",
+                                  }}
+                                >
+                                  <ChromeText
+                                    size="small"
+                                    weight="semibold"
+                                    tone="secondary"
+                                    style={{ color: theme.text.secondary }}
+                                  >
+                                    {row.label}
+                                  </ChromeText>
+                                </div>
+                              );
+                            }
+                            if (row.sectionHint) {
+                              return (
+                                <ChromeText
+                                  key={`sec-${screen}-${row.id}`}
+                                  size="small"
+                                  tone="secondary"
+                                  style={{
+                                    color:
+                                      theme.text.tertiary ??
+                                      theme.text.secondary,
+                                    paddingInline: 4,
+                                    lineHeight: 1.35,
+                                  }}
+                                >
+                                  {row.label}
+                                </ChromeText>
+                              );
+                            }
                             const iconAccent = chromeIconAccent(
                               row.iconId ?? row.id,
                               theme.category,
