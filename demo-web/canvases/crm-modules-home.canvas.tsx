@@ -34,7 +34,7 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — Clients QA vs Modules section split. */
-const GMAIL_DUAL_NAV_BUILD = "v901-2026-10-15-trust-docs-stage-completed";
+const GMAIL_DUAL_NAV_BUILD = "v902-2026-10-15-tax-return-files-defined";
 /** Sibling canvas opened by header "Client portal (demo)". */
 const CLIENT_PORTAL_CANVAS_PATH = 'C:\\Users\\chana\\.cursor\\projects\\c-Users-chana-OneDrive-Desktop-Intertax-Programs-Accounting-CRM-Client-Portal\\canvases\\client-portal.canvas.tsx';
 /** Shared folder explorer tree/detail split width (% of row). */
@@ -48332,6 +48332,7 @@ function TaxReturnWorkspace({
     taxChecklistLabels,
   );
   const highlightStage = focusStage ?? processStage;
+  const files = demoTaxReturnFiles(client, taxYear);
   const uploadedReqs = docRequests.filter((r) => r.status === "uploaded");
   const folderTree = buildTaxReturnWorkingFolder(
     uiLang,
