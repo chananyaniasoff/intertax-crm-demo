@@ -34,7 +34,7 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — Clients QA vs Modules section split. */
-const GMAIL_DUAL_NAV_BUILD = "v902-2026-10-15-tax-return-files-defined";
+const GMAIL_DUAL_NAV_BUILD = "v905-2026-10-15-worker-module-include-visible";
 /** Sibling canvas opened by header "Client portal (demo)". */
 const CLIENT_PORTAL_CANVAS_PATH = 'C:\\Users\\chana\\.cursor\\projects\\c-Users-chana-OneDrive-Desktop-Intertax-Programs-Accounting-CRM-Client-Portal\\canvases\\client-portal.canvas.tsx';
 /** Shared folder explorer tree/detail split width (% of row). */
@@ -5479,6 +5479,18 @@ const CRM_UI = {
   trustDocMessage: {
     en: "Message",
     he: "הודעה",
+  },
+  trustDocPhonePlaceholder: {
+    en: "Phone (+972…)",
+    he: "טלפון (+972…)",
+  },
+  trustDocEmailPlaceholder: {
+    en: "Email",
+    he: "אימייל",
+  },
+  trustDocPortalClient: {
+    en: "Portal client",
+    he: "לקוח בפורטל",
   },
   trustDocRequestHint: {
     en: "Request documents by Email, Portal, or WhatsApp. Rows expand after a request is sent.",
@@ -32360,6 +32372,32 @@ function createAiIntakeThread(opts: {
 }
 
 /** Side categories visible for the demo role + all signed-in department extras. */
+
+/**
+ * Role strip alone does not decide Workers / Admin / Systemadmin rail access.
+ * Company modules → Workers "Visible" (or a visible child tile) can grant those
+ * categories to a non-admin viewer. Systemadmin parent is always-on in the
+ * company map, so grant only when a real Systemadmin tile is visible.
+ */
+function categoryGrantedByWorkerOverride(
+  categoryId: "workers" | "admin" | "systemadmin",
+  moduleVisible: (id: string) => boolean,
+): boolean {
+  if (categoryId === "workers") {
+    return (
+      moduleVisible("workers") ||
+      WORKERS_TILES.some((tile) => moduleVisible(tile.id))
+    );
+  }
+  if (categoryId === "admin") {
+    return (
+      moduleVisible("admin") ||
+      ADMIN_TILES.some((tile) => moduleVisible(tile.id))
+    );
+  }
+  return SYSTEM_TILES.some((tile) => moduleVisible(tile.id));
+}
+
 function categoryIdsForUser(
   role: Role,
   deptIds: string | string[],
@@ -32370,8 +32408,37 @@ function categoryIdsForUser(
   ids.push("work", "tools", "chats", "whatsapp");
   if (isAdminLike(role)) ids.push("workers", "admin");
   if (isSystemAdmin(role)) ids.push("systemadmin");
-  if (!moduleVisible) return ids;
-  return ids.filter((id) => moduleVisible(id));
+  /** Per-worker Visible can grant admin surfaces beyond the role strip. */
+  if (moduleVisible) {
+    if (
+      !ids.includes("workers") &&
+      categoryGrantedByWorkerOverride("workers", moduleVisible)
+    ) {
+      ids.push("workers");
+    }
+    if (
+      !ids.includes("admin") &&
+      categoryGrantedByWorkerOverride("admin", moduleVisible)
+    ) {
+      ids.push("admin");
+    }
+    if (
+      !ids.includes("systemadmin") &&
+      categoryGrantedByWorkerOverride("systemadmin", moduleVisible)
+    ) {
+      ids.push("systemadmin");
+    }
+    return ids.filter((id) => {
+      if (id === "systemadmin" && !isSystemAdmin(role)) {
+        return categoryGrantedByWorkerOverride("systemadmin", moduleVisible);
+      }
+      if ((id === "workers" || id === "admin") && !isAdminLike(role)) {
+        return categoryGrantedByWorkerOverride(id, moduleVisible);
+      }
+      return moduleVisible(id);
+    });
+  }
+  return ids;
 }
 
 type DailyTaskStatus = "open" | "in-process" | "closed" | "done";
@@ -36111,8 +36178,30 @@ function primaryCategoriesForUser(
         title: primaryRailLabel(uiLang, "admin"),
       });
     }
+  } else if (moduleVisible) {
+    if (categoryGrantedByWorkerOverride("workers", moduleVisible)) {
+      categories.push({
+        id: "workers",
+        title: primaryRailLabel(uiLang, "workers"),
+      });
+    }
+    if (categoryGrantedByWorkerOverride("admin", moduleVisible)) {
+      categories.push({
+        id: "admin",
+        title: primaryRailLabel(uiLang, "admin"),
+      });
+    }
   }
   if (isSystemAdmin(role) && allow("systemadmin")) {
+    categories.push({
+      id: "systemadmin",
+      title: primaryRailLabel(uiLang, "systemadmin"),
+      badge: badges.systemadmin,
+    });
+  } else if (
+    moduleVisible &&
+    categoryGrantedByWorkerOverride("systemadmin", moduleVisible)
+  ) {
     categories.push({
       id: "systemadmin",
       title: primaryRailLabel(uiLang, "systemadmin"),
@@ -42909,6 +42998,10 @@ type TrustCaseState = {
   showOptional: boolean;
   docs: TrustDoc[];
   bananaFormat: string;
+  /** Demo bank-statement PDF uploaded on the Banana stage. */
+  bananaPdfName: string;
+  /** Demo Excel prepared for Banana (clipboard / CSV-style import). */
+  bananaExcelName: string;
   bananaImported: boolean;
   bananaApproved: boolean;
   signature: "none" | "sent" | "reminded" | "signed";
@@ -43038,6 +43131,10 @@ function normalizeTrustCase(
     ...base,
     ...raw,
     intakeConfirmed: !!raw.intakeConfirmed,
+    bananaPdfName:
+      typeof raw.bananaPdfName === "string" ? raw.bananaPdfName : "",
+    bananaExcelName:
+      typeof raw.bananaExcelName === "string" ? raw.bananaExcelName : "",
     docs: docs.length ? docs : base.docs,
   };
 }
@@ -43056,6 +43153,8 @@ function trustDefaultCase(year: string): TrustCaseState {
     showOptional: false,
     docs: trustDefaultDocs(),
     bananaFormat: "",
+    bananaPdfName: "",
+    bananaExcelName: "",
     bananaImported: false,
     bananaApproved: false,
     signature: "none",
@@ -43854,6 +43953,24 @@ function TrustReportingWorkspace({
 }) {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const theme = useHostTheme();
+  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  const [, setSelectedCategory] = useCanvasState(
+    SELECTED_CATEGORY_STATE_KEY,
+    DEFAULT_PRIMARY_CATEGORY,
+  );
+  const [, setToolsModule] = useCanvasState<ToolsModuleId>(
+    "toolsModule.v1",
+    "catalog",
+  );
+  const [toolsSumitUpload, setToolsSumitUpload] = useCanvasState(
+    "toolsSumitUpload.v1",
+    "",
+  );
+  const [, setToolsSumitParsed] = useCanvasState("toolsSumitParsed.v1", false);
+  const [toolsSumitExport, setToolsSumitExport] = useCanvasState(
+    "toolsSumitExport.v1",
+    "",
+  );
   const [services] = useCanvasState<string[]>("services", DEFAULT_SERVICES);
   const [added, setAdded] = useCanvasState<string[]>(
     `trustAddedServices.v1:${client.id}`,
@@ -44013,12 +44130,23 @@ function TrustReportingWorkspace({
   const requestTrustDocVia = (docId: string, channel: TrustDocChannel) => {
     if (!channel) return;
     const today = new Date().toISOString().slice(0, 10);
+    const phones = clientPhonesForDemo(client, uiLang);
+    const emails = clientEmailsForTools(client);
+    const contactPrefill =
+      channel === "whatsapp"
+        ? phones[0]?.value || client.phone || ""
+        : channel === "email"
+          ? emails[0] || client.email || ""
+          : channel === "portal"
+            ? displayClientName(client, uiLang)
+            : "";
     patchTrustDoc(docId, {
       status: "requested",
       requestDate: today,
       sendEmail: channel === "email",
       sendPortal: channel === "portal",
       sendWhatsApp: channel === "whatsapp",
+      contact: contactPrefill,
     });
   };
 
@@ -44262,17 +44390,65 @@ function TrustReportingWorkspace({
                   {expanded ? (
                     <Stack gap={8}>
                       <Row gap={8} wrap>
-                        <TextInput
-                          value={doc.contact}
-                          placeholder={trustTr(
-                            uiLang,
-                            "Contact",
-                            "איש קשר",
-                          )}
-                          onChange={(value) =>
-                            patchTrustDoc(doc.id, { contact: value })
-                          }
-                        />
+                        {channelValue === "portal" ? (
+                          <Stack
+                            gap={2}
+                            style={{
+                              flex: 1,
+                              minWidth: 180,
+                              padding: "6px 10px",
+                              borderRadius: 8,
+                              border: `1px solid ${chromeBorder(theme)}`,
+                              background: chromeSoftFill(theme),
+                            }}
+                          >
+                            <ChromeText size="small" tone="secondary">
+                              {t(uiLang, "trustDocPortalClient")}
+                            </ChromeText>
+                            <ChromeText weight="semibold">
+                              {displayClientName(client, uiLang)}
+                            </ChromeText>
+                            <ChromeText size="small" tone="tertiary">
+                              {[client.email, client.id]
+                                .filter((v) => (v ?? "").trim())
+                                .join(" · ")}
+                            </ChromeText>
+                          </Stack>
+                        ) : (
+                          <TextInput
+                            type={
+                              channelValue === "email" ? "email" : "text"
+                            }
+                            value={
+                              doc.contact.trim()
+                                ? doc.contact
+                                : channelValue === "whatsapp"
+                                  ? clientPhonesForDemo(client, uiLang)[0]
+                                      ?.value ||
+                                    client.phone ||
+                                    ""
+                                  : channelValue === "email"
+                                    ? clientEmailsForTools(client)[0] ||
+                                      client.email ||
+                                      ""
+                                    : doc.contact
+                            }
+                            placeholder={
+                              channelValue === "whatsapp"
+                                ? t(uiLang, "trustDocPhonePlaceholder")
+                                : channelValue === "email"
+                                  ? t(uiLang, "trustDocEmailPlaceholder")
+                                  : trustTr(
+                                      uiLang,
+                                      "Contact",
+                                      "איש קשר",
+                                    )
+                            }
+                            onChange={(value) =>
+                              patchTrustDoc(doc.id, { contact: value })
+                            }
+                          />
+                        )}
                         <TextInput
                           value={doc.period}
                           placeholder={trustTr(
@@ -44320,35 +44496,201 @@ function TrustReportingWorkspace({
       );
     }
     if (stage === "banana") {
+      const pdfName = trustCase.bananaPdfName.trim();
+      const preparedExcel = (
+        trustCase.bananaExcelName.trim() ||
+        (pdfName && toolsSumitExport.trim() ? toolsSumitExport.trim() : "")
+      ).trim();
+      const uploadBananaPdf = () => {
+        const name = "demo-trust-bank-statement.pdf";
+        patch({
+          bananaPdfName: name,
+          bananaExcelName: "",
+          bananaFormat: trustCase.bananaFormat || "Excel (clipboard)",
+        });
+        setToolsSumitUpload(name);
+        setToolsSumitParsed(false);
+        setToolsSumitExport("");
+      };
+      const openSumitConverter = () => {
+        const name = pdfName || "demo-trust-bank-statement.pdf";
+        if (!pdfName) {
+          patch({
+            bananaPdfName: name,
+            bananaFormat: trustCase.bananaFormat || "Excel (clipboard)",
+          });
+        }
+        setToolsSumitUpload(name);
+        setSelectedCategory("tools");
+        setToolsModule("sumit-dapi");
+        setScreen("tools");
+      };
+      const prepareExcelDemo = () => {
+        const name = pdfName || "demo-trust-bank-statement.pdf";
+        const excelName = "Banana-import-demo.xlsx";
+        if (!pdfName) {
+          patch({ bananaPdfName: name });
+          setToolsSumitUpload(name);
+        }
+        setToolsSumitParsed(true);
+        setToolsSumitExport(excelName);
+        patch({
+          bananaExcelName: excelName,
+          bananaFormat: trustCase.bananaFormat || "Excel (clipboard)",
+        });
+      };
       return (
-        <Stack gap={8}>
+        <Stack gap={12}>
           <H3>{trustTr(uiLang, "Banana import", "ייבוא לבאננה")}</H3>
           <ChromeText size="small" tone="secondary">
             {trustTr(
               uiLang,
-              "Staff open Banana themselves. Record the format, that the import was done, and a person’s approval.",
-              "הצוות פותח את באננה בעצמו. רושמים את הפורמט, שהייבוא בוצע, ואישור של אדם.",
+              "Banana Accounting imports bank transactions from Excel (clipboard) or CSV — not raw PDF. Upload the statement PDF, prepare Excel in Tools → Preparation for Sumit Dapi Bank, then import into Banana and record approval.",
+              "באננה מייבאת תנועות בנק מאקסל (לוח העתקה) או CSV — לא מ־PDF. העלו את דף הבנק, הכינו Excel בכלים → הכנה לדפי בנק Sumit, ואז ייבאו לבאננה ורשמו אישור.",
             )}
           </ChromeText>
-          <TextInput
-            value={trustCase.bananaFormat}
-            placeholder={trustTr(uiLang, "Statement format", "פורמט הדף")}
-            onChange={(value) => patch({ bananaFormat: value })}
-          />
-          <Checkbox
-            checked={trustCase.bananaImported}
-            onChange={(checked) => patch({ bananaImported: checked })}
-            label={trustTr(uiLang, "Imported in Banana", "יובא לבאננה")}
-          />
-          <Checkbox
-            checked={trustCase.bananaApproved}
-            onChange={(checked) => patch({ bananaApproved: checked })}
-            label={trustTr(
-              uiLang,
-              "Person approved the reconciliation",
-              "אדם אישר את ההתאמה",
+          <Stack
+            gap={10}
+            style={{
+              padding: 12,
+              borderRadius: 10,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: chromeSoftFill(theme),
+            }}
+          >
+            <ChromeText size="small" weight="semibold">
+              {trustTr(
+                uiLang,
+                "1. Upload PDF → prepare Excel",
+                "1. העלאת PDF → הכנת Excel",
+              )}
+            </ChromeText>
+            <Button variant="primary" onClick={uploadBananaPdf}>
+              {trustTr(uiLang, "Upload PDF", "העלאת PDF")}
+            </Button>
+            {pdfName ? (
+              <Stack gap={8}>
+                <ExplorerFileNameCell label={pdfName} kind="file" semibold />
+                <ChromeText size="small" tone="secondary">
+                  {trustTr(
+                    uiLang,
+                    "Next: run the bank-statement converter in Tools to produce Excel for Banana.",
+                    "הבא: הריצו את ממיר דפי הבנק בכלים כדי להפיק Excel לבאננה.",
+                  )}
+                </ChromeText>
+                <Row gap={8} wrap>
+                  <Button variant="primary" onClick={openSumitConverter}>
+                    {trustTr(
+                      uiLang,
+                      "Open in converter",
+                      "פתיחה בממיר",
+                    )}
+                  </Button>
+                  <Button variant="secondary" onClick={prepareExcelDemo}>
+                    {trustTr(
+                      uiLang,
+                      "Prepare Excel (demo)",
+                      "הכנת Excel (דמו)",
+                    )}
+                  </Button>
+                </Row>
+              </Stack>
+            ) : (
+              <ChromeText size="small" tone="tertiary">
+                {trustTr(
+                  uiLang,
+                  "Demo file picker — loads a sample bank statement PDF.",
+                  "בורר קבצים לדמו — טוען דף בנק PDF לדוגמה.",
+                )}
+              </ChromeText>
             )}
-          />
+            {preparedExcel ? (
+              <Stack
+                gap={8}
+                style={{
+                  padding: 10,
+                  borderRadius: 8,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                  background: CHROME_WHITE,
+                }}
+              >
+                <ChromeText size="small" weight="semibold">
+                  {trustTr(
+                    uiLang,
+                    "Prepared Excel for Banana",
+                    "Excel מוכן לבאננה",
+                  )}
+                </ChromeText>
+                <ExplorerFileNameCell
+                  label={preparedExcel}
+                  kind="file"
+                  semibold
+                />
+                <ChromeText size="small" tone="secondary">
+                  {trustTr(
+                    uiLang,
+                    "In Banana: Actions → Import into accounting → Import transactions, or copy from Excel and use “Import data from clipboard”.",
+                    "בבאננה: פעולות → ייבוא להנה״ח → ייבוא תנועות, או העתקה מאקסל ו״ייבוא מלוח ההעתקה״.",
+                  )}
+                </ChromeText>
+                <Row gap={8} wrap>
+                  <Button variant="secondary" onClick={() => {}}>
+                    {trustTr(
+                      uiLang,
+                      "Download Excel (demo)",
+                      "הורדת Excel (דמו)",
+                    )}
+                  </Button>
+                  <Button variant="secondary" onClick={openSumitConverter}>
+                    {trustTr(
+                      uiLang,
+                      "Open in converter",
+                      "פתיחה בממיר",
+                    )}
+                  </Button>
+                </Row>
+              </Stack>
+            ) : pdfName && toolsSumitUpload === pdfName ? (
+              <Callout
+                tone="info"
+                title={trustTr(uiLang, "Tools converter", "ממיר בכלים")}
+              >
+                {trustTr(
+                  uiLang,
+                  "PDF is queued for Preparation for Sumit Dapi Bank. Open the converter to parse and export Excel.",
+                  "ה־PDF בתור להכנה לדפי בנק Sumit. פתחו את הממיר לפענוח ולייצוא Excel.",
+                )}
+              </Callout>
+            ) : null}
+          </Stack>
+          <Stack gap={8}>
+            <ChromeText size="small" weight="semibold" tone="secondary">
+              {trustTr(
+                uiLang,
+                "2. Record in Banana",
+                "2. רישום בבאננה",
+              )}
+            </ChromeText>
+            <TextInput
+              value={trustCase.bananaFormat}
+              placeholder={trustTr(uiLang, "Statement format", "פורמט הדף")}
+              onChange={(value) => patch({ bananaFormat: value })}
+            />
+            <Checkbox
+              checked={trustCase.bananaImported}
+              onChange={(checked) => patch({ bananaImported: checked })}
+              label={trustTr(uiLang, "Imported in Banana", "יובא לבאננה")}
+            />
+            <Checkbox
+              checked={trustCase.bananaApproved}
+              onChange={(checked) => patch({ bananaApproved: checked })}
+              label={trustTr(
+                uiLang,
+                "Person approved the reconciliation",
+                "אדם אישר את ההתאמה",
+              )}
+            />
+          </Stack>
         </Stack>
       );
     }
@@ -44789,7 +45131,7 @@ function TrustReportingWorkspace({
       <ChromeText size="small" tone="secondary">
         {trustTr(
           uiLang,
-          "Process pipeline with side stage tabs and a checklist — same pattern as Bookkeeping. Banana is not opened from here.",
+          "Process pipeline with side stage tabs and a checklist — same pattern as Bookkeeping. Banana stage uploads PDF and prepares Excel in Tools; Banana itself stays outside.",
           "תהליך עם לשוניות שלב צדדיות ורשימת בדיקה — אותו דפוס כמו הנהלת חשבונות. באננה לא נפתחת מכאן.",
         )}
       </ChromeText>
@@ -57574,6 +57916,16 @@ function CompanyModulesVisibilityScreen() {
       const normalized = normalizeWorkerModuleEnabledMap(prev);
       const current = { ...(normalized[effectiveWorkerId] ?? {}) };
       current[moduleId] = checked;
+      /** Child Visible requires parents Visible for rail/tile filters. */
+      if (checked) {
+        let parentId = companyModuleParentId(moduleId);
+        while (parentId) {
+          if (!ALWAYS_ON_COMPANY_MODULE_IDS.has(parentId)) {
+            current[parentId] = true;
+          }
+          parentId = companyModuleParentId(parentId);
+        }
+      }
       return { ...normalized, [effectiveWorkerId]: current };
     });
   };
@@ -101645,7 +101997,9 @@ export default function CrmModulesHome() {
     selectedCategory === "workers"
   ) {
     secondaryTitle = t(uiLang, "workersModule");
-    secondaryRows = WORKERS_TILES.map((tile) => ({
+    secondaryRows = WORKERS_TILES.filter((tile) =>
+      shellModuleVisible(tile.id),
+    ).map((tile) => ({
       id: tile.id,
       label: tileLabel(uiLang, tile.id, tile.label),
       iconId: tile.id,
@@ -101657,7 +102011,9 @@ export default function CrmModulesHome() {
     }));
   } else if (screen === "placeholder" && selectedCategory === "workers") {
     secondaryTitle = t(uiLang, "workersModule");
-    secondaryRows = WORKERS_TILES.map((tile) => ({
+    secondaryRows = WORKERS_TILES.filter((tile) =>
+      shellModuleVisible(tile.id),
+    ).map((tile) => ({
       id: tile.id,
       label: tileLabel(uiLang, tile.id, tile.label),
       iconId: tile.id,
