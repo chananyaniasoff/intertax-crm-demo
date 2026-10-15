@@ -34,7 +34,7 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — Clients QA vs Modules section split. */
-const GMAIL_DUAL_NAV_BUILD = "v900-2026-10-15-billing-hold-reason";
+const GMAIL_DUAL_NAV_BUILD = "v901-2026-10-15-trust-docs-stage-completed";
 /** Sibling canvas opened by header "Client portal (demo)". */
 const CLIENT_PORTAL_CANVAS_PATH = 'C:\\Users\\chana\\.cursor\\projects\\c-Users-chana-OneDrive-Desktop-Intertax-Programs-Accounting-CRM-Client-Portal\\canvases\\client-portal.canvas.tsx';
 /** Shared folder explorer tree/detail split width (% of row). */
@@ -5463,6 +5463,30 @@ const CRM_UI = {
   stageNavCompleted: {
     en: "Completed",
     he: "הושלם",
+  },
+  stageNavCompletedFlashTitle: {
+    en: "Stage completed",
+    he: "השלב הושלם",
+  },
+  stageNavCompletedFlashBody: {
+    en: "{stage} marked complete. Checklist items for this stage are crossed off.",
+    he: "{stage} סומן כהושלם. פריטי הרשימה לשלב זה מסומנים כמחוקים.",
+  },
+  trustDocRequestVia: {
+    en: "Request via",
+    he: "בקשה דרך",
+  },
+  trustDocMessage: {
+    en: "Message",
+    he: "הודעה",
+  },
+  trustDocRequestHint: {
+    en: "Request documents by Email, Portal, or WhatsApp. Rows expand after a request is sent.",
+    he: "בקשו מסמכים באימייל, בפורטל או בוואטסאפ. השורה נפתחת אחרי שליחת בקשה.",
+  },
+  trustOpenCurrentStage: {
+    en: "Open current stage",
+    he: "פתח את השלב הנוכחי",
   },
   auditNavFolder: {
     en: "Working folder",
@@ -19214,6 +19238,66 @@ function ModuleSectionFrame({
         ) : null}
         {children}
       </div>
+    </div>
+  );
+}
+
+/**
+/** Brief fixed success popout — GmailButton chrome / TempTabPopup z-index. */
+function StageCompleteSuccessPopout({
+  title,
+  body,
+  onDismiss,
+}: {
+  title: string;
+  body: string;
+  onDismiss: () => void;
+}) {
+  const theme = useHostTheme();
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-chrome="stage-complete-success-popout"
+      style={{
+        position: "fixed",
+        zIndex: 10000,
+        top: 28,
+        left: "50%",
+        transform: "translateX(-50%)",
+        maxWidth: "min(420px, calc(100vw - 32px))",
+        width: "100%",
+        boxSizing: "border-box",
+        padding: 14,
+        borderRadius: 10,
+        border: `1px solid ${CHROME_BORDER_BLUE}`,
+        background: CHROME_WHITE,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <Row align="center" gap={8}>
+        <span
+          aria-hidden
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 999,
+            flexShrink: 0,
+            background: theme.category.green,
+          }}
+        />
+        <ChromeText weight="semibold" style={{ flex: 1, minWidth: 0 }}>
+          {title}
+        </ChromeText>
+        <GmailButton variant="text" onClick={onDismiss}>
+          ×
+        </GmailButton>
+      </Row>
+      <ChromeText size="small" tone="secondary">
+        {body}
+      </ChromeText>
     </div>
   );
 }
@@ -42786,6 +42870,8 @@ type TrustDocStatus =
   | "reviewed"
   | "missing";
 
+type TrustDocChannel = "" | "email" | "portal" | "whatsapp";
+
 type TrustDoc = {
   id: string;
   label: string;
@@ -42794,6 +42880,11 @@ type TrustDoc = {
   followUp: string;
   contact: string;
   period: string;
+  /** Request message body — shown after a channel request. */
+  message: string;
+  sendEmail: boolean;
+  sendPortal: boolean;
+  sendWhatsApp: boolean;
 };
 
 type TrustFiler =
@@ -42810,6 +42901,8 @@ type TrustPayChannel = "email" | "whatsapp" | "portal" | "phone";
 type TrustCaseState = {
   dueDate: string;
   filer: TrustFiler;
+  /** Explicit intake confirmation — not inferred from seeded filer/dueDate. */
+  intakeConfirmed: boolean;
   form151Mode: "date-only" | "new-version";
   formVersion: string;
   forms: Record<string, boolean>;
@@ -42908,7 +43001,45 @@ function trustDefaultDocs(): TrustDoc[] {
     followUp: "",
     contact: "",
     period: "",
+    message: "",
+    sendEmail: false,
+    sendPortal: false,
+    sendWhatsApp: false,
   }));
+}
+
+/** Normalize persisted trust docs (older cases may lack channel/message fields). */
+function normalizeTrustDoc(raw: TrustDoc): TrustDoc {
+  return {
+    id: String(raw?.id ?? ""),
+    label: String(raw?.label ?? ""),
+    status: (raw?.status as TrustDocStatus) || "not-requested",
+    requestDate: String(raw?.requestDate ?? ""),
+    followUp: String(raw?.followUp ?? ""),
+    contact: String(raw?.contact ?? ""),
+    period: String(raw?.period ?? ""),
+    message: String(raw?.message ?? ""),
+    sendEmail: !!raw?.sendEmail,
+    sendPortal: !!raw?.sendPortal,
+    sendWhatsApp: !!raw?.sendWhatsApp,
+  };
+}
+
+function normalizeTrustCase(
+  raw: TrustCaseState,
+  year: string,
+): TrustCaseState {
+  const base = trustDefaultCase(year);
+  if (!raw || typeof raw !== "object") return base;
+  const docs = Array.isArray(raw.docs)
+    ? raw.docs.map((d) => normalizeTrustDoc(d as TrustDoc))
+    : base.docs;
+  return {
+    ...base,
+    ...raw,
+    intakeConfirmed: !!raw.intakeConfirmed,
+    docs: docs.length ? docs : base.docs,
+  };
 }
 
 function trustDefaultCase(year: string): TrustCaseState {
@@ -42918,6 +43049,7 @@ function trustDefaultCase(year: string): TrustCaseState {
   return {
     dueDate: `${Number(year) + 1}-04-30`,
     filer: "trustee-1327",
+    intakeConfirmed: false,
     form151Mode: "date-only",
     formVersion: "",
     forms,
@@ -43192,6 +43324,7 @@ function markTrustStageChecklistDone(
       patch({
         filer: trustCase.filer || "trustee-1327",
         dueDate: trustCase.dueDate.trim() || trustDefaultCase(year).dueDate,
+        intakeConfirmed: true,
       });
       break;
     case "documents":
@@ -43258,7 +43391,8 @@ function demoTrustChecklist(
     {
       id: "trust-c-intake",
       label: trustTr(lang, "Confirm who files and due date", "אשר מי מגיש ותאריך יעד"),
-      done: !!trustCase.filer && trustCase.dueDate.trim().length > 0,
+      // Seeded filer/dueDate must NOT mark this done — only explicit confirm / Completed.
+      done: !!trustCase.intakeConfirmed,
       stageId: "intake",
       doneInApp: "crm",
     },
@@ -43340,17 +43474,24 @@ function trustChecklistProgressPercent(
   return Math.round((done / checklist.length) * 100);
 }
 
-function resolveTrustProcessStage(
+/** First incomplete pipeline stage — Overview “current working stage”. */
+function trustFirstOpenStage(
   checklist: WorkspaceChecklistItem[],
-  stored: string | undefined,
 ): TrustProcessStage {
-  if (isTrustProcessStage(stored)) return stored;
   for (const stage of TRUST_PROCESS_STEPS) {
     const rows = checklist.filter((item) => item.stageId === stage);
     if (rows.length === 0) continue;
     if (!rows.every((item) => item.done)) return stage;
   }
   return "close";
+}
+
+function resolveTrustProcessStage(
+  checklist: WorkspaceChecklistItem[],
+  stored: string | undefined,
+): TrustProcessStage {
+  if (isTrustProcessStage(stored)) return stored;
+  return trustFirstOpenStage(checklist);
 }
 
 /** Side-tab order including Calculation (after Forms). */
@@ -43721,10 +43862,11 @@ function TrustReportingWorkspace({
   const [addPick, setAddPick] = useState("");
   const [year, setYear] = useCanvasState(`trustYear.v1:${client.id}`, "2025");
   const yearScope = `${client.id}:${year}`;
-  const [trustCase, setTrustCase] = useCanvasState<TrustCaseState>(
+  const [trustCaseRaw, setTrustCase] = useCanvasState<TrustCaseState>(
     `trustCase.v1:${client.id}:${year}`,
     trustDefaultCase(year),
   );
+  const trustCase = normalizeTrustCase(trustCaseRaw, year);
   const [, setPortalNotice] = useCanvasState(
     `trustPortalNotice.v1:${client.id}`,
     false,
@@ -43732,6 +43874,16 @@ function TrustReportingWorkspace({
   const [processStageStored, setProcessStageStored] = useCanvasState<string>(
     `trustProcessStage.v1:${yearScope}`,
     "",
+  );
+  const [stageCompleteFlash, setStageCompleteFlash] = useState<{
+    title: string;
+    body: string;
+  } | null>(null);
+  const stageCompleteAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const stageCompleteClearRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
   );
   type TrustSection =
     | "overview"
@@ -43754,6 +43906,8 @@ function TrustReportingWorkspace({
   const stageFillRatios = trustStageFillRatios(checklist);
   const progressPct = trustChecklistProgressPercent(checklist);
   const processStage = resolveTrustProcessStage(checklist, processStageStored);
+  /** Progress-based working stage for Overview CTA (not last sidebar click). */
+  const workingStage = trustFirstOpenStage(checklist);
   const status = progressPctToWorkFlowStatus(progressPct);
   const available = services.filter(
     (svc) => !added.some((name) => name.toLowerCase() === svc.toLowerCase()),
@@ -43802,19 +43956,77 @@ function TrustReportingWorkspace({
         ? section
         : null;
 
+  useEffect(() => {
+    return () => {
+      if (stageCompleteAdvanceRef.current != null) {
+        clearTimeout(stageCompleteAdvanceRef.current);
+      }
+      if (stageCompleteClearRef.current != null) {
+        clearTimeout(stageCompleteClearRef.current);
+      }
+    };
+  }, []);
+
   const markCurrentStageCompleted = () => {
     if (!completeFooterStage) return;
+    const completedStage = completeFooterStage;
     markTrustStageChecklistDone(
-      completeFooterStage,
+      completedStage,
       trustCase,
       patch,
       uiLang,
       year,
     );
+    const stageLabel = trustProcessLabel(uiLang, completedStage);
+    setStageCompleteFlash({
+      title: t(uiLang, "stageNavCompletedFlashTitle"),
+      body: t(uiLang, "stageNavCompletedFlashBody").replace(
+        "{stage}",
+        stageLabel,
+      ),
+    });
+    if (stageCompleteClearRef.current != null) {
+      clearTimeout(stageCompleteClearRef.current);
+    }
+    stageCompleteClearRef.current = setTimeout(() => {
+      setStageCompleteFlash(null);
+      stageCompleteClearRef.current = null;
+    }, 2200);
+    if (stageCompleteAdvanceRef.current != null) {
+      clearTimeout(stageCompleteAdvanceRef.current);
+    }
+    // Brief pause so strikethrough paints before advancing.
+    stageCompleteAdvanceRef.current = setTimeout(() => {
+      stageCompleteAdvanceRef.current = null;
+      if (footerNext) jumpToNavSection(footerNext);
+    }, 450);
+  };
+
+  const patchTrustDoc = (docId: string, partial: Partial<TrustDoc>) => {
+    patch({
+      docs: trustCase.docs.map((row) =>
+        row.id === docId ? normalizeTrustDoc({ ...row, ...partial }) : row,
+      ),
+    });
+  };
+
+  const requestTrustDocVia = (docId: string, channel: TrustDocChannel) => {
+    if (!channel) return;
+    const today = new Date().toISOString().slice(0, 10);
+    patchTrustDoc(docId, {
+      status: "requested",
+      requestDate: today,
+      sendEmail: channel === "email",
+      sendPortal: channel === "portal",
+      sendWhatsApp: channel === "whatsapp",
+    });
   };
 
   const toggleChecklistItem = (id: string) => {
-    if (id === "trust-c-intake") return;
+    if (id === "trust-c-intake") {
+      patch({ intakeConfirmed: !trustCase.intakeConfirmed });
+      return;
+    }
     if (id.startsWith("trust-doc-")) {
       const docId = id.slice("trust-doc-".length);
       patch({
@@ -43956,61 +44168,154 @@ function TrustReportingWorkspace({
       return (
         <Stack gap={8}>
           <H3>{trustTr(uiLang, "Documents", "מסמכים")}</H3>
-          {trustCase.docs.map((doc) => (
-            <Stack
-              key={doc.id}
-              gap={6}
-              style={{
-                padding: 10,
-                borderRadius: 8,
-                border: `1px solid ${theme.stroke.tertiary}`,
-              }}
-            >
-              <Row gap={8} wrap align="center">
-                <ChromeText weight="semibold">{doc.label}</ChromeText>
-                <Select
-                  value={doc.status}
-                  onChange={(value) =>
-                    patch({
-                      docs: trustCase.docs.map((row) =>
-                        row.id === doc.id
-                          ? { ...row, status: value as TrustDocStatus }
-                          : row,
-                      ),
-                    })
-                  }
-                  options={TRUST_DOC_STATUSES.map((status) => ({
-                    value: status,
-                    label: trustDocStatusLabel(uiLang, status),
-                  }))}
-                />
-              </Row>
-              <Row gap={8} wrap>
-                <TextInput
-                  value={doc.contact}
-                  placeholder={trustTr(uiLang, "Contact", "איש קשר")}
-                  onChange={(value) =>
-                    patch({
-                      docs: trustCase.docs.map((row) =>
-                        row.id === doc.id ? { ...row, contact: value } : row,
-                      ),
-                    })
-                  }
-                />
-                <TextInput
-                  value={doc.period}
-                  placeholder={trustTr(uiLang, "Period", "תקופה")}
-                  onChange={(value) =>
-                    patch({
-                      docs: trustCase.docs.map((row) =>
-                        row.id === doc.id ? { ...row, period: value } : row,
-                      ),
-                    })
-                  }
-                />
-              </Row>
-            </Stack>
-          ))}
+          <ChromeText size="small" tone="secondary">
+            {t(uiLang, "trustDocRequestHint")}
+          </ChromeText>
+          <Stack
+            gap={0}
+            style={{
+              borderRadius: 10,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: CHROME_WHITE,
+              overflow: "hidden",
+            }}
+          >
+            {trustCase.docs.map((doc, idx) => {
+              const docDone =
+                doc.status === "received" || doc.status === "reviewed";
+              const expanded = doc.status !== "not-requested";
+              const channelValue: TrustDocChannel = doc.sendEmail
+                ? "email"
+                : doc.sendPortal
+                  ? "portal"
+                  : doc.sendWhatsApp
+                    ? "whatsapp"
+                    : "";
+              return (
+                <Stack
+                  key={doc.id}
+                  gap={8}
+                  style={{
+                    padding: expanded ? "10px 12px" : "8px 12px",
+                    borderTop:
+                      idx === 0
+                        ? undefined
+                        : `1px solid ${chromeBorder(theme)}`,
+                    background: docDone
+                      ? chromeSoftFill(theme)
+                      : CHROME_WHITE,
+                  }}
+                >
+                  <Row gap={8} wrap align="center">
+                    <ChromeText
+                      weight="semibold"
+                      tone={docDone ? "secondary" : "primary"}
+                      style={{
+                        flex: 1,
+                        minWidth: 140,
+                        ...(docDone
+                          ? { textDecoration: "line-through" }
+                          : {}),
+                      }}
+                    >
+                      {doc.label}
+                    </ChromeText>
+                    <Select
+                      value={doc.status}
+                      onChange={(value) =>
+                        patchTrustDoc(doc.id, {
+                          status: value as TrustDocStatus,
+                        })
+                      }
+                      options={TRUST_DOC_STATUSES.map((status) => ({
+                        value: status,
+                        label: trustDocStatusLabel(uiLang, status),
+                      }))}
+                      style={{ width: 150 }}
+                    />
+                    <Select
+                      value={channelValue}
+                      onChange={(value) =>
+                        requestTrustDocVia(
+                          doc.id,
+                          value as TrustDocChannel,
+                        )
+                      }
+                      placeholder={t(uiLang, "trustDocRequestVia")}
+                      options={[
+                        {
+                          value: "email",
+                          label: t(uiLang, "taxReturnSendEmail"),
+                        },
+                        {
+                          value: "portal",
+                          label: t(uiLang, "taxReturnSendPortal"),
+                        },
+                        {
+                          value: "whatsapp",
+                          label: t(uiLang, "taxReturnSendWhatsApp"),
+                        },
+                      ]}
+                      style={{ width: 140 }}
+                    />
+                  </Row>
+                  {expanded ? (
+                    <Stack gap={8}>
+                      <Row gap={8} wrap>
+                        <TextInput
+                          value={doc.contact}
+                          placeholder={trustTr(
+                            uiLang,
+                            "Contact",
+                            "איש קשר",
+                          )}
+                          onChange={(value) =>
+                            patchTrustDoc(doc.id, { contact: value })
+                          }
+                        />
+                        <TextInput
+                          value={doc.period}
+                          placeholder={trustTr(
+                            uiLang,
+                            "Period",
+                            "תקופה",
+                          )}
+                          onChange={(value) =>
+                            patchTrustDoc(doc.id, { period: value })
+                          }
+                        />
+                      </Row>
+                      <TextInput
+                        value={doc.message}
+                        placeholder={t(uiLang, "trustDocMessage")}
+                        onChange={(value) =>
+                          patchTrustDoc(doc.id, { message: value })
+                        }
+                      />
+                      <ChromeText size="small" tone="tertiary">
+                        {[
+                          doc.sendEmail
+                            ? t(uiLang, "taxReturnSendEmail")
+                            : null,
+                          doc.sendPortal
+                            ? t(uiLang, "taxReturnSendPortal")
+                            : null,
+                          doc.sendWhatsApp
+                            ? t(uiLang, "taxReturnSendWhatsApp")
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                        {doc.requestDate
+                          ? ` · ${doc.requestDate}`
+                          : ""}
+                      </ChromeText>
+                    </Stack>
+                  ) : null}
+                </Stack>
+              );
+            })}
+          </Stack>
         </Stack>
       );
     }
@@ -44408,7 +44713,7 @@ function TrustReportingWorkspace({
           )}
         </ChromeText>
         <Row gap={8} wrap align="center">
-          <Pill tone="info">{trustProcessLabel(uiLang, processStage)}</Pill>
+          <Pill tone="info">{trustProcessLabel(uiLang, workingStage)}</Pill>
           <Pill tone={trustCase.closed ? "success" : "neutral"}>
             {trustCase.closed
               ? trustTr(uiLang, "Closed", "סגור")
@@ -44420,10 +44725,12 @@ function TrustReportingWorkspace({
             {trustCase.dueDate || "—"}
           </ChromeText>
         </Row>
-        <Button variant="secondary" onClick={() => jumpToStage(processStage)}>
-          {trustTr(uiLang, "Open current stage", "פתח את השלב הנוכחי")}
-          {` · ${trustProcessLabel(uiLang, processStage)}`}
-        </Button>
+        <GmailButton
+          variant="secondary"
+          onClick={() => jumpToStage(workingStage)}
+        >
+          {`${t(uiLang, "trustOpenCurrentStage")} · ${trustProcessLabel(uiLang, workingStage)}`}
+        </GmailButton>
         <Stack
           gap={8}
           style={{
@@ -44524,6 +44831,13 @@ function TrustReportingWorkspace({
         />
       </div>
 
+      {stageCompleteFlash ? (
+        <StageCompleteSuccessPopout
+          title={stageCompleteFlash.title}
+          body={stageCompleteFlash.body}
+          onDismiss={() => setStageCompleteFlash(null)}
+        />
+      ) : null}
       <ModuleSectionFrame
         ariaLabel={trustTr(uiLang, "Trust reporting", "דיווח נאמנות")}
         title={trustTr(uiLang, "Trust reporting", "דיווח נאמנות")}

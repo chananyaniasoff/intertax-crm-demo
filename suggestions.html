@@ -206,11 +206,12 @@
   <body>
     <!--
       TEMPORARY review-only inbox. Not part of the CRM.
-      KEEP THE TOPIC URL IN SYNC with demo-web/src/temp-suggestions/store.ts.
-      A done mark POSTs {"id","done":true}. The latest done flag wins.
-      A delete tombstone still wins over done. Writes never replace the list.
-      POST once. ntfy can take about two seconds to show the message on read.
-      Do not post again just because the read is briefly behind.
+      KEEP THE URL, PATH, AND WRITE TOKEN IN SYNC with demo-web/src/temp-suggestions/store.ts.
+      One save rewrites the shared page once. A successful write is not retried.
+      If the write fails or the next read is briefly behind, the note stays in
+      localStorage. A later poll may send it once, after a backoff, and only
+      after reading the page again. A done mark is {"id","done":true}.
+      A delete tombstone still wins over done.
     -->
     <main>
       <h1>הצעות לדמו</h1>
@@ -228,7 +229,15 @@
       <ol id="list"></ol>
     </main>
     <script>
-      const TOPIC_URL = "https://ntfy.sh/intertax-crm-demo-sug-7f3a9c2e4b81";
+      const TOPIC_URL = "https://api.telegra.ph/getPage/Intertax-CRM-suggestions-10-15?return_content=true";
+      const EDIT_URL = "https://api.telegra.ph/editPage";
+      const PAGE_PATH = "Intertax-CRM-suggestions-10-15";
+      const PAGE_TOKEN = "26c39a75233526c1497678e28ab69a3a6b498fcc9531f6c5328e5c5d4869";
+      const PAGE_TITLE = "Intertax CRM suggestions";
+      const MIRROR_KEY = "itx-sug-mirror-v1";
+      const RETRY_MS = 30000;
+      const PAUSE_MS = 60000;
+      const SETTLE_MS = 8000;
 
       const list = document.getElementById("list");
       const status = document.getElementById("status");
@@ -335,7 +344,7 @@
             author.textContent = item.author;
             line.append(num, author);
             const excerpt = document.createElement("p");
-            excerpt.className = "excerpt";
+            excerpt.className = "excerpt itx-sug-text";
             excerpt.textContent = item.text;
             const expand = document.createElement("button");
             expand.type = "button";
@@ -372,6 +381,7 @@
           time.textContent = formatTime(item.createdAt);
           head.append(num, author, time);
           const text = document.createElement("p");
+          text.className = "itx-sug-text";
           text.textContent = item.text;
           const meta = document.createElement("p");
           meta.className = "meta";
@@ -420,43 +430,24 @@
         status.textContent = "מציג " + live.length + " " + noun + ". הרשימה משותפת עם הדמו.";
       }
 
-      function parseTopic(text) {
-        const ntfyDeleted = new Set();
+      let memory = null;
+      let tail = Promise.resolve();
+
+      function messageKey(value) {
+        if (!value || typeof value !== "object" || typeof value.id !== "string" || !value.id.trim()) {
+          return "";
+        }
+        if (value.deleted === true) return "del:" + value.id;
+        if (typeof value.done === "boolean") return "done:" + value.id;
+        if (typeof value.text === "string" && value.text.trim()) return "save:" + value.id;
+        return "";
+      }
+
+      function snapshotFromMessages(messages) {
         const tombstones = new Set();
         const doneFlags = new Map();
-        const messages = [];
-        for (const line of text.split("\n")) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          let event;
-          try {
-            event = JSON.parse(trimmed);
-          } catch (error) {
-            continue;
-          }
-          if (!event) continue;
-          if (event.event === "message_delete" && typeof event.sequence_id === "string") {
-            ntfyDeleted.add(event.sequence_id);
-            continue;
-          }
-          if (event.event !== "message" || typeof event.message !== "string") continue;
-          messages.push({
-            id: event.id,
-            message: event.message,
-            time: typeof event.time === "number" ? event.time : 0,
-            index: messages.length,
-          });
-        }
-        messages.sort((a, b) => a.time - b.time || a.index - b.index);
         const byId = new Map();
-        for (const event of messages) {
-          if (ntfyDeleted.has(event.id)) continue;
-          let payload;
-          try {
-            payload = JSON.parse(event.message);
-          } catch (error) {
-            continue;
-          }
+        for (const payload of messages) {
           if (
             payload &&
             payload.deleted === true &&
@@ -492,60 +483,238 @@
         return { items: live, doneIds: doneIds };
       }
 
-      function sleep(ms) {
-        return new Promise((resolve) => {
-          window.setTimeout(resolve, ms);
+      function unionMessages(remote, local) {
+        const map = new Map();
+        for (const message of remote.concat(local)) {
+          const key = messageKey(message);
+          if (key) map.set(key, message);
+        }
+        return [...map.values()];
+      }
+
+      function hasPending(messages, remote) {
+        const remoteKeys = new Set(remote.map(messageKey).filter(Boolean));
+        return messages.some((message) => {
+          const key = messageKey(message);
+          return key && !remoteKeys.has(key);
         });
       }
 
-      async function postBody(body) {
-        let lastError = new Error("write failed");
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            const response = await fetch(TOPIC_URL, {
-              method: "POST",
-              headers: { "Content-Type": "text/plain; charset=UTF-8" },
-              body: body,
-            });
-            const text = await response.text();
-            if (response.ok) return;
-            const detail = String(text || "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 180);
-            lastError = new Error("write " + response.status + (detail ? " " + detail : ""));
-            await sleep(response.status === 429 ? 6000 : 1000 * (attempt + 1));
-          } catch (error) {
-            lastError = error instanceof Error ? error : new Error("write failed");
-            await sleep(1000 * (attempt + 1));
-          }
+      function emptyMirror() {
+        return { rev: 0, messages: [], pauseUntil: 0, nextWriteAt: 0, dirty: false };
+      }
+
+      function sanitizeMirror(value) {
+        if (!value || typeof value !== "object" || !Array.isArray(value.messages)) return null;
+        return {
+          rev: typeof value.rev === "number" ? value.rev : 0,
+          messages: value.messages,
+          pauseUntil: typeof value.pauseUntil === "number" ? value.pauseUntil : 0,
+          nextWriteAt: typeof value.nextWriteAt === "number" ? value.nextWriteAt : 0,
+          dirty: value.dirty === true,
+        };
+      }
+
+      function readStorage() {
+        try {
+          const raw = localStorage.getItem(MIRROR_KEY);
+          if (!raw) return null;
+          return sanitizeMirror(JSON.parse(raw));
+        } catch (error) {
+          return null;
         }
-        throw lastError;
       }
 
-      async function pollReady(ready) {
-        const pauses = [2200, 1500];
-        for (const pause of pauses) {
-          await sleep(pause);
-          try {
-            rememberParsed(await readTopic());
-            if (ready()) return true;
-          } catch (error) {
-            /* A late or rate-limited read must not undo a POST that succeeded. */
-          }
+      function loadMirror() {
+        const stored = readStorage();
+        if (!memory) memory = stored || emptyMirror();
+        else if (stored && stored.rev > memory.rev) memory = stored;
+        return memory;
+      }
+
+      function saveMirror(mirror) {
+        mirror.rev += 1;
+        memory = mirror;
+        try {
+          localStorage.setItem(MIRROR_KEY, JSON.stringify(mirror));
+        } catch (error) {
+          /* A private window still keeps this tab's copy in memory. */
         }
-        return false;
       }
 
-      async function readTopic() {
-        const response = await fetch(TOPIC_URL + "/json?poll=1&since=all", { cache: "no-store" });
-        if (!response.ok) throw new Error(String(response.status));
-        return parseTopic(await response.text());
+      function rememberMessage(message) {
+        const key = messageKey(message);
+        if (!key) return false;
+        const mirror = loadMirror();
+        if (mirror.messages.some((item) => messageKey(item) === key)) return false;
+        mirror.messages = mirror.messages.concat([message]);
+        mirror.dirty = true;
+        saveMirror(mirror);
+        return true;
       }
 
-      function rememberParsed(parsed) {
+      function applyMirror() {
+        const parsed = snapshotFromMessages(loadMirror().messages);
         latest = parsed.items;
         serverDone = parsed.doneIds;
+      }
+
+      function collectText(node, out) {
+        if (typeof node === "string") {
+          out.push(node);
+          return;
+        }
+        if (Array.isArray(node)) {
+          for (const child of node) collectText(child, out);
+          return;
+        }
+        if (node && Array.isArray(node.children)) collectText(node.children, out);
+      }
+
+      function messagesFromResult(result) {
+        if (!result || typeof result !== "object") return null;
+        const texts = [];
+        collectText(result.content, texts);
+        if (texts.length === 0) return [];
+        for (const text of texts) {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed && Array.isArray(parsed.messages)) return parsed.messages;
+          } catch (error) {
+            /* Keep looking. A title or other node is not the log. */
+          }
+        }
+        return null;
+      }
+
+      async function fetchMessages() {
+        try {
+          const response = await fetch(TOPIC_URL, { cache: "no-store" });
+          if (response.status === 429) return "pause";
+          if (!response.ok) return "down";
+          const payload = await response.json();
+          if (!payload || payload.ok !== true) return "down";
+          const messages = messagesFromResult(payload.result);
+          return messages === null ? "down" : messages;
+        } catch (error) {
+          return "down";
+        }
+      }
+
+      async function writeDocument(messages) {
+        if (messages.length === 0) return "later";
+        const form = new URLSearchParams();
+        form.set("access_token", PAGE_TOKEN);
+        form.set("path", PAGE_PATH);
+        form.set("title", PAGE_TITLE);
+        form.set("content", JSON.stringify([{ tag: "p", children: [JSON.stringify({ messages: messages })] }]));
+        form.set("return_content", "true");
+        try {
+          const response = await fetch(EDIT_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+            body: form.toString(),
+          });
+          const text = await response.text();
+          if (response.status === 429) return "pause";
+          if (!response.ok) return "later";
+          let payload = null;
+          try {
+            payload = JSON.parse(text);
+          } catch (error) {
+            return "later";
+          }
+          if (payload && payload.ok === true) return "ok";
+          if (/flood|retry|too many|429/i.test(String((payload && payload.error) || ""))) return "pause";
+          return "later";
+        } catch (error) {
+          return "later";
+        }
+      }
+
+      function hold(mirror, pause) {
+        const delay = pause ? PAUSE_MS : RETRY_MS;
+        mirror.dirty = true;
+        mirror.nextWriteAt = Date.now() + delay;
+        if (pause) mirror.pauseUntil = mirror.nextWriteAt;
+        saveMirror(mirror);
+      }
+
+      async function flush(force) {
+        const mirror = loadMirror();
+        if (Date.now() < mirror.pauseUntil) return;
+        if (!mirror.dirty) return;
+        if (!force && Date.now() < mirror.nextWriteAt) return;
+        const remote = await fetchMessages();
+        if (remote === "pause") {
+          hold(loadMirror(), true);
+          return;
+        }
+        if (remote === "down") {
+          hold(loadMirror(), false);
+          return;
+        }
+        const current = loadMirror();
+        current.messages = unionMessages(remote, current.messages);
+        if (!hasPending(current.messages, remote)) {
+          current.dirty = false;
+          saveMirror(current);
+          return;
+        }
+        const sent = current.messages;
+        const result = await writeDocument(sent);
+        const latestMirror = loadMirror();
+        latestMirror.messages = unionMessages(sent, latestMirror.messages);
+        if (result === "ok") {
+          const sentKeys = new Set(sent.map(messageKey));
+          latestMirror.dirty = latestMirror.messages.some((message) => {
+            const key = messageKey(message);
+            return key && !sentKeys.has(key);
+          });
+          latestMirror.nextWriteAt = Date.now() + (latestMirror.dirty ? RETRY_MS : SETTLE_MS);
+          saveMirror(latestMirror);
+          return;
+        }
+        hold(latestMirror, result === "pause");
+      }
+
+      function queueFlush(force) {
+        const run = tail.then(() => flush(force));
+        tail = run.then(
+          () => undefined,
+          () => undefined,
+        );
+        return run;
+      }
+
+      async function readShared() {
+        const mirror = loadMirror();
+        if (Date.now() < mirror.pauseUntil) {
+          if (mirror.messages.length > 0) return snapshotFromMessages(mirror.messages);
+          throw new Error("read paused");
+        }
+        const remote = await fetchMessages();
+        if (remote === "pause") {
+          const paused = loadMirror();
+          paused.pauseUntil = Date.now() + PAUSE_MS;
+          paused.nextWriteAt = Math.max(paused.nextWriteAt, paused.pauseUntil);
+          saveMirror(paused);
+          if (paused.messages.length > 0) return snapshotFromMessages(paused.messages);
+          throw new Error("read 429");
+        }
+        if (remote === "down") {
+          if (mirror.messages.length > 0) return snapshotFromMessages(mirror.messages);
+          throw new Error("read failed");
+        }
+        const current = loadMirror();
+        current.messages = unionMessages(remote, current.messages);
+        const pending = hasPending(current.messages, remote);
+        current.dirty = pending;
+        saveMirror(current);
+        if (pending && Date.now() >= current.nextWriteAt && Date.now() >= current.pauseUntil) {
+          await queueFlush(false);
+        }
+        return snapshotFromMessages(loadMirror().messages);
       }
 
       async function load() {
@@ -554,13 +723,19 @@
           status.textContent = "טוען הצעות…";
         }
         try {
-          rememberParsed(await readTopic());
+          const parsed = await readShared();
+          latest = parsed.items;
+          serverDone = parsed.doneIds;
           render(latest);
           if (!busyId) showStatus(latest);
         } catch (error) {
-          if (!busyId) {
+          applyMirror();
+          render(latest);
+          if (!busyId && latest.length === 0) {
             status.className = "status error";
             status.textContent = "לא הצלחנו לטעון את ההצעות. נסו שוב.";
+          } else if (!busyId) {
+            showStatus(latest);
           }
         }
       }
@@ -574,24 +749,17 @@
         pendingDone.delete(id);
         pendingDone.delete(id.trim());
         expandedIds.delete(id);
+        rememberMessage({ id: id, deleted: true });
+        applyMirror();
         render(latest);
         status.className = "status";
         status.textContent = "מוחק…";
-        try {
-          await postBody(JSON.stringify({ id: id, deleted: true }));
-          await pollReady(() => !latest.some((item) => item.id === id));
-          render(latest);
-          showStatus(latest);
-        } catch (error) {
-          hiddenIds.delete(id);
-          render(latest);
-          status.className = "status error";
-          status.textContent = "לא הצלחנו למחוק את ההצעה. נסו שוב.";
-        } finally {
-          busyId = null;
-          busyKind = "";
-          render(latest);
-        }
+        if (Date.now() >= loadMirror().pauseUntil) await queueFlush(true);
+        applyMirror();
+        busyId = null;
+        busyKind = "";
+        render(latest);
+        showStatus(latest);
       }
 
       async function markDone(id) {
@@ -601,30 +769,17 @@
         busyKind = "done";
         pendingDone.add(id);
         expandedIds.delete(id);
+        rememberMessage({ id: id, done: true });
+        applyMirror();
         render(latest);
         status.className = "status";
         status.textContent = "מסמן…";
-        try {
-          await postBody(JSON.stringify({ id: id, done: true }));
-          await pollReady(
-            () =>
-              !latest.some((item) => item.id === id) ||
-              serverDone.has(id) ||
-              serverDone.has(id.trim()),
-          );
-          render(latest);
-          showStatus(latest);
-        } catch (error) {
-          pendingDone.delete(id);
-          pendingDone.delete(id.trim());
-          render(latest);
-          status.className = "status error";
-          status.textContent = "לא הצלחנו לסמן את ההצעה כבוצעה. נסו שוב.";
-        } finally {
-          busyId = null;
-          busyKind = "";
-          render(latest);
-        }
+        if (Date.now() >= loadMirror().pauseUntil) await queueFlush(true);
+        applyMirror();
+        busyId = null;
+        busyKind = "";
+        render(latest);
+        showStatus(latest);
       }
 
       document.getElementById("refresh").addEventListener("click", () => {
