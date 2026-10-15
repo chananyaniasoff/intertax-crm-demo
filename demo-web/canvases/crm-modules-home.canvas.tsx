@@ -22,6 +22,7 @@ import {
   TextArea,
   TextInput,
   Toggle,
+  useCanvasAction,
   useCanvasState,
   useEffect,
   useHostTheme,
@@ -33,7 +34,9 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — Clients QA vs Modules section split. */
-const GMAIL_DUAL_NAV_BUILD = "v843-2026-10-14-windows-hdd-drive-icon";
+const GMAIL_DUAL_NAV_BUILD = "v900-2026-10-15-billing-hold-reason";
+/** Sibling canvas opened by header "Client portal (demo)". */
+const CLIENT_PORTAL_CANVAS_PATH = 'C:\\Users\\chana\\.cursor\\projects\\c-Users-chana-OneDrive-Desktop-Intertax-Programs-Accounting-CRM-Client-Portal\\canvases\\client-portal.canvas.tsx';
 /** Shared folder explorer tree/detail split width (% of row). */
 const CRM_EXPLORER_SPLIT_PCT_KEY = "crmExplorerSplitPct.v1";
 const CRM_EXPLORER_SPLIT_DEFAULT = 46;
@@ -147,10 +150,22 @@ type WorkDrive = {
   id: string;
   name: string;
   kind: WorkDriveKind;
-  /** Google Drive / folder URL or local path note (demo). */
+  /** Kind-specific URL (Google Drive or generic folder link) or local path note (demo). */
   rootPathOrUrl?: string;
   /** `company-archive` = existing Companies + firm shared tree. */
   folderTreeId?: string;
+};
+
+/** Match adjacent Drive-name TextInput (~28px) in Work drives add/edit grids. */
+const WORK_DRIVE_TYPE_SELECT_STYLE: CSSProperties = {
+  width: "100%",
+  height: 28,
+  minHeight: 28,
+  padding: "0 10px",
+  borderRadius: 8,
+  boxSizing: "border-box",
+  fontSize: 13,
+  lineHeight: "28px",
 };
 
 function seedWorkDrives(): WorkDrive[] {
@@ -269,6 +284,7 @@ const SYSTEMADMIN_HELP_HIDE_SCREENS = new Set([
   "users-rights",
   "company-modules",
   "files-root",
+  "folder-templates",
   "work-drives",
 ]);
 
@@ -1329,6 +1345,7 @@ type Screen =
   | "users-rights"
   | "company-modules"
   | "files-root"
+  | "folder-templates"
   | "work-drives"
   | "client-folders"
   | "help-feedback"
@@ -1338,8 +1355,10 @@ type Screen =
   | "placeholder";
 
 /**
- * Identity of the Gmail secondary panel. Changing this (e.g. Client tiles → Billing
- * nav) pushes a restore point; in-panel nav (filters / billing tabs) does not.
+ * Identity of the Gmail secondary panel. Changing this (e.g. Clients → System Admin)
+ * pushes a restore point for ← (Back to previous sidebar). In-panel nav — filters,
+ * billing tabs, or System Admin / Admin / Work tile screens that keep the same
+ * secondary list — must share one identity so ← does not no-op on the same chrome.
  */
 type SecondaryTrailEntry = {
   screen: Screen;
@@ -1359,50 +1378,79 @@ function secondaryIdentity(
   if (screen === "time-clock") return "time-clock";
   if (screen === "billing" || screen === "billing-folders") return "billing";
   if (screen === "tools") return "tools";
-  if (screen === "boards") return "boards";
-  if (screen === "drive") return "drive";
-  if (screen === "secretariat") return "secretariat";
-  if (screen === "workers") return "workers";
-  if (screen === "assign-staff") {
-    return selectedCategory === "worker" ? "assign-staff-worker" : "workers";
+  /** Work secondary hosts tasks home + boards + drive (+ secretariat alias). */
+  if (
+    screen === "boards" ||
+    screen === "drive" ||
+    screen === "secretariat"
+  ) {
+    return "cat:work";
   }
-  if (screen === "departments") return "departments";
-  if (screen === "reports") return "reports";
-  if (screen === "fees") return "fees";
+  if (screen === "workers") return "cat:workers";
+  if (screen === "assign-staff") {
+    return selectedCategory === "worker" ? "cat:worker" : "cat:workers";
+  }
+  /** Admin secondary tiles (directory screens). */
+  if (
+    screen === "departments" ||
+    screen === "reports" ||
+    screen === "fees"
+  ) {
+    return "cat:admin";
+  }
+  /** Clients secondary — list, card, services, archive folders. */
   if (
     screen === "clients" ||
     screen === "new-client" ||
-    screen === "client-card"
+    screen === "client-card" ||
+    screen === "client-folders" ||
+    screen === "services"
   ) {
     return "clients-list";
   }
+  /**
+   * Dual-homed Client module settings: Admin secondary icons vs Systemadmin hub.
+   * Identity follows which secondary owns the chrome.
+   */
   if (
-    screen === "services" ||
     screen === "client-types" ||
     screen === "prospect-required-fields" ||
     screen === "client-fields" ||
-    screen === "list-columns" ||
+    screen === "list-columns"
+  ) {
+    return selectedCategory === "systemadmin"
+      ? "cat:systemadmin"
+      : "cat:admin";
+  }
+  /** System Admin secondary — Files, Folder structures, Help, APIs, etc. */
+  if (
     screen === "company-settings" ||
     screen === "company-docs-folders" ||
     screen === "api-connections" ||
     screen === "trello-import" ||
     screen === "wave-import" ||
-    screen === "template-settings" ||
     screen === "template-merge-fields" ||
-    screen === "user-settings" ||
-    screen === "whatsapp-settings" ||
-    screen === "worker-files" ||
     screen === "users-rights" ||
     screen === "company-modules" ||
     screen === "files-root" ||
+    screen === "folder-templates" ||
     screen === "work-drives" ||
-    screen === "client-folders" ||
     screen === "help-feedback" ||
-    screen === "ai-maintenance" ||
-    screen === "placeholder"
+    screen === "ai-maintenance"
   ) {
-    return `screen:${screen}`;
+    return "cat:systemadmin";
   }
+  /** Template settings chrome follows role category (sysadmin vs worker). */
+  if (screen === "template-settings") {
+    return selectedCategory === "systemadmin"
+      ? "cat:systemadmin"
+      : `cat:${selectedCategory}`;
+  }
+  if (screen === "user-settings" || screen === "worker-files") {
+    return `cat:${selectedCategory}`;
+  }
+  if (screen === "whatsapp-settings") return "cat:whatsapp";
+  if (screen === "placeholder") return `cat:${selectedCategory}`;
   return `cat:${selectedCategory}`;
 }
 
@@ -1981,14 +2029,61 @@ const CRM_UI = {
   workDriveKindGoogle: { en: "Google Drive link", he: "קישור Google Drive" },
   workDriveKindLink: { en: "Folder link", he: "קישור תיקייה" },
   workDriveNameLabel: { en: "Drive name", he: "שם הכונן" },
-  workDriveTypeLabel: { en: "Type", he: "סוג" },
-  workDriveUrlLabel: {
-    en: "Google Drive / folder URL",
-    he: "כתובת Google Drive / תיקייה",
+  workDriveNameHint: {
+    en: "Label in the Work sidebar only — not the folder on disk.",
+    he: "התווית בסרגל הצד של עבודה בלבד — לא התיקייה בדיסק.",
   },
-  workDriveUrlHint: {
-    en: "Demo stores the URL and shows it in the explorer. Opening the live folder is a stub.",
-    he: "בדמו נשמרת הכתובת ומוצגת בסייר. פתיחת התיקייה בפועל היא stub.",
+  workDriveTypeLabel: { en: "Type", he: "סוג" },
+  workDriveUrlLabelGoogle: {
+    en: "Google Drive folder URL",
+    he: "כתובת תיקיית Google Drive",
+  },
+  workDriveUrlHintGoogle: {
+    en: "Paste a Google Drive folder link (https://drive.google.com/drive/folders/…). Demo stores the URL and shows it in the explorer; opening the live folder is a stub.",
+    he: "הדביקו קישור תיקייה של Google Drive (https://drive.google.com/drive/folders/…). בדמו נשמרת הכתובת ומוצגת בסייר; פתיחת התיקייה בפועל היא stub.",
+  },
+  workDriveUrlPlaceholderGoogle: {
+    en: "https://drive.google.com/drive/folders/1AbC…xyz",
+    he: "https://drive.google.com/drive/folders/1AbC…xyz",
+  },
+  workDriveUrlLabelLink: {
+    en: "Folder link (URL)",
+    he: "קישור תיקייה (כתובת)",
+  },
+  workDriveUrlHintLink: {
+    en: "Paste a shared folder URL from OneDrive, SharePoint, Dropbox, or similar (not a Google Drive folders/ link). Demo stores the URL and shows it in the explorer; opening the live folder is a stub.",
+    he: "הדביקו קישור תיקייה משותפת מ-OneDrive, SharePoint, Dropbox או דומה (לא קישור Google Drive מסוג folders/). בדמו נשמרת הכתובת ומוצגת בסייר; פתיחת התיקייה בפועל היא stub.",
+  },
+  workDriveUrlPlaceholderLink: {
+    en: "https://contoso.sharepoint.com/:f:/r/sites/Clients/Shared%20Documents/Acme",
+    he: "https://contoso.sharepoint.com/:f:/r/sites/Clients/Shared%20Documents/Acme",
+  },
+  workDriveFolderLabel: {
+    en: "Folder location (drive root)",
+    he: "מיקום התיקייה (שורש הכונן)",
+  },
+  workDriveFolderHint: {
+    en: "Pick which office-share folder this drive opens to: browse the demo share tree and click Use this folder, or type a UNC/path. Drive name above is only the sidebar label.",
+    he: "בחרו לאיזו תיקיית שיתוף משרד הכונן נפתח: דפדפו בעץ השיתוף בדמו ולחצו השתמש בתיקייה זו, או הקלידו נתיב UNC. שם הכונן למעלה הוא רק תווית בסרגל הצד.",
+  },
+  workDriveFolderPathPh: {
+    en: "\\\\server\\Intertax\\Clients\\Companies\\…",
+    he: "\\\\server\\Intertax\\Clients\\Companies\\…",
+  },
+  workDriveChooseFolder: { en: "Choose folder", he: "בחירת תיקייה" },
+  workDriveHideBrowser: { en: "Hide browser", he: "הסתר דפדפן" },
+  workDriveUseFolder: { en: "Use this folder", he: "השתמש בתיקייה זו" },
+  workDriveBrowseHint: {
+    en: "Open folders in the list, then Use this folder to set the drive root.",
+    he: "פתחו תיקיות ברשימה, ואז השתמשו בתיקייה זו כדי לקבוע את שורש הכונן.",
+  },
+  workDriveQuickPick: {
+    en: "Quick pick from share",
+    he: "בחירה מהירה מהשיתוף",
+  },
+  workDriveQuickPickNone: {
+    en: "— Select a folder —",
+    he: "— בחרו תיקייה —",
   },
   workDriveAdd: { en: "Add drive", he: "הוסף כונן" },
   workDriveRemove: { en: "Remove", he: "הסר" },
@@ -3319,7 +3414,7 @@ const CRM_UI = {
     en: "Company documents folders",
     he: "תיקיות מסמכי חברה",
   },
-  filesRoot: { en: "Files root / cloud", he: "שורש קבצים / ענן" },
+  filesRoot: { en: "Files", he: "קבצים" },
   clientFolders: { en: "Client folders", he: "תיקיות לקוחות" },
   hintClientFolders: {
     en: "Firm-wide archive of every client and company folder",
@@ -3996,8 +4091,8 @@ const CRM_UI = {
     he: "פרופיל משרד, תיקי מס, ברירות מחדל לחשבוניות",
   },
   hintFilesRoot: {
-    en: "Share now, cloud later",
-    he: "שיתוף כעת, ענן בהמשך",
+    en: "Files root · Cloud — Gmail top tabs",
+    he: "שורש קבצים · ענן — לשוניות עליונות בסגנון Gmail",
   },
   hintWave: { en: "Read-only history import", he: "ייבוא היסטוריה לקריאה בלבד" },
   waveImportTitle: { en: "Wave import", he: "ייבוא Wave" },
@@ -5574,8 +5669,8 @@ const CRM_UI = {
     he: "תיקיות מסמכי חברה",
   },
   companyDocsDefaultFoldersHint: {
-    en: "System Admin — default folder template for Company documents on every client. New client stores seed from this list until customized.",
-    he: "מנהל מערכת — תבנית תיקיות ברירת מחדל למסמכי חברה בכל לקוח. מאגרי לקוח חדשים נזרעים מרשימה זו עד להתאמה.",
+    en: "Docs portion of the Client create template — Year / General / Other (and customs) seeded when a new client is created, until customized per client.",
+    he: "חלק המסמכים בתבנית יצירת הלקוח — Year / General / Other (ומותאמות) נזרעים ביצירת לקוח חדש, עד להתאמה לכל לקוח.",
   },
   companyDocsAddDefault: {
     en: "Add default folder",
@@ -5621,6 +5716,249 @@ const CRM_UI = {
     en: "Default Company documents folder template for all clients",
     he: "תבנית תיקיות מסמכי חברה ברירת מחדל לכל הלקוחות",
   },
+
+  folderTemplatesTitle: {
+    en: "Folder structure templates",
+    he: "תבניות מבנה תיקיות",
+  },
+  folderTemplatesHint: {
+    en: "Blueprints for NEW entities only — Client (share tree + Docs Year/General/Other), Company, Bookkeeping, Trusts, Worker, Billing, and client sub-modules. Add more for extras. Not for sorting an existing working drive (use Sort existing working drive → Files import). Not Files root location; not email/document templates.",
+    he: "תבניות לישויות חדשות בלבד — לקוח (עץ שיתוף + מסמכים Year/General/Other), חברה, הנה״ח, נאמנויות, עובד, חיוב ותת־מודולים. הוסף עוד לסוגים נוספים. לא למיון כונן עבודה קיים (השתמשו ב״מיון כונן עבודה קיים״ → ייבוא קבצים). לא מיקום שורש קבצים; לא תבניות דוא״ל/מסמך.",
+  },
+  folderTemplatesHomeWhyTitle: {
+    en: "Templates vs initial sort",
+    he: "תבניות מול מיון ראשוני",
+  },
+  folderTemplatesHomeWhyBody: {
+    en: "Folder structures = create blueprints when you add a new client/company/etc. Initial start = you already have a working drive — sort those folders into Modules (Clients, Companies, Bookkeeping, Trusts, Worker, Billing, …) via the Files import wizard. Files root is only the share/UNC location; email/doc templates stay under Template settings.",
+    he: "מבני תיקיות = תבניות יצירה כשמוסיפים לקוח/חברה וכו׳ חדשים. התחלה ראשונית = כבר יש כונן עבודה — ממיינים את התיקיות למודולים (לקוחות, חברות, הנה״ח, נאמנויות, עובד, חיוב…) דרך אשף ייבוא הקבצים. שורש קבצים הוא רק מיקום השיתוף/UNC; תבניות דוא״ל/מסמך נשארות בהגדרות תבניות.",
+  },
+  folderTemplatesSortCta: {
+    en: "Sort existing working drive",
+    he: "מיון כונן עבודה קיים",
+  },
+  folderTemplatesSortCtaHint: {
+    en: "Opens Files import (first-time sort): method → pick folders → map to Clients / Companies / Bookkeeping / Trusts / Worker / Billing → BK pairing when needed → UNC root.",
+    he: "פותח ייבוא קבצים (מיון ראשוני): שיטה → בחירת תיקיות → מיפוי ללקוחות / חברות / הנה״ח / נאמנויות / עובד / חיוב → שיוך הנה״ח לפי הצורך → שורש UNC.",
+  },
+  folderTemplatesKindClient: { en: "Client", he: "לקוח" },
+  folderTemplatesKindCompany: { en: "Company", he: "חברה" },
+  folderTemplatesKindBookkeeping: { en: "Bookkeeping", he: "הנהלת חשבונות" },
+  folderTemplatesKindTrusts: { en: "Trusts", he: "נאמנויות" },
+  folderTemplatesKindAudit: { en: "Audit", he: "ביקורת" },
+  folderTemplatesKindTaxReturn: { en: "Tax return", he: "דוח מס" },
+  folderTemplatesKindPayroll: { en: "Payroll", he: "שכר" },
+  folderTemplatesKindPortal: { en: "Portal", he: "פורטל" },
+  folderTemplatesKindWorker: { en: "Worker", he: "עובד" },
+  folderTemplatesKindBilling: { en: "Billing", he: "חיוב" },
+  folderTemplatesPillHelper: {
+    en: "Each pill is the folder template used when creating that entity type. Click × (or Remove group) to drop Tax return and other groups from this set — Client stays. Removed built-ins can be restored under Add more.",
+    he: "כל כדורית היא תבנית התיקיות בשימוש ביצירת סוג הישות הזה. לחצו × (או הסר קבוצה) כדי להסיר דוח מס וקבוצות אחרות — לקוח נשאר. קבוצות מובנות שהוסרו ניתן לשחזר תחת הוסף עוד.",
+  },
+  folderTemplatesAddMore: { en: "Add more", he: "הוסף עוד" },
+  folderTemplatesAddMoreTitle: {
+    en: "Add custom template group",
+    he: "הוספת קבוצת תבנית מותאמת",
+  },
+  folderTemplatesAddMoreNamePh: {
+    en: "Group name (e.g. Associations)",
+    he: "שם הקבוצה (למשל עמותות)",
+  },
+  folderTemplatesAddMoreCreate: { en: "Create group", he: "צור קבוצה" },
+  folderTemplatesAddMoreCancel: { en: "Cancel", he: "ביטול" },
+  folderTemplatesAddMoreDone: {
+    en: "Custom template group added. Edit the tree, then Save.",
+    he: "קבוצת תבנית מותאמת נוספה. ערכו את העץ ואז שמרו.",
+  },
+  folderTemplatesAddMoreNeedName: {
+    en: "Enter a name for the new template group.",
+    he: "הזינו שם לקבוצת התבנית החדשה.",
+  },
+  folderTemplatesRemoveCustom: {
+    en: "Remove group",
+    he: "הסר קבוצה",
+  },
+  folderTemplatesRemoveCustomDone: {
+    en: "Template group removed from Folder structures.",
+    he: "קבוצת התבנית הוסרה ממבני תיקיות.",
+  },
+  folderTemplatesRemoveChipTitle: {
+    en: "Remove this template group",
+    he: "הסר קבוצת תבנית זו",
+  },
+  folderTemplatesRestoreHidden: {
+    en: "Restore removed built-in",
+    he: "שחזר קבוצה מובנית שהוסרה",
+  },
+  folderTemplatesRestoreHiddenDone: {
+    en: "Built-in template group restored.",
+    he: "קבוצת התבנית המובנית שוחזרה.",
+  },
+  folderTemplatesYearScoped: { en: "{yyyy}", he: "{yyyy}" },
+  folderTemplatesPortalScoped: { en: "{yyyy-mm}", he: "{yyyy-mm}" },
+  folderTemplatesAdd: { en: "Add folder (root)", he: "הוסף תיקייה (שורש)" },
+  folderTemplatesAddNested: { en: "Add nested", he: "הוסף מקונן" },
+  folderTemplatesReset: { en: "Reset kind", he: "אפס סוג" },
+  folderTemplatesResetDone: {
+    en: "This kind restored to office defaults.",
+    he: "סוג זה שוחזר לברירות המחדל של המשרד.",
+  },
+  folderTemplatesSaved: {
+    en: "Folder structure templates saved (folderTemplates.v1).",
+    he: "תבניות מבנה תיקיות נשמרו (folderTemplates.v1).",
+  },
+  folderTemplatesPasteTitle: {
+    en: "Paste company structure",
+    he: "הדבק מבנה מהמשרד",
+  },
+  folderTemplatesPasteHelper: {
+    en: "Paste your existing folder list / paths — we split them into the nested template for the active group (built-in or custom).",
+    he: "הדביקו את רשימת התיקיות / הנתיבים הקיימים — נפצל אותם לתבנית מקוננת לקבוצה הפעילה (מובנית או מותאמת).",
+  },
+  folderTemplatesPastePlaceholder: {
+    en: "Example:\n00-Admin\\Correspondence\n00-Admin\\Engagement-letters\n01-Bookkeeping\\Bank\n\nor indented:\n00-Admin\n  Correspondence\n  Engagement-letters",
+    he: "דוגמה:\n00-Admin\\Correspondence\n00-Admin\\Engagement-letters\n\nאו עם הזחה:\n00-Admin\n  Correspondence",
+  },
+  folderTemplatesSplit: {
+    en: "Split into tree",
+    he: "פצל לעץ",
+  },
+  folderTemplatesImportPreview: {
+    en: "Split preview (not saved yet)",
+    he: "תצוגה מקדימה לפיצול (עדיין לא נשמר)",
+  },
+  folderTemplatesReplaceTree: {
+    en: "Replace current tree",
+    he: "החלף את העץ הנוכחי",
+  },
+  folderTemplatesMergeTree: {
+    en: "Merge into current",
+    he: "מזג לתוך הנוכחי",
+  },
+  folderTemplatesUploadSecondary: {
+    en: "Or upload a file…",
+    he: "או העלאת קובץ…",
+  },
+  folderTemplatesUploadHint: {
+    en: "Optional: .json tree, indented .txt, or path-list .csv — same parsers as paste.",
+    he: "אופציונלי: עץ .json, .txt מוזח, או רשימת נתיבים .csv — אותם מפרשים כמו בהדבקה.",
+  },
+  folderTemplatesImportApplied: {
+    en: "Structure applied to this group. Click Save to keep folderTemplates.v1.",
+    he: "המבנה הוחל על קבוצה זו. לחצו שמירה כדי לשמור את folderTemplates.v1.",
+  },
+  folderTemplatesImportEmpty: {
+    en: "Paste a folder list or paths first.",
+    he: "הדביקו קודם רשימת תיקיות או נתיבים.",
+  },
+  folderTemplatesImportParseFail: {
+    en: "Could not split that text. Use Explorer paths, an indented outline, CSV names, or a JSON folder tree.",
+    he: "לא ניתן לפצל את הטקסט. השתמשו בנתיבי Explorer, מתאר מוזח, שמות CSV או עץ JSON.",
+  },
+  folderTemplatesImportCleared: {
+    en: "Paste cleared.",
+    he: "ההדבקה נוקתה.",
+  },
+  folderTemplatesPasteClear: { en: "Clear paste", he: "נקה הדבקה" },
+  folderTemplatesPreviewTitle: {
+    en: "New-entity preview",
+    he: "תצוגה מקדימה לישות חדשה",
+  },
+  folderTemplatesPreviewHint: {
+    en: "Demo path only — New client / company / bookkeeping creation reads this nested taxonomy via resolveNewClientFolderSeed.",
+    he: "נתיב דמו בלבד — יצירת לקוח/חברה/הנה״ח קוראת טקסונומיה מקוננת זו דרך resolveNewClientFolderSeed.",
+  },
+  folderTemplatesPreviewName: { en: "Entity name", he: "שם הישות" },
+  folderTemplatesTile: {
+    en: "Folder structures",
+    he: "מבני תיקיות",
+  },
+  hintFolderTemplates: {
+    en: "New-entity blueprints — use Files import to sort an existing working drive",
+    he: "תבניות לישות חדשה — מיון כונן קיים דרך ייבוא קבצים",
+  },
+  folderStructuresTabTemplates: {
+    en: "Entity create templates",
+    he: "תבניות יצירת ישות",
+  },
+  folderStructuresTabCompanyDocs: {
+    en: "Client Docs (on create)",
+    he: "מסמכי לקוח (ביצירה)",
+  },
+  folderStructuresTabTemplatesHelp: {
+    en: "Edit create templates per entity kind (new clients get Client tree + Docs). To sort an existing working drive into modules, use Sort existing working drive — that is the Files import wizard, not these templates.",
+    he: "ערכו תבניות יצירה לפי סוג ישות (לקוח חדש מקבל עץ לקוח + מסמכים). למיון כונן עבודה קיים למודולים — השתמשו ב״מיון כונן עבודה קיים״: זה אשף ייבוא הקבצים, לא התבניות כאן.",
+  },
+  folderStructuresTabCompanyDocsHelp: {
+    en: "Docs portion of the Client create template — Year / General / Other (and customs) seeded when a new client is created. Same template as Client; not a separate product concept.",
+    he: "חלק המסמכים בתבנית יצירת הלקוח — Year / General / Other (ומותאמות) נזרעים ביצירת לקוח חדש. אותה תבנית כמו לקוח; לא מושג מוצר נפרד.",
+  },
+  folderTemplatesClientDocsSectionTitle: {
+    en: "Client Docs (created with new client)",
+    he: "מסמכי לקוח (נוצרים עם לקוח חדש)",
+  },
+  folderTemplatesClientDocsSectionHint: {
+    en: "Part of the Client create template — Year / General / Other (and customs) seeded on every new client. Not a separate template from Client.",
+    he: "חלק מתבנית יצירת הלקוח — Year / General / Other (ומותאמות) נזרעים בכל לקוח חדש. לא תבנית נפרדת מלקוח.",
+  },
+  folderTemplatesClientDocsNote: {
+    en: "Includes Docs folders seeded on new client: Year / General / Other",
+    he: "כולל תיקיות מסמכים שנזרעות בלקוח חדש: Year / General / Other",
+  },
+  clientBkPairTitle: {
+    en: "Clients ↔ Bookkeeping pairing",
+    he: "שיוך לקוחות ↔ הנהלת חשבונות",
+  },
+  clientBkPairHint: {
+    en: "Match CRM clients to bookkeeping companies (Sumit-style). Mounted as a Files import wizard step when the Stage A shell is present.",
+    he: "התאמת לקוחות CRM לחברות הנה״ח (סגנון Sumit). מורכב כשלב באשף ייבוא הקבצים כשקיים מעטפת שלב א׳.",
+  },
+  clientBkPairCompareField: { en: "Compare by", he: "השוואה לפי" },
+  clientBkPairFieldIdentity: { en: "ח.פ. / ת.ז.", he: "ח.פ. / ת.ז." },
+  clientBkPairFieldName: { en: "Name (EN)", he: "שם (EN)" },
+  clientBkPairFieldNameHe: { en: "Name (HE)", he: "שם (HE)" },
+  clientBkPairAuto: { en: "Automatic match", he: "התאמה אוטומטית" },
+  clientBkPairSelectAll: { en: "Select all", he: "בחר הכל" },
+  clientBkPairSelectNone: { en: "Clear ticks", he: "נקה סימון" },
+  clientBkPairAutoDone: {
+    en: "Automatic pairing refreshed from compare field.",
+    he: "שיוך אוטומטי רוענן לפי שדה ההשוואה.",
+  },
+  clientBkPairColClient: { en: "Client", he: "לקוח" },
+  clientBkPairColBk: { en: "Bookkeeping company", he: "חברת הנה״ח" },
+  clientBkPairColStatus: { en: "Status", he: "סטטוס" },
+  clientBkPairStatusMatched: { en: "Matched", he: "מותאם" },
+  clientBkPairStatusUnmatchedClient: { en: "Unmatched client", he: "לקוח ללא התאמה" },
+  clientBkPairStatusUnmatchedBk: { en: "Unmatched BK", he: "הנה״ח ללא התאמה" },
+  clientBkPairStatusNoFile: {
+    en: "Client without a file",
+    he: "לקוח ללא תיק",
+  },
+  clientBkPairEmptySide: { en: "—", he: "—" },
+  clientBkPairCreateFolder: { en: "Create folder", he: "צור תיקייה" },
+  clientBkPairCreateFolderDone: {
+    en: "Demo: create bookkeeping folder for {name}.",
+    he: "דמו: יצירת תיקיית הנה״ח עבור {name}.",
+  },
+  clientBkPairManualTitle: {
+    en: "Bookkeeping pairing suggestions",
+    he: "הצעות שיוך הנה״ח",
+  },
+  clientBkPairManualHint: {
+    en: "Pair each unmatched client with a bookkeeping company. This is Client↔BK only — folder↔entity suggestions live in the match step Manual match sidebar.",
+    he: "שייכו כל לקוח ללא התאמה לחברת הנה״ח. זה לקוח↔הנה״ח בלבד — הצעות תיקייה↔ישות בסרגל ההתאמה הידנית בשלב ההתאמה.",
+  },
+  clientBkPairPick: { en: "Choose…", he: "בחרו…" },
+  clientBkPairManualApply: { en: "Apply", he: "החל" },
+  clientBkPairManualNeedBoth: {
+    en: "Choose both a client and a bookkeeping company.",
+    he: "בחרו גם לקוח וגם חברת הנה״ח.",
+  },
+  clientBkPairManualDone: {
+    en: "Manual pair applied.",
+    he: "שיוך ידני הוחל.",
+  },
+
   auditOpenProcess: {
     en: "Open process stages",
     he: "פתיחת שלבי התהליך",
@@ -6930,8 +7268,8 @@ const CRM_UI = {
     he: "הגדרות תבניות",
   },
   templateSettingsHint: {
-    en: "Firm email templates by area. Open a group, edit any template, and mark one default per group.",
-    he: "תבניות אימייל של המשרד לפי תחום. פתחו קבוצה, ערכו תבנית, וסמנו ברירת מחדל אחת לכל קבוצה.",
+    en: "Firm email templates by module and purpose. Each purpose has its own template slot. Default applies only among versions of the same purpose. Add a category for a custom module.",
+    he: "תבניות אימייל של המשרד לפי מודול ומטרה. לכל מטרה משבצת תבנית משלה. ברירת מחדל חלה רק בין גרסאות של אותה מטרה. ניתן להוסיף קטגוריה למודול מותאם.",
   },
   templateSettingsOpen: {
     en: "Open template settings",
@@ -6946,32 +7284,104 @@ const CRM_UI = {
     he: "כל התבניות",
   },
   templateSettingsBilling: {
-    en: "Billing templates",
-    he: "תבניות חיוב",
+    en: "Billing",
+    he: "חיוב",
   },
   templateSettingsBookkeeping: {
-    en: "Bookkeeping templates",
-    he: "תבניות הנהלת חשבונות",
+    en: "Bookkeeping",
+    he: "הנהלת חשבונות",
   },
   templateSettingsWorker: {
-    en: "Worker templates",
-    he: "תבניות עובדים",
+    en: "Worker",
+    he: "עובדים",
   },
   templateSettingsTax: {
-    en: "Tax return templates",
-    he: "תבניות דוח שנתי",
+    en: "Tax return",
+    he: "דוח שנתי",
   },
   templateSettingsGeneral: {
-    en: "General templates",
-    he: "תבניות כלליות",
+    en: "General",
+    he: "כללי",
   },
   hintTemplateSettings: {
-    en: "All firm templates — billing, bookkeeping, worker, tax, general",
-    he: "כל תבניות המשרד — חיוב, הנה״ח, עובדים, מס, כללי",
+    en: "Email templates by module and purpose (invoice sent, payment reminder, …)",
+    he: "תבניות אימייל לפי מודול ומטרה (שליחת חשבונית, תזכורת תשלום, …)",
   },
   templateSettingsCount: {
-    en: "templates",
-    he: "תבניות",
+    en: "purposes",
+    he: "מטרות",
+  },
+  templateSettingsVersions: {
+    en: "versions",
+    he: "גרסאות",
+  },
+  templateSettingsActive: {
+    en: "Active",
+    he: "פעיל",
+  },
+  templateSettingsSetActive: {
+    en: "Set active",
+    he: "הגדרה כפעיל",
+  },
+  templateSettingsAddPurpose: {
+    en: "Add purpose",
+    he: "הוספת מטרה",
+  },
+  templateSettingsAddCategory: {
+    en: "Add category",
+    he: "הוספת קטגוריה",
+  },
+  templateSettingsCategoryNameEn: {
+    en: "Category name",
+    he: "שם הקטגוריה",
+  },
+  templateSettingsCategoryNameHe: {
+    en: "Hebrew name (optional)",
+    he: "שם בעברית (אופציונלי)",
+  },
+  templateSettingsCategoryCreate: {
+    en: "Create",
+    he: "יצירה",
+  },
+  templateSettingsCategoryCancel: {
+    en: "Cancel",
+    he: "ביטול",
+  },
+  templateSettingsRemoveCategory: {
+    en: "Remove category",
+    he: "הסרת קטגוריה",
+  },
+  templateSettingsCategoryNameRequired: {
+    en: "Enter a category name.",
+    he: "יש להזין שם קטגוריה.",
+  },
+  bookkeepingTemplatesHint: {
+    en: "Subjects and bodies for bookkeeping docs requests, monthly close, and client follow-ups. Use System Admin → Template fields for {…} tokens. Add a logo and format text (font, size, color). Demo only — SMTP later.",
+    he: "נושא וגוף לבקשות מסמכים להנה״ח, סגירה חודשית ומעקבי לקוח. אסימוני {…} מוגדרים ב־מנהל מערכת ← שדות תבנית. ניתן להוסיף לוגו ולעצב טקסט. דמו בלבד — SMTP בהמשך.",
+  },
+  workerTemplatesHint: {
+    en: "Subjects and bodies for worker notices, assignments, and HR follow-ups. Use System Admin → Template fields for {…} tokens. Add a logo and format text (font, size, color). Demo only — SMTP later.",
+    he: "נושא וגוף להודעות עובדים, שיוכים ומעקבי HR. אסימוני {…} מוגדרים ב־מנהל מערכת ← שדות תבנית. ניתן להוסיף לוגו ולעצב טקסט. דמו בלבד — SMTP בהמשך.",
+  },
+  taxTemplatesHint: {
+    en: "Subjects and bodies for tax-return requests, signatures, and filing follow-ups. Use System Admin → Template fields for {…} tokens. Add a logo and format text (font, size, color). Demo only — SMTP later.",
+    he: "נושא וגוף לבקשות דוח שנתי, חתימות ומעקבי הגשה. אסימוני {…} מוגדרים ב־מנהל מערכת ← שדות תבנית. ניתן להוסיף לוגו ולעצב טקסט. דמו בלבד — SMTP בהמשך.",
+  },
+  generalTemplatesHint: {
+    en: "Subjects and bodies for general firm emails that are not tied to a single module. Use System Admin → Template fields for {…} tokens. Add a logo and format text (font, size, color). Demo only — SMTP later.",
+    he: "נושא וגוף לאימיילים כלליים של המשרד שאינם שייכים למודול אחד. אסימוני {…} מוגדרים ב־מנהל מערכת ← שדות תבנית. ניתן להוסיף לוגו ולעצב טקסט. דמו בלבד — SMTP בהמשך.",
+  },
+  moduleTemplatesHint: {
+    en: "Subjects and bodies for this module’s email purposes. Use System Admin → Template fields for {…} tokens. Add a logo and format text (font, size, color). Demo only — SMTP later.",
+    he: "נושא וגוף למטרות האימייל של מודול זה. אסימוני {…} מוגדרים ב־מנהל מערכת ← שדות תבנית. ניתן להוסיף לוגו ולעצב טקסט. דמו בלבד — SMTP בהמשך.",
+  },
+  moduleTemplatesTitleSuffix: {
+    en: "email templates",
+    he: "תבניות אימייל",
+  },
+  templateSettingsPurposeHint: {
+    en: "Event / purpose — one active template",
+    he: "אירוע / מטרה — תבנית פעילה אחת",
   },
   templateSettingsDefault: {
     en: "Default",
@@ -6998,8 +7408,8 @@ const CRM_UI = {
     he: "קטגוריה",
   },
   templateSettingsEmpty: {
-    en: "No templates in this group yet.",
-    he: "אין עדיין תבניות בקבוצה זו.",
+    en: "No purposes in this module yet.",
+    he: "אין עדיין מטרות במודול זה.",
   },
   templateMergeFieldsTitle: {
     en: "Template fields",
@@ -7326,6 +7736,39 @@ const CRM_UI = {
     he: "הוחזרה לפתוחה. ראו חשבוניות ← פתוחות.",
   },
   onHoldColMarked: { en: "Marked", he: "סומן" },
+  onHoldReasonTitle: {
+    en: "Put on hold",
+    he: "העברה להמתנה",
+  },
+  onHoldReasonHint: {
+    en: "Please write why this bill is on hold. The reason is saved as a comment on the billing record.",
+    he: "נא לכתוב מדוע החשבונית בהמתנה. הסיבה נשמרת כהערה ברשומת החיוב.",
+  },
+  onHoldReasonPlaceholder: {
+    en: "Please write why…",
+    he: "נא לכתוב מדוע…",
+  },
+  onHoldReasonRequired: {
+    en: "A reason is required to put this bill on hold.",
+    he: "חובה לכתוב סיבה כדי להעביר להמתנה.",
+  },
+  onHoldReasonConfirm: {
+    en: "Put on hold",
+    he: "העברה להמתנה",
+  },
+  onHoldViewComment: {
+    en: "View hold comment",
+    he: "צפייה בהערת המתנה",
+  },
+  onHoldViewCommentTitle: {
+    en: "Hold comment",
+    he: "הערת המתנה",
+  },
+  onHoldViewCommentEmpty: {
+    en: "No hold reason was recorded for this bill.",
+    he: "לא נרשמה סיבת המתנה לחשבונית זו.",
+  },
+  onHoldColReason: { en: "Reason", he: "סיבה" },
   wontPayEmpty: {
     en: "No invoices marked No pay. Use Actions → No pay on an open invoice.",
     he: "אין חשבוניות ללא תשלום. השתמשו בפעולות ← ללא תשלום בחשבונית פתוחה.",
@@ -9664,24 +10107,157 @@ const CRM_UI = {
     en: "Demo upload added to the list.",
     he: "קובץ דמו נוסף לרשימה.",
   },
-  filesRootTitle: { en: "Files root / cloud", he: "שורש קבצים / ענן" },
+  filesRootTitle: { en: "Files root", he: "שורש קבצים" },
   filesRootHint: {
-    en: "Stage A: map the office share (UNC preferred). Stage B later: upload the same folder taxonomy to cloud. Demo browser only — no real disk or network.",
-    he: "שלב א׳: מיפוי שיתוף המשרד (מומלץ UNC). שלב ב׳ בהמשך: העלאת אותה טקסונומיית תיקיות לענן. דפדפן דמו בלבד — בלי דיסק או רשת אמיתיים.",
+    en: "Office share import wizard (UNC). Use the Cloud top tab for cloud mapping of the same folder taxonomy. Demo only — no real disk or network.",
+    he: "אשף ייבוא שיתוף משרד (UNC). לשונית ענן למעלה למיפוי הענן עם אותה טקסונומיית תיקיות. דמו בלבד — בלי דיסק או רשת אמיתיים.",
   },
-  filesRootStageShare: { en: "Stage A · office share", he: "שלב א׳ · שיתוף משרד" },
-  filesRootStageCloud: { en: "Stage B · cloud (later)", he: "שלב ב׳ · ענן (בהמשך)" },
+  filesRootStageShare: { en: "Files root", he: "שורש קבצים" },
+  filesRootStageCloud: { en: "Cloud", he: "ענן" },
+  filesAreaTabRoot: { en: "Files root", he: "שורש קבצים" },
+  filesAreaTabCloud: { en: "Cloud", he: "ענן" },
+  cloudImportTitle: { en: "Cloud", he: "ענן" },
+  cloudImportHint: {
+    en: "Staff Cloud workflow (demo): lock vendor → connect → map Folder structures taxonomy → upload/sync queue. Same tree as Files root; no real cloud API.",
+    he: "מסלול ענן לצוות (דמו): נעילת ספק → חיבור → מיפוי טקסונומיית מבנה תיקיות → תור העלאה/סנכרון. אותו עץ כמו שורש הקבצים; בלי API ענן אמיתי.",
+  },
+  cloudImportPolicyTitle: {
+    en: "Same taxonomy as Files root",
+    he: "אותה טקסונומיה כמו שורש הקבצים",
+  },
+  cloudImportPolicyBody: {
+    en: "Stage B maps client trees to cloud without renaming subfolders (00-Admin, 01-Bookkeeping, …). Demo UI only — no real cloud API.",
+    he: "שלב ב׳ ממפה עצי לקוח לענן בלי לשנות שמות תתי־תיקיות (00-Admin, 01-Bookkeeping, …). ממשק דמו בלבד — בלי API ענן אמיתי.",
+  },
+  cloudImportUploadDemo: { en: "Demo: queue cloud upload", he: "דמו: העלאה לענן בתור" },
+  cloudImportUploadFlash: {
+    en: "Demo cloud upload queued for the Files root taxonomy (vendor: {vendor}).",
+    he: "העלאת דמו לענן בתור לטקסונומיית שורש הקבצים (ספק: {vendor}).",
+  },
+  cloudImportNeedVendor: {
+    en: "Lock a cloud vendor before queuing an upload.",
+    he: "נעלו ספק ענן לפני העלאה לתור.",
+  },
+  cloudImportSaved: {
+    en: "Cloud settings saved (demo state).",
+    he: "הגדרות ענן נשמרו (מצב דמו).",
+  },
+  cloudImportPathStrip: {
+    en: "Staff path: Lock vendor → Connect → Map → Queue",
+    he: "מסלול צוות: נעילת ספק → חיבור → מיפוי → תור",
+  },
+  cloudImportStepLock: {
+    en: "1. Lock vendor",
+    he: "1. נעילת ספק",
+  },
+  cloudImportStepLockHint: {
+    en: "Pick the firm cloud provider (or Other). Saved for the whole office — not per client.",
+    he: "בחרו את ספק הענן של המשרד (או אחר). נשמר לכל המשרד — לא לפי לקוח.",
+  },
+  cloudImportStepConnect: {
+    en: "2. Connect / sign-in",
+    he: "2. חיבור / התחברות",
+  },
+  cloudImportStepConnectHint: {
+    en: "Demo stub — no real OAuth. Connect the locked vendor (or Other custom), then set the cloud folder / root URL staff will sync into.",
+    he: "דמו בלבד — בלי OAuth אמיתי. חברו את הספק הנעול (או אחר), ואז הגדירו תיקיית ענן / כתובת שורש לסנכרון.",
+  },
+  cloudImportConnectBtn: { en: "Connect (demo)", he: "התחבר (דמו)" },
+  cloudImportDisconnectBtn: { en: "Disconnect", he: "נתק" },
+  cloudImportConnected: { en: "Connected (demo)", he: "מחובר (דמו)" },
+  cloudImportNotConnected: { en: "Not connected", he: "לא מחובר" },
+  cloudImportNeedConnect: {
+    en: "Connect the vendor before mapping or queuing uploads.",
+    he: "התחברו לספק לפני מיפוי או העלאה לתור.",
+  },
+  cloudImportRootLabel: {
+    en: "Cloud folder / root URL",
+    he: "תיקיית ענן / כתובת שורש",
+  },
+  cloudImportRootHint: {
+    en: "Vendor-aware target for the same Clients\\{type}\\… tree used under Files root.",
+    he: "יעד לפי ספק לאותו עץ Clients\\{type}\\… כמו בשורש הקבצים.",
+  },
+  cloudImportStepMap: {
+    en: "3. Map taxonomy",
+    he: "3. מיפוי טקסונומיה",
+  },
+  cloudImportStepMapHint: {
+    en: "Same Folder structures templates (`folderTemplates.v1`) + Files root taxonomy. Mark groups mapped vs still pending before bulk upload.",
+    he: "אותם תבניות מבנה תיקיות (`folderTemplates.v1`) + טקסונומיית שורש הקבצים. סמנו קבוצות שממופות מול ממתינות לפני העלאה.",
+  },
+  cloudImportMapMapped: { en: "Mapped", he: "ממופה" },
+  cloudImportMapPending: { en: "Pending", he: "ממתין" },
+  cloudImportMapToggle: {
+    en: "Mark mapped (demo)",
+    he: "סמן כממופה (דמו)",
+  },
+  cloudImportMapFolders: {
+    en: "Top folders in template",
+    he: "תיקיות עליונות בתבנית",
+  },
+  cloudImportStepQueue: {
+    en: "4. Upload / sync queue",
+    he: "4. תור העלאה / סנכרון",
+  },
+  cloudImportStepQueueHint: {
+    en: "Demo progress list — start or pause jobs. No real network upload.",
+    he: "רשימת התקדמות דמו — התחלה או השהיה. בלי העלאה ברשת.",
+  },
+  cloudImportQueueStart: { en: "Start", he: "התחל" },
+  cloudImportQueuePause: { en: "Pause", he: "השהה" },
+  cloudImportQueueRunning: { en: "Running", he: "רץ" },
+  cloudImportQueuePaused: { en: "Paused", he: "מושהה" },
+  cloudImportQueueQueued: { en: "Queued", he: "בתור" },
+  cloudImportQueueDone: { en: "Done", he: "הושלם" },
+  cloudImportQueueEmptyHint: {
+    en: "Queue a demo sync after vendor + connect are set.",
+    he: "הכניסו סנכרון דמו לתור אחרי נעילת ספק וחיבור.",
+  },
+  cloudImportWhoTitle: {
+    en: "Who can run cloud sync",
+    he: "מי יכול להריץ סנכרון ענן",
+  },
+  cloudImportWhoHint: {
+    en: "Systemadmin always configures Cloud. Demo toggles which staff roles may start connect / queue (no real ACL yet).",
+    he: "מנהל מערכת תמיד מגדיר ענן. מתגי דמו אילו תפקידי צוות רשאים להתחיל חיבור / תור (עדיין בלי ACL אמיתי).",
+  },
+  cloudImportWhoSystemadmin: {
+    en: "Systemadmin (always)",
+    he: "מנהל מערכת (תמיד)",
+  },
+  cloudImportWhoManager: {
+    en: "Manager (Admin)",
+    he: "מנהל (Admin)",
+  },
+  cloudImportWhoWorker: {
+    en: "Worker (assigned clients only — later)",
+    he: "עובד (לקוחות משויכים בלבד — בהמשך)",
+  },
   filesRootPathSection: { en: "Files root path", he: "נתיב שורש קבצים" },
   filesRootPathHint: {
     en: "Configurable root — e.g. \\\\server\\Intertax or I:\\Intertax. Client folders live under Clients\\{type}\\{identity}-{name}.",
     he: "שורש ניתן להגדרה — למשל \\\\server\\Intertax או I:\\Intertax. תיקיות לקוח תחת Clients\\{type}\\{identity}-{name}.",
   },
   filesRootPathLabel: { en: "Root path / UNC", he: "נתיב שורש / UNC" },
-  filesRootCloudVendor: { en: "Cloud vendor (stage B)", he: "ספק ענן (שלב ב׳)" },
+  filesRootCloudVendor: { en: "Cloud vendor", he: "ספק ענן" },
   filesRootVendorUnset: { en: "Not locked yet", he: "עדיין לא ננעל" },
+  filesRootVendorGDrive: { en: "Google Drive", he: "Google Drive" },
   filesRootVendorOneDrive: { en: "OneDrive", he: "OneDrive" },
   filesRootVendorSharePoint: { en: "SharePoint", he: "SharePoint" },
-  filesRootVendorGDrive: { en: "Google Drive", he: "Google Drive" },
+  filesRootVendorAwsS3: { en: "Amazon S3 / AWS", he: "Amazon S3 / AWS" },
+  filesRootVendorDropbox: { en: "Dropbox", he: "Dropbox" },
+  filesRootVendorBox: { en: "Box", he: "Box" },
+  filesRootVendorICloud: { en: "iCloud Drive", he: "iCloud Drive" },
+  filesRootVendorOther: { en: "Other", he: "אחר" },
+  filesRootVendorOtherLabel: {
+    en: "Cloud provider name / where",
+    he: "שם ספק הענן / היכן",
+  },
+  filesRootVendorOtherPlaceholder: {
+    en: "e.g. Megasync, firm NAS webDAV…",
+    he: "למשל Megasync, NAS ארגוני…",
+  },
   filesRootSaved: {
     en: "Files root settings saved (demo state).",
     he: "הגדרות שורש הקבצים נשמרו (מצב דמו).",
@@ -9738,6 +10314,417 @@ const CRM_UI = {
   filesRootWho: {
     en: "System Admin only (Systemadmin Modules). Staff open client files from the client workspace Files tab; clients use the portal (06-Portal-Uploads).",
     he: "מנהל מערכת בלבד (מודולי Systemadmin). צוות פותח קבצי לקוח מלשונית קבצים בכרטיס הלקוח; לקוחות בפורטל (06-Portal-Uploads).",
+  },
+  filesImportMatchTitle: {
+    en: "Excel ↔ folder match",
+    he: "התאמת אקסל ↔ תיקיות",
+  },
+  filesImportMatchHint: {
+    en: "Sumit-style merge: compare a field, auto-pair folder names to Excel rows, then tick which pairs to keep. Demo data only.",
+    he: "מיזוג בסגנון Sumit: בחרו שדה להשוואה, התאמה אוטומטית בין שמות תיקיות לשורות אקסל, וסמנו אילו זוגות לשמור. נתוני דמו בלבד.",
+  },
+  filesImportMatchBanner: {
+    en: "On open, the demo checks folder names against Excel. Change the compare field, then show pairs. Preview before you confirm — nothing is written to disk.",
+    he: "בכניסה הדמו בודק שמות תיקיות מול אקסל. שנו את שדה ההשוואה והציגו זוגות. תצוגה מקדימה לפני אישור — שום דבר לא נכתב לדיסק.",
+  },
+  filesImportTargetLabel: {
+    en: "What are you matching?",
+    he: "מה מתאימים?",
+  },
+  filesImportTargetEverything: { en: "Everything", he: "הכל" },
+  filesImportTargetClients: { en: "Clients", he: "לקוחות" },
+  filesImportTargetCompanies: { en: "Companies", he: "חברות" },
+  filesImportTargetBookkeeping: { en: "Bookkeeping", he: "הנהלת חשבונות" },
+  filesImportTargetWorkers: { en: "Worker folders", he: "תיקיות עובדים" },
+  filesImportTargetBilling: { en: "Billing", he: "חיוב" },
+  filesImportTargetTrusts: { en: "Trusts", he: "נאמנויות" },
+  filesImportTargetOther: { en: "Other", he: "אחר" },
+  filesImportOtherTypesHint: {
+    en: "Type custom entity types to match (comma-separated). Same idea as the wizard Other types step.",
+    he: "הקלידו סוגי ישויות מותאמים להתאמה (מופרדים בפסיק). אותו רעיון כמו שלב הסוגים האחרים באשף.",
+  },
+  filesImportOtherTypesPlaceholder: {
+    en: "e.g. Associations, Funds, Partnerships",
+    he: "לדוגמה: עמותות, קרנות, שותפויות",
+  },
+  filesImportOtherTypesMatchHint: {
+    en: "Custom types for this match:",
+    he: "סוגים מותאמים להתאמה זו:",
+  },
+  filesImportFlashCompare: {
+    en: "Compare field updated — pairs refreshed with “{field}”.",
+    he: "שדה ההשוואה עודכן — הזוגות רועננו לפי “{field}”.",
+  },
+  filesImportCompareLabel: {
+    en: "Field for comparison",
+    he: "שדה להשוואה",
+  },
+  filesImportCompareName: { en: "Folder / card name", he: "שם הכרטיס" },
+  filesImportCompareFullName: { en: "Full name", he: "שם מלא" },
+  filesImportCompareIdentity: {
+    en: "ID / company no.",
+    he: "ת״ז / ח״פ",
+  },
+  filesImportCompareAccountKey: { en: "Account key", he: "מפתח חשבון" },
+  filesImportShowPairs: {
+    en: "Show pairs to match",
+    he: "הצגת זוגות להתאמה",
+  },
+  filesImportAutoMatch: {
+    en: "Automatic match",
+    he: "התאמה אוטומטית",
+  },
+  filesImportManualMatch: {
+    en: "Manual match",
+    he: "בחירה ידנית",
+  },
+  filesImportColFolder: { en: "Folder", he: "תיקייה" },
+  filesImportColExcel: { en: "Excel name", he: "שם באקסל" },
+  filesImportColValue: { en: "Compare value", he: "ערך" },
+  filesImportColSelect: { en: "Include", he: "כלול" },
+  filesImportNoPairs: {
+    en: "No pairs for this field yet — try Automatic match or another compare field.",
+    he: "לא נמצאו זוגות לשדה זה — נסו התאמה אוטומטית או שדה אחר.",
+  },
+  filesImportUnmatchedTitle: {
+    en: "Unmatched — assign or create",
+    he: "ללא התאמה — שיבוץ או יצירה",
+  },
+  filesImportUnmatchedFolder: {
+    en: "Folder without Excel row",
+    he: "תיקייה בלי שורת אקסל",
+  },
+  filesImportUnmatchedExcel: {
+    en: "Excel row without folder",
+    he: "שורת אקסל בלי תיקייה",
+  },
+  filesImportEntityWithoutFile: {
+    en: "Entity without a file",
+    he: "ישות בלי קובץ",
+  },
+  filesImportClientWithoutFile: {
+    en: "Client without a file",
+    he: "לקוח בלי קובץ",
+  },
+  filesImportCreateFolder: {
+    en: "Create folder",
+    he: "יצירת תיקייה",
+  },
+  filesImportAssign: { en: "Assign", he: "שיבוץ" },
+  filesImportTickAll: { en: "Select all pairs", he: "סימון כל הזוגות" },
+  filesImportFlashAuto: {
+    en: "Automatic match ran on demo rows (ticked by default).",
+    he: "התאמה אוטומטית רצה על שורות הדמו (מסומנות כברירת מחדל).",
+  },
+  filesImportFlashManual: {
+    en: "Manual match sidebar — review import suggestions by target (Clients, Companies, Bookkeeping, …).",
+    he: "סרגל התאמה ידנית — עברו על הצעות ייבוא לפי יעד (לקוחות, חברות, הנה״ח, …).",
+  },
+  filesImportManualSidebarTitle: {
+    en: "Manual match suggestions",
+    he: "הצעות התאמה ידנית",
+  },
+  filesImportManualSidebarHint: {
+    en: "Each section is one Import targets kind from stage 2. Open a section to match unmatched folders to CRM entities (or Excel rows).",
+    he: "כל מקטע הוא סוג יעד משלב 2. פתחו מקטע כדי להתאים תיקיות ללא התאמה לישויות ב-CRM (או שורות אקסל).",
+  },
+  filesImportAutoSidebarTitle: {
+    en: "Automatic match suggestions",
+    he: "הצעות התאמה אוטומטית",
+  },
+  filesImportAutoSidebarHint: {
+    en: "Same sections as Manual — each Import targets kind from stage 2. Automatic match pre-fills suggested pairs; change the compare field to rematch.",
+    he: "אותם מקטעים כמו בידני — כל סוג יעד משלב 2. התאמה אוטומטית ממלאת זוגות מוצעים; שנו את שדה ההשוואה להתאמה מחדש.",
+  },
+  filesImportAutoSuggested: {
+    en: "Suggested by automatic match",
+    he: "הוצע בהתאמה אוטומטית",
+  },
+  filesImportManualPurposeClients: {
+    en: "Match this folder to a client",
+    he: "התאימו תיקייה זו ללקוח",
+  },
+  filesImportManualPurposeCompanies: {
+    en: "Match this folder to a company",
+    he: "התאימו תיקייה זו לחברה",
+  },
+  filesImportManualPurposeBookkeeping: {
+    en: "Match this folder to a bookkeeping company / BK card",
+    he: "התאימו תיקייה זו לחברת הנה״ח / כרטיס הנה״ח",
+  },
+  filesImportManualPurposeWorkers: {
+    en: "Match this folder to a worker",
+    he: "התאימו תיקייה זו לעובד",
+  },
+  filesImportManualPurposeBilling: {
+    en: "Match this folder to a billing batch",
+    he: "התאימו תיקייה זו לאצוות חיוב",
+  },
+  filesImportManualPurposeTrusts: {
+    en: "Match this folder to a trust",
+    he: "התאימו תיקייה זו לנאמנות",
+  },
+  filesImportManualPurposeOther: {
+    en: "Match this folder to a custom entity type",
+    he: "התאימו תיקייה זו לסוג ישות מותאם",
+  },
+  filesImportManualEntityPick: {
+    en: "Choose entity…",
+    he: "בחרו ישות…",
+  },
+  filesImportManualApply: { en: "Apply", he: "החל" },
+  filesImportManualReject: { en: "Skip", he: "דלג" },
+  filesImportManualAccepted: {
+    en: "Accepted this session",
+    he: "אושרו בסשן זה",
+  },
+  filesImportManualNoSuggestions: {
+    en: "No unmatched suggestions in this section.",
+    he: "אין הצעות ללא התאמה במקטע זה.",
+  },
+  filesImportManualBkPairTitle: {
+    en: "Client ↔ bookkeeping company pairing",
+    he: "שיוך לקוח ↔ חברת הנה״ח",
+  },
+  filesImportManualBkPairHint: {
+    en: "Special case inside Bookkeeping: pair a client with its bookkeeping company (not folder↔Excel).",
+    he: "מקרה מיוחד בתוך הנה״ח: שייכו לקוח לחברת ההנה״ח שלו (לא תיקייה↔אקסל).",
+  },
+  filesImportManualBkPairPurpose: {
+    en: "Pair with bookkeeping company",
+    he: "שיוך לחברת הנה״ח",
+  },
+  filesImportFlashCreated: {
+    en: "Demo folder queued for “{name}”.",
+    he: "תיקיית דמו בתור עבור “{name}”.",
+  },
+  filesImportFlashAssigned: {
+    en: "Assigned “{folder}” ↔ “{excel}” (demo).",
+    he: "שובץ “{folder}” ↔ “{excel}” (דמו).",
+  },
+  filesImportFlashWithoutFile: {
+    en: "Marked “{name}” as entity without a file (demo).",
+    he: "סומן “{name}” כישות בלי קובץ (דמו).",
+  },
+  filesImportWizardTitle: {
+    en: "Files import wizard",
+    he: "אשף ייבוא קבצים",
+  },
+  filesImportWizardHint: {
+    en: "Next → Next: pick method, upload Excel or pick folders, choose targets, match when using Excel, pair bookkeeping when needed, then set the UNC files root. Also the first-time path to sort an existing working drive into modules. Cloud is a separate top tab.",
+    he: "הבא→הבא: בחרו שיטה, העלו Excel או בחרו תיקיות, בחרו יעדים, התאימו בנתיב Excel, צמדו הנה״ח במידת הצורך, ואז הגדירו שורש UNC. גם נתיב מיון ראשוני לכונן עבודה קיים למודולים. ענן בלשונית עליונה נפרדת.",
+  },
+  filesImportInitialSortTitle: {
+    en: "First-time sort — map working drive to modules",
+    he: "מיון ראשוני — מיפוי כונן עבודה למודולים",
+  },
+  filesImportInitialSortHint: {
+    en: "You are not editing Folder structure templates. Prefer Folders only (skip Excel) unless you have a workbook to match. Then choose targets (Clients, Companies, Bookkeeping, Trusts, Worker, Billing, Other), complete match/BK pairing when shown, and finish on Files root (UNC).",
+    he: "אינכם עורכים תבניות מבנה תיקיות. העדיפו תיקיות בלבד (בלי Excel) אלא אם יש חוברת להתאמה. אחר כך בחרו יעדים (לקוחות, חברות, הנה״ח, נאמנויות, עובד, חיוב, אחר), השלימו התאמה/צימוד הנה״ח כשמופיע, וסיימו בשורש קבצים (UNC).",
+  },
+  filesImportStepMethod: { en: "Import method", he: "שיטת ייבוא" },
+  filesImportStepUploadExcel: { en: "Upload Excel", he: "העלאת Excel" },
+  filesImportStepPickFolders: { en: "Pick folders", he: "בחירת תיקיות" },
+  filesImportStepTargets: { en: "Import targets", he: "יעדי ייבוא" },
+  filesImportStepMatch: { en: "Match folders", he: "התאמת תיקיות" },
+  filesImportStepBkPair: { en: "BK pairing", he: "צימוד הנה״ח" },
+  filesImportStepUnc: { en: "Files root (UNC)", he: "שורש קבצים (UNC)" },
+  filesImportStepCloud: { en: "Cloud", he: "ענן" },
+  filesImportMethodTitle: {
+    en: "How are you importing?",
+    he: "איך מייבאים?",
+  },
+  filesImportMethodExcel: {
+    en: "Excel path — match workbook names to folders",
+    he: "נתיב Excel — התאמת שמות מקובץ לתיקיות",
+  },
+  filesImportMethodExcelHint: {
+    en: "Next: Upload Excel (workbook + sheets), then targets, then the Sumit-style match board. Demo click-through.",
+    he: "הבא: העלאת Excel (קובץ וגיליונות), ואז יעדים, ואז לוח ההתאמה בסגנון Sumit. דמו.",
+  },
+  filesImportMethodFolders: {
+    en: "Folders only — skip Excel matching",
+    he: "תיקיות בלבד — דילוג על התאמת Excel",
+  },
+  filesImportMethodFoldersHint: {
+    en: "Next: Pick / scan folders from the demo share tree, then choose targets. Skips Excel matching.",
+    he: "הבא: בחירה / סריקה של תיקיות מעץ השיתוף בדמו, ואז יעדים. מדלג על התאמת Excel.",
+  },
+  filesImportTargetsTitle: {
+    en: "What are you matching / importing?",
+    he: "מה מתאימים / מייבאים?",
+  },
+  filesImportTargetsHint: {
+    en: "Select one or more, or Everything. Bookkeeping, Trusts, and Other are first-class alongside Clients, Companies, Worker folders, and Billing.",
+    he: "בחרו אחד או יותר, או הכל. הנה״ח, נאמנויות ואחר הם יעדים מלאים לצד לקוחות, חברות, תיקיות עובדים וחיוב.",
+  },
+  filesImportUploadExcelTitle: {
+    en: "Upload Excel",
+    he: "העלאת Excel",
+  },
+  filesImportUploadExcelHint: {
+    en: "Upload one or more Excel workbooks. Each sheet appears as a table row — assign it to Clients, Companies, Bookkeeping, Worker folders, Billing, Trusts, or Other.",
+    he: "העלו קובץ Excel אחד או יותר. כל גיליון מופיע כשורה — שייכו לקטגוריה: לקוחות, חברות, הנה״ח, תיקיות עובדים, חיוב, נאמנויות או אחר.",
+  },
+  filesImportUploadExcelPick: {
+    en: "Choose Excel files…",
+    he: "בחירת קבצי Excel…",
+  },
+  filesImportUploadExcelDemoAdd: {
+    en: "Add another demo workbook",
+    he: "הוספת קובץ דמו נוסף",
+  },
+  filesImportUploadExcelSheets: {
+    en: "Uploaded tables — assign each to a category",
+    he: "טבלאות שהועלו — שייכו כל אחת לקטגוריה",
+  },
+  filesImportUploadExcelEmpty: {
+    en: "No tables yet — choose Excel files (or add a demo workbook) to continue.",
+    he: "אין עדיין טבלאות — בחרו קבצי Excel (או הוסיפו קובץ דמו) כדי להמשיך.",
+  },
+  filesImportUploadExcelCategory: {
+    en: "Category",
+    he: "קטגוריה",
+  },
+  filesImportUploadExcelCategoryUnset: {
+    en: "Pick category…",
+    he: "בחרו קטגוריה…",
+  },
+  filesImportUploadExcelTableCol: {
+    en: "Table / sheet",
+    he: "טבלה / גיליון",
+  },
+  filesImportUploadExcelFileCol: {
+    en: "Workbook",
+    he: "קובץ",
+  },
+  filesImportUploadFoldersTitle: {
+    en: "Pick folders",
+    he: "בחירת תיקיות",
+  },
+  filesImportUploadFoldersHint: {
+    en: "Paste your working drive root (UNC, path, or URL), then Save drive link — that root is also used as your Files / Work Drive root for browsing. Next scan folders under it, edit paths, and tick what to import. Demo share is only a fallback when the link is empty.",
+    he: "הדביקו את שורש כונן העבודה (UNC, נתיב או URL) ולחצו שמירת קישור כונן — אותו שורש משמש גם כשורש קבצים / כונן עבודה לדפדוף. אחר כך סרקו תיקיות, ערכו נתיבים וסמנו מה לייבא. שיתוף הדמו הוא רק גיבוי כשהקישור ריק.",
+  },
+  filesImportUploadFoldersDriveLink: {
+    en: "Working drive link (UNC or path)",
+    he: "קישור כונן עבודה (UNC או נתיב)",
+  },
+  filesImportUploadFoldersDriveLinkHint: {
+    en: "Example: \\server\\Intertax or a Work drive URL. This root is also used as your Files / Work Drive root for browsing — not only for import matching.",
+    he: "לדוגמה: \\server\\Intertax או URL של כונן עבודה. שורש זה משמש גם כשורש קבצים / כונן עבודה לדפדוף — לא רק להתאמת ייבוא.",
+  },
+  filesImportUploadFoldersDriveLinkPlaceholder: {
+    en: "\\server\\share or https://…",
+    he: "\\server\\share או https://…",
+  },
+  filesImportUploadFoldersSourcePick: {
+    en: "Or pick a configured source",
+    he: "או בחרו מקור מוגדר",
+  },
+  filesImportUploadFoldersSourceUnset: {
+    en: "Choose source…",
+    he: "בחרו מקור…",
+  },
+  filesImportUploadFoldersSourceFilesRoot: {
+    en: "Files root (UNC)",
+    he: "שורש קבצים (UNC)",
+  },
+  filesImportUploadFoldersSourceBrowse: {
+    en: "Custom path / link (field above)",
+    he: "נתיב / קישור מותאם (בשדה למעלה)",
+  },
+  filesImportUploadFoldersSourceWorkDrive: {
+    en: "Work drive: {name}",
+    he: "כונן עבודה: {name}",
+  },
+  filesImportUploadFoldersSaveSource: {
+    en: "Save drive link",
+    he: "שמירת קישור כונן",
+  },
+  filesImportUploadFoldersScan: {
+    en: "Scan / refresh folders",
+    he: "סריקה / רענון תיקיות",
+  },
+  filesImportUploadFoldersScanDemo: {
+    en: "Use demo share folders",
+    he: "שימוש בתיקיות שיתוף דמו",
+  },
+  filesImportUploadFoldersList: {
+    en: "Folders to import",
+    he: "תיקיות לייבוא",
+  },
+  filesImportUploadFoldersEmpty: {
+    en: "No folders yet — save a drive link and scan, or add a folder path manually.",
+    he: "אין עדיין תיקיות — שמרו קישור כונן וסרקו, או הוסיפו נתיב ידנית.",
+  },
+  filesImportUploadFoldersAdd: {
+    en: "Add folder",
+    he: "הוספת תיקייה",
+  },
+  filesImportUploadFoldersPathPlaceholder: {
+    en: "Folder path relative to drive link",
+    he: "נתיב תיקייה יחסית לקישור הכונן",
+  },
+  filesImportUploadFoldersSourceSaved: {
+    en: "Saved {path} — also set as Files / Work Drive root for browsing.",
+    he: "נשמר {path} — גם הוגדר כשורש קבצים / כונן עבודה לדפדוף.",
+  },
+  filesImportUploadFoldersNeedSource: {
+    en: "Paste a working drive link (or pick Files root / a Work drive), then scan.",
+    he: "הדביקו קישור כונן עבודה (או בחרו שורש קבצים / כונן עבודה), ואז סרקו.",
+  },
+  filesImportUploadFlashFolders: {
+    en: "Folders listed under “{path}” — {n} rows (edit paths as needed).",
+    he: "תיקיות תחת “{path}” — {n} שורות (ערכו נתיבים לפי הצורך).",
+  },
+  filesImportNeedUpload: {
+    en: "Upload at least one Excel workbook (or pick folders) before continuing.",
+    he: "העלו לפחות קובץ Excel אחד (או בחרו תיקיות) לפני המשך.",
+  },
+  filesImportUploadFlashExcel: {
+    en: "Demo workbook “{name}” added with sheets: {sheets}.",
+    he: "קובץ הדמו “{name}” נוסף עם הגיליונות: {sheets}.",
+  },
+
+  filesImportNeedTarget: {
+    en: "Pick at least one import target to continue.",
+    he: "בחרו לפחות יעד ייבוא אחד כדי להמשיך.",
+  },
+  filesImportUncTitle: {
+    en: "Office share root (UNC)",
+    he: "שורש שיתוף משרד (UNC)",
+  },
+  filesImportUncHint: {
+    en: "Final wizard step — set the configurable files root, then browse the demo taxonomy. Cloud is a separate top tab.",
+    he: "שלב אחרון באשף — הגדירו שורש קבצים, ואז דפדפו בטקסונומיית הדמו. ענן בלשונית עליונה נפרדת.",
+  },
+  filesImportCloudTitle: {
+    en: "Cloud",
+    he: "ענן",
+  },
+  filesImportCloudHint: {
+    en: "Cloud module — lock a vendor and map/upload the same folder taxonomy as Files root.",
+    he: "מודול ענן — נעלו ספק ומפו/העלו את אותה טקסונומיית תיקיות כמו שורש הקבצים.",
+  },
+  filesImportCloudStub: {
+    en: "Cloud import module (Gmail top tab). Not a Files import wizard step.",
+    he: "מודול ייבוא ענן (לשונית עליונה בסגנון Gmail). לא שלב באשף ייבוא הקבצים.",
+  },
+  filesImportBack: { en: "Back", he: "חזרה" },
+  filesImportNext: { en: "Next", he: "הבא" },
+  filesImportFinish: { en: "Finish demo", he: "סיום דמו" },
+  filesImportProgress: {
+    en: "Step {n} of {total}",
+    he: "שלב {n} מתוך {total}",
+  },
+  filesImportFinished: {
+    en: "Import wizard demo finished. Settings kept in canvas state.",
+    he: "דמו אשף הייבוא הסתיים. ההגדרות נשמרו במצב הקנבס.",
+  },
+  filesImportSkippedMatch: {
+    en: "Folders-only path — Excel matching step skipped.",
+    he: "נתיב תיקיות בלבד — שלב התאמת Excel דולג.",
   },
 } as const;
 
@@ -10649,6 +11636,7 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     departments: "departments",
     "whatsapp-settings": "waDeskSettings",
     "files-root": "filesRoot",
+    "folder-templates": "folderTemplatesTile",
     "work-drives": "workDrives",
     "client-folders": "clientFolders",
     "help-feedback": "helpFeedback",
@@ -10711,6 +11699,7 @@ function tileHint(lang: UiLang, tileId: string, fallback: string): string {
     departments: "hintDepartments",
     "whatsapp-settings": "hintWaDeskSettings",
     "files-root": "hintFilesRoot",
+    "folder-templates": "hintFolderTemplates",
     "work-drives": "hintWorkDrives",
     "client-folders": "hintClientFolders",
     drive: "hintDrive",
@@ -18933,7 +19922,7 @@ const BILLING_ADD_SERVICE_OPTION = "__billing_add_service__";
 type InvoiceListStatusFilter = "all" | FirmInvoiceStatus;
 type InvoiceListSourceFilter = "all" | FirmInvoiceSource;
 
-type BillingInvoicePanel = "none" | "edit" | "payment" | "installments";
+type BillingInvoicePanel = "none" | "edit" | "payment" | "installments" | "on_hold" | "view_hold";
 
 /** Paid / Collected horizontal tabs (RaisedTabBar). */
 type BillingPaidSubTab = "collected" | "installments" | "wont_pay";
@@ -19013,6 +20002,7 @@ type ModuleTile = {
     | "list-columns"
     | "company-settings"
     | "company-docs-folders"
+    | "folder-templates"
     | "api-connections"
     | "template-settings"
     | "template-merge-fields"
@@ -20292,9 +21282,12 @@ function staffInitials(
 function BillingEmailTemplatesEditor({
   compact = false,
   lockedCategory,
+  lockedPurpose,
 }: {
   compact?: boolean;
   lockedCategory?: FirmEmailTemplateCategory;
+  /** When set, editor only shows versions of this purpose (Default is within-purpose). */
+  lockedPurpose?: string;
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
@@ -20302,10 +21295,14 @@ function BillingEmailTemplatesEditor({
     "firmEmailTemplates.v1",
     DEFAULT_FIRM_EMAIL_TEMPLATES,
   );
-  const allTemplates = templatesRaw.map(normalizeBillingEmailTemplate);
-  const templates = lockedCategory
-    ? allTemplates.filter((tpl) => tpl.category === lockedCategory)
-    : allTemplates;
+  const allTemplates = ensureOneDefaultPerPurpose(
+    templatesRaw.map(normalizeBillingEmailTemplate),
+  );
+  const templates = allTemplates.filter((tpl) => {
+    if (lockedCategory && tpl.category !== lockedCategory) return false;
+    if (lockedPurpose && tpl.purposeId !== lockedPurpose) return false;
+    return true;
+  });
   const [selectedId, setSelectedId] = useCanvasState(
     "billingEmailTemplateSelected.v1",
     DEFAULT_BILLING_EMAIL_TEMPLATES[0]?.id ?? "",
@@ -20332,6 +21329,11 @@ function BillingEmailTemplatesEditor({
     DEFAULT_TEMPLATE_MERGE_FIELDS,
   );
   const mergeFields = mergeTemplateMergeFieldsWithDefaults(mergeFieldsRaw);
+  const [customCategoriesRaw] = useCanvasState<CustomFirmEmailCategory[]>(
+    FIRM_EMAIL_CUSTOM_CATEGORIES_KEY,
+    DEFAULT_CUSTOM_FIRM_EMAIL_CATEGORIES,
+  );
+  const customCategories = normalizeCustomFirmEmailCategories(customCategoriesRaw);
   const [firmWorkers] = useCanvasState<FirmWorker[]>(
     "firmWorkers.v3",
     DEMO_STAFF,
@@ -20350,6 +21352,14 @@ function BillingEmailTemplatesEditor({
   const bodyHeRef = useRef<HTMLTextAreaElement | null>(null);
   const selected =
     templates.find((tpl) => tpl.id === selectedId) ?? templates[0];
+  const displayCategory: FirmEmailTemplateCategory =
+    lockedCategory ?? selected?.category ?? "billing";
+  const editorTitle = firmEmailTemplatesEditorTitle(
+    uiLang,
+    displayCategory,
+    customCategories,
+  );
+  const editorHint = firmEmailTemplatesEditorHint(uiLang, displayCategory);
 
   const patchSelected = (patch: Partial<BillingEmailTemplate>) => {
     if (!selected) return;
@@ -20387,24 +21397,58 @@ function BillingEmailTemplatesEditor({
   const addTemplate = () => {
     const id = `tpl-custom-${Date.now()}`;
     const category = lockedCategory ?? selected?.category ?? "billing";
+    const purposeId =
+      lockedPurpose ||
+      selected?.purposeId ||
+      purposeIdFromTemplateId(id);
+    const purposeSiblings = allTemplates.filter(
+      (tpl) => tpl.category === category && tpl.purposeId === purposeId,
+    );
     const next: BillingEmailTemplate = normalizeBillingEmailTemplate({
       id,
-      nameEn: "New template",
-      nameHe: "תבנית חדשה",
+      nameEn: selected?.nameEn
+        ? `${selected.nameEn} (version)`
+        : "New template",
+      nameHe: selected?.nameHe
+        ? `${selected.nameHe} (גרסה)`
+        : "תבנית חדשה",
       subjectEn: "Subject — {client}",
       subjectHe: "נושא — {client}",
       bodyEn: "Hello {client},\n\n…\n",
       bodyHe: "שלום {client},\n\n…\n",
       ...DEFAULT_BILLING_EMAIL_STYLE,
       category,
-      isDefault: templates.length === 0,
+      purposeId,
+      isDefault: purposeSiblings.length === 0,
     });
-    setTemplates((prev) => [
-      ...prev.map(normalizeBillingEmailTemplate),
-      next,
-    ]);
+    setTemplates((prev) =>
+      ensureOneDefaultPerPurpose([
+        ...prev.map(normalizeBillingEmailTemplate),
+        next,
+      ]),
+    );
     setSelectedId(id);
     setFlash("");
+  };
+
+  const setActiveVersion = (id: string) => {
+    if (!selected) return;
+    const category = selected.category;
+    const purposeId = selected.purposeId;
+    setTemplates((prev) =>
+      ensureOneDefaultPerPurpose(
+        prev.map((raw) => {
+          const tpl = normalizeBillingEmailTemplate(raw);
+          if (tpl.category !== category || tpl.purposeId !== purposeId) {
+            return tpl;
+          }
+          return normalizeBillingEmailTemplate({
+            ...tpl,
+            isDefault: tpl.id === id,
+          });
+        }),
+      ),
+    );
   };
 
   const deleteSelected = () => {
@@ -20713,9 +21757,9 @@ function BillingEmailTemplatesEditor({
     <Stack gap={compact ? 8 : 12} style={{ width: "100%" }}>
       {!compact ? (
         <Stack gap={4}>
-          <H2>{t(uiLang, "billingTemplatesTitle")}</H2>
+          <H2>{editorTitle}</H2>
           <ChromeText size="small" tone="secondary">
-            {t(uiLang, "billingTemplatesHint")}
+            {editorHint}
           </ChromeText>
         </Stack>
       ) : (
@@ -20776,9 +21820,29 @@ function BillingEmailTemplatesEditor({
             : templates
           ).map((tpl) => ({
             value: tpl.id,
-            label: billingTemplateLabel(uiLang, tpl),
+            label: `${billingTemplateLabel(uiLang, tpl)}${
+              tpl.isDefault ? ` · ${t(uiLang, "templateSettingsActive")}` : ""
+            }`,
           }))}
         />
+        {templates.length > 1 ? (
+          <Row gap={8} align="center" wrap>
+            {selected.isDefault ? (
+              <Pill tone="success">{t(uiLang, "templateSettingsActive")}</Pill>
+            ) : (
+              <Button
+                variant="ghost"
+                onClick={() => setActiveVersion(selected.id)}
+              >
+                {t(uiLang, "templateSettingsSetActive")}
+              </Button>
+            )}
+            <ChromeText size="small" tone="tertiary">
+              {templates.length} {t(uiLang, "templateSettingsVersions")} ·{" "}
+              {t(uiLang, "templateSettingsPurposeHint")}
+            </ChromeText>
+          </Row>
+        ) : null}
       </Stack>
       <Grid columns={compact ? 1 : 2} gap={10}>
         <Stack gap={4}>
@@ -21112,7 +22176,7 @@ function BillingEmailTemplatesEditor({
       ) : null}
       {!compact ? (
         <ChromeText size="small" tone="tertiary">
-          {t(uiLang, "billingTemplatesHint")}
+          {editorHint}
         </ChromeText>
       ) : null}
     </Stack>
@@ -21641,8 +22705,9 @@ function UserSettingsScreen() {
 }
 
 /**
- * Template settings hub — All (default) + Billing / Bookkeeping / Worker / Tax / General.
- * Edit opens the shared firm email template editor for that group.
+ * Template settings hub — modules (Billing / Bookkeeping / …) → purposes
+ * (invoice sent, payment reminder, …). Each purpose owns its template slot;
+ * Default / Active only competes among versions of the same purpose.
  */
 function TemplateSettingsScreen() {
   const theme = useHostTheme();
@@ -21659,7 +22724,17 @@ function TemplateSettingsScreen() {
     "firmEmailTemplates.v1",
     DEFAULT_FIRM_EMAIL_TEMPLATES,
   );
-  const templates = templatesRaw.map(normalizeBillingEmailTemplate);
+  const templates = ensureOneDefaultPerPurpose(
+    templatesRaw.map(normalizeBillingEmailTemplate),
+  );
+  const [customCategoriesRaw, setCustomCategories] = useCanvasState<
+    CustomFirmEmailCategory[]
+  >(FIRM_EMAIL_CUSTOM_CATEGORIES_KEY, DEFAULT_CUSTOM_FIRM_EMAIL_CATEGORIES);
+  const customCategories = normalizeCustomFirmEmailCategories(customCategoriesRaw);
+  const moduleCategories: FirmEmailTemplateCategory[] = [
+    ...FIRM_EMAIL_TEMPLATE_CATEGORIES,
+    ...customCategories.map((c) => c.id),
+  ];
   const [editId, setEditId] = useCanvasState(
     "templateSettingsEditId.v1",
     "",
@@ -21668,22 +22743,89 @@ function TemplateSettingsScreen() {
     "billingEmailTemplateSelected.v1",
     DEFAULT_BILLING_EMAIL_TEMPLATES[0]?.id ?? "",
   );
+  const [addingCategory, setAddingCategory] = useCanvasState(
+    "templateSettingsAddingCategory.v1",
+    false,
+  );
+  const [newCategoryEn, setNewCategoryEn] = useCanvasState(
+    "templateSettingsNewCategoryEn.v1",
+    "",
+  );
+  const [newCategoryHe, setNewCategoryHe] = useCanvasState(
+    "templateSettingsNewCategoryHe.v1",
+    "",
+  );
+  const [categoryFlash, setCategoryFlash] = useCanvasState(
+    "templateSettingsCategoryFlash.v1",
+    "",
+  );
 
-  const scopes: FirmEmailTemplateScope[] = [
-    "all",
-    ...FIRM_EMAIL_TEMPLATE_CATEGORIES,
-  ];
+  const scopes: FirmEmailTemplateScope[] = ["all", ...moduleCategories];
 
-  const setDefault = (id: string, category: FirmEmailTemplateCategory) => {
+  const commitAddCategory = () => {
+    const nameEn = newCategoryEn.trim();
+    const nameHe = newCategoryHe.trim();
+    if (!nameEn && !nameHe) {
+      setCategoryFlash(t(uiLang, "templateSettingsCategoryNameRequired"));
+      return;
+    }
+    const stamp = Date.now();
+    const slug = slugifyFirmEmailCategory(nameEn || nameHe);
+    let id = `custom-${slug}`;
+    const taken = new Set(moduleCategories);
+    if (taken.has(id) || isBuiltinFirmEmailCategory(id)) {
+      id = `custom-${slug}-${stamp}`;
+    }
+    const next: CustomFirmEmailCategory = {
+      id,
+      nameEn: nameEn || nameHe,
+      nameHe: nameHe || nameEn,
+    };
+    setCustomCategories((prev) => [
+      ...normalizeCustomFirmEmailCategories(prev),
+      next,
+    ]);
+    setScope(id);
+    setAddingCategory(false);
+    setNewCategoryEn("");
+    setNewCategoryHe("");
+    setCategoryFlash("");
+  };
+
+  const removeCustomCategory = (categoryId: string) => {
+    if (isBuiltinFirmEmailCategory(categoryId)) return;
+    setCustomCategories((prev) =>
+      normalizeCustomFirmEmailCategories(prev).filter((c) => c.id !== categoryId),
+    );
     setTemplates((prev) =>
-      prev.map((raw) => {
-        const tpl = normalizeBillingEmailTemplate(raw);
-        if (tpl.category !== category) return tpl;
-        return normalizeBillingEmailTemplate({
-          ...tpl,
-          isDefault: tpl.id === id,
-        });
-      }),
+      ensureOneDefaultPerPurpose(
+        prev
+          .map(normalizeBillingEmailTemplate)
+          .filter((tpl) => tpl.category !== categoryId),
+      ),
+    );
+    if (scope === categoryId) setScope("all");
+    setCategoryFlash("");
+  };
+
+  const setActiveWithinPurpose = (
+    id: string,
+    purposeId: string,
+    category: FirmEmailTemplateCategory,
+  ) => {
+    setTemplates((prev) =>
+      ensureOneDefaultPerPurpose(
+        prev.map((raw) => {
+          const tpl = normalizeBillingEmailTemplate(raw);
+          if (tpl.category !== category || tpl.purposeId !== purposeId) {
+            return tpl;
+          }
+          return normalizeBillingEmailTemplate({
+            ...tpl,
+            isDefault: tpl.id === id,
+          });
+        }),
+      ),
     );
   };
 
@@ -21691,6 +22833,32 @@ function TemplateSettingsScreen() {
     setEditId(tpl.id);
     setSelectedId(tpl.id);
     setView("edit");
+  };
+
+  const addPurpose = (category: FirmEmailTemplateCategory) => {
+    const stamp = Date.now();
+    const purposeId = `purpose-custom-${stamp}`;
+    const id = `tpl-custom-${stamp}`;
+    const next = normalizeBillingEmailTemplate({
+      id,
+      purposeId,
+      nameEn: "New purpose",
+      nameHe: "מטרה חדשה",
+      subjectEn: "Subject — {client}",
+      subjectHe: "נושא — {client}",
+      bodyEn: "Hello {client},\n\n…\n",
+      bodyHe: "שלום {client},\n\n…\n",
+      ...DEFAULT_BILLING_EMAIL_STYLE,
+      category,
+      isDefault: true,
+    });
+    setTemplates((prev) =>
+      ensureOneDefaultPerPurpose([
+        ...prev.map(normalizeBillingEmailTemplate),
+        next,
+      ]),
+    );
+    openEdit(next);
   };
 
   const editTpl =
@@ -21709,75 +22877,144 @@ function TemplateSettingsScreen() {
             {t(uiLang, "templateSettingsBackList")}
           </Button>
           <ChromeText size="small" tone="secondary">
-            {firmEmailCategoryLabel(uiLang, editTpl.category)}
+            {firmEmailCategoryLabel(uiLang, editTpl.category, customCategories)}
+            {" · "}
+            {billingTemplateLabel(uiLang, editTpl)}
           </ChromeText>
         </Row>
-        <BillingEmailTemplatesEditor lockedCategory={editTpl.category} />
+        <BillingEmailTemplatesEditor
+          lockedCategory={editTpl.category}
+          lockedPurpose={editTpl.purposeId}
+        />
       </Stack>
     );
   }
 
-  const renderTemplateRow = (tpl: BillingEmailTemplate) => (
-    <Row
-      key={tpl.id}
-      gap={10}
-      align="center"
-      wrap
-      style={{
-        padding: "10px 12px",
-        borderRadius: 8,
-        border: `1px solid ${chromeBorder(theme)}`,
-        background: CHROME_WHITE,
-      }}
-    >
-      <Stack gap={2} style={{ flex: 1, minWidth: 160 }}>
-        <ChromeText weight="semibold">{billingTemplateLabel(uiLang, tpl)}</ChromeText>
-        <ChromeText size="small" tone="tertiary">
-          {firmEmailCategoryLabel(uiLang, tpl.category)}
-        </ChromeText>
-      </Stack>
-      {tpl.isDefault ? (
-        <Pill tone="success">{t(uiLang, "templateSettingsDefault")}</Pill>
-      ) : (
-        <Button
-          variant="ghost"
-          onClick={() => setDefault(tpl.id, tpl.category)}
-        >
-          {t(uiLang, "templateSettingsSetDefault")}
+  const purposeIdsInCategory = (
+    category: FirmEmailTemplateCategory,
+  ): string[] => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const tpl of templates) {
+      if (tpl.category !== category) continue;
+      if (seen.has(tpl.purposeId)) continue;
+      seen.add(tpl.purposeId);
+      ids.push(tpl.purposeId);
+    }
+    return ids;
+  };
+
+  const renderPurposeRow = (
+    category: FirmEmailTemplateCategory,
+    purposeId: string,
+  ) => {
+    const versions = templates.filter(
+      (tpl) => tpl.category === category && tpl.purposeId === purposeId,
+    );
+    const active =
+      versions.find((tpl) => tpl.isDefault) ?? versions[0];
+    if (!active) return null;
+    const multi = versions.length > 1;
+    const subjectHint =
+      uiLang === "he"
+        ? active.subjectHe || active.subjectEn
+        : active.subjectEn || active.subjectHe;
+
+    return (
+      <Row
+        key={`${category}:${purposeId}`}
+        gap={10}
+        align="center"
+        wrap
+        style={{
+          padding: "10px 12px",
+          borderRadius: 8,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: CHROME_WHITE,
+        }}
+      >
+        <Stack gap={2} style={{ flex: 1, minWidth: 160 }}>
+          <ChromeText weight="semibold">
+            {billingTemplateLabel(uiLang, active)}
+          </ChromeText>
+          <ChromeText size="small" tone="tertiary">
+            {multi
+              ? `${versions.length} ${t(uiLang, "templateSettingsVersions")}`
+              : subjectHint}
+          </ChromeText>
+        </Stack>
+        {multi ? (
+          active.isDefault ? (
+            <Pill tone="success">{t(uiLang, "templateSettingsActive")}</Pill>
+          ) : (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setActiveWithinPurpose(active.id, purposeId, category)
+              }
+            >
+              {t(uiLang, "templateSettingsSetActive")}
+            </Button>
+          )
+        ) : null}
+        <Button variant="secondary" onClick={() => openEdit(active)}>
+          {t(uiLang, "templateSettingsEdit")}
         </Button>
-      )}
-      <Button variant="secondary" onClick={() => openEdit(tpl)}>
-        {t(uiLang, "templateSettingsEdit")}
-      </Button>
-    </Row>
-  );
+      </Row>
+    );
+  };
 
   const renderCategoryBlock = (category: FirmEmailTemplateCategory) => {
-    const rows = templates.filter((tpl) => tpl.category === category);
+    const purposeIds = purposeIdsInCategory(category);
+    const isCustom = !isBuiltinFirmEmailCategory(category);
     return (
       <FormSection
         key={category}
-        title={firmEmailCategoryLabel(uiLang, category)}
-        hint={`${rows.length} ${t(uiLang, "templateSettingsCount")}`}
+        title={firmEmailCategoryLabel(uiLang, category, customCategories)}
+        hint={`${purposeIds.length} ${t(uiLang, "templateSettingsCount")}`}
       >
         <Stack gap={8}>
-          {rows.length === 0 ? (
+          {purposeIds.length === 0 ? (
             <ChromeText size="small" tone="secondary">
               {t(uiLang, "templateSettingsEmpty")}
             </ChromeText>
           ) : (
-            rows.map(renderTemplateRow)
+            purposeIds.map((purposeId) =>
+              renderPurposeRow(category, purposeId),
+            )
           )}
+          <Row gap={8} wrap>
+            <Button
+              variant="ghost"
+              onClick={() => addPurpose(category)}
+            >
+              {t(uiLang, "templateSettingsAddPurpose")}
+            </Button>
+            {isCustom ? (
+              <Button
+                variant="ghost"
+                onClick={() => removeCustomCategory(category)}
+              >
+                {t(uiLang, "templateSettingsRemoveCategory")}
+              </Button>
+            ) : null}
+          </Row>
         </Stack>
       </FormSection>
     );
   };
 
   const visibleCategories: FirmEmailTemplateCategory[] =
-    scope === "all" ? FIRM_EMAIL_TEMPLATE_CATEGORIES : [scope];
+    scope === "all" ? moduleCategories : [scope];
+
+  const purposeCount =
+    scope === "all"
+      ? new Set(templates.map((tpl) => `${tpl.category}::${tpl.purposeId}`))
+          .size
+      : purposeIdsInCategory(scope).length;
 
   return (
-    <Stack gap={16}>
+    <Stack gap={16} data-chrome={`template-settings-${GMAIL_DUAL_NAV_BUILD}`}>
       <Row align="center" gap={12} wrap>
         <Spacer />
         <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
@@ -21788,46 +23025,130 @@ function TemplateSettingsScreen() {
         <ChromeText tone="secondary">{t(uiLang, "templateSettingsHint")}</ChromeText>
       </Stack>
 
-      <Row gap={8} wrap>
-        {scopes.map((id) => {
-          const active = scope === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setScope(id)}
+      <Stack gap={8}>
+        <Row gap={8} wrap>
+          {scopes.map((id) => {
+            const active = scope === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setScope(id)}
+                style={{
+                  all: "unset",
+                  boxSizing: "border-box",
+                  cursor: "pointer",
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${
+                    active ? theme.accent.primary : CHROME_BORDER_BLUE
+                  }`,
+                  background: active ? chromeSelectedFill(theme) : CHROME_WHITE,
+                  color: active ? theme.accent.primary : theme.text.primary,
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                }}
+              >
+                {firmEmailScopeLabel(uiLang, id, customCategories)}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => {
+              setAddingCategory(true);
+              setCategoryFlash("");
+            }}
+            style={{
+              all: "unset",
+              boxSizing: "border-box",
+              cursor: "pointer",
+              padding: "6px 12px",
+              borderRadius: 8,
+              border: `1px dashed ${CHROME_BORDER_BLUE}`,
+              background: CHROME_WHITE,
+              color: theme.accent.primary,
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            + {t(uiLang, "templateSettingsAddCategory")}
+          </button>
+        </Row>
+        {addingCategory ? (
+          <Stack
+            gap={8}
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              border: `1px solid ${CHROME_BORDER_BLUE}`,
+              background: CHROME_WHITE,
+              maxWidth: 480,
+            }}
+          >
+            <FieldLabel>{t(uiLang, "templateSettingsCategoryNameEn")}</FieldLabel>
+            <input
+              value={newCategoryEn}
+              onChange={(e) => setNewCategoryEn(e.target.value)}
+              placeholder="e.g. Payroll"
               style={{
-                all: "unset",
+                width: "100%",
                 boxSizing: "border-box",
-                cursor: "pointer",
-                padding: "6px 12px",
+                padding: "8px 10px",
                 borderRadius: 8,
-                border: `1px solid ${
-                  active ? theme.accent.primary : CHROME_BORDER_BLUE
-                }`,
-                background: active ? chromeSelectedFill(theme) : CHROME_WHITE,
-                color: active ? theme.accent.primary : theme.text.primary,
+                border: `1px solid ${CHROME_BORDER_BLUE}`,
+                background: chromeSoftFill(theme),
+                color: theme.text.primary,
                 fontSize: 13,
-                fontWeight: active ? 600 : 500,
               }}
-            >
-              {firmEmailScopeLabel(uiLang, id)}
-            </button>
-          );
-        })}
-      </Row>
+            />
+            <FieldLabel>{t(uiLang, "templateSettingsCategoryNameHe")}</FieldLabel>
+            <input
+              value={newCategoryHe}
+              onChange={(e) => setNewCategoryHe(e.target.value)}
+              placeholder="לדוגמה: שכר"
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1px solid ${CHROME_BORDER_BLUE}`,
+                background: chromeSoftFill(theme),
+                color: theme.text.primary,
+                fontSize: 13,
+              }}
+            />
+            {categoryFlash ? (
+              <ChromeText size="small" tone="secondary">
+                {categoryFlash}
+              </ChromeText>
+            ) : null}
+            <Row gap={8} wrap>
+              <Button variant="secondary" onClick={commitAddCategory}>
+                {t(uiLang, "templateSettingsCategoryCreate")}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setAddingCategory(false);
+                  setNewCategoryEn("");
+                  setNewCategoryHe("");
+                  setCategoryFlash("");
+                }}
+              >
+                {t(uiLang, "templateSettingsCategoryCancel")}
+              </Button>
+            </Row>
+          </Stack>
+        ) : null}
+      </Stack>
 
       <ChromeText size="small" tone="tertiary">
         {scope === "all"
           ? t(uiLang, "templateSettingsAll")
-          : firmEmailCategoryLabel(uiLang, scope)}
+          : firmEmailCategoryLabel(uiLang, scope, customCategories)}
         {" · "}
-        {
-          (scope === "all"
-            ? templates
-            : templates.filter((tpl) => tpl.category === scope)
-          ).length
-        }{" "}
+        {purposeCount}{" "}
         {t(uiLang, "templateSettingsCount")}
       </ChromeText>
 
@@ -21854,7 +23175,7 @@ const WORKER_TILES: ModuleTile[] = [
   {
     id: "template-settings",
     label: "Template settings",
-    hint: "All firm templates — billing, bookkeeping, worker, tax, general",
+    hint: "Email templates by module and purpose",
     opens: "template-settings",
   },
 ];
@@ -22073,12 +23394,6 @@ const SYSTEM_TILES: ModuleTile[] = [
     opens: "company-settings",
   },
   {
-    id: "company-docs-folders",
-    label: "Company documents folders",
-    hint: "Default Company documents folder template for all clients",
-    opens: "company-docs-folders",
-  },
-  {
     id: "template-settings",
     label: "Template settings",
     hint: "All firm templates — billing, bookkeeping, worker, tax, general",
@@ -22096,7 +23411,13 @@ const SYSTEM_TILES: ModuleTile[] = [
     hint: "Cursor AI, Sumit, Trello, Wave, and custom API keys",
     opens: "api-connections",
   },
-  { id: "files-root", label: "Files root / cloud", hint: "Share now, cloud later", opens: "files-root" },
+  { id: "files-root", label: "Files", hint: "Files root · Cloud", opens: "files-root" },
+  {
+    id: "folder-templates",
+    label: "Folder structures",
+    hint: "New-entity templates · Sort existing drive via Files import",
+    opens: "folder-templates",
+  },
   {
     id: "work-drives",
     label: "Work drives",
@@ -23209,15 +24530,1141 @@ function taxAuthorityUrlFromStages(stages: ProspectStageDef[]): string {
   return (tax?.linkUrl || RESHUT_HAMISIM_OPEN_FILE_URL).trim();
 }
 
+
+/** Built-in entity / client-submodule folder-structure template groups. */
+type BuiltinFolderTemplateKind =
+  | "client"
+  | "company"
+  | "bookkeeping"
+  | "trusts"
+  | "audit"
+  | "tax-return"
+  | "payroll"
+  | "portal"
+  | "worker"
+  | "billing";
+
+/** Active pill id — built-in kind or custom group id (`custom:…`). */
+type FolderTemplateKind = BuiltinFolderTemplateKind | string;
+
+type FolderTemplateFolder = {
+  id: string;
+  nameEn: string;
+  nameHe: string;
+  /** When true, demo path appends \{yyyy} (or \{yyyy-mm} for portal) before children. */
+  yearScoped?: boolean;
+  portalMonthScoped?: boolean;
+  /** Nested folders under this node (whole tree per group). */
+  children?: FolderTemplateFolder[];
+};
+
+type FolderTemplateCustomGroup = {
+  id: string;
+  nameEn: string;
+  nameHe: string;
+  folders: FolderTemplateFolder[];
+};
+
+/**
+ * folderTemplates.v1 — schemaVersion 2 adds Trusts, client submodules
+ * (Audit / Tax return / Payroll / Portal), and Systemadmin custom groups.
+ * Legacy flat Record<kind, folders[]> migrates in normalizeFolderTemplatesV1.
+ */
+type FolderTemplatesV1 = {
+  schemaVersion: number;
+  trees: Record<string, FolderTemplateFolder[]>;
+  customGroups: FolderTemplateCustomGroup[];
+  /** Built-in kinds removed from the pill row (Client never allowed). */
+  hiddenKinds: string[];
+};
+
+const FOLDER_TEMPLATES_SCHEMA_VERSION = 2;
+
+const BUILTIN_FOLDER_TEMPLATE_KINDS: BuiltinFolderTemplateKind[] = [
+  "client",
+  "company",
+  "bookkeeping",
+  "trusts",
+  "audit",
+  "tax-return",
+  "payroll",
+  "portal",
+  "worker",
+  "billing",
+];
+
+/** @deprecated alias — prefer BUILTIN_FOLDER_TEMPLATE_KINDS */
+const FOLDER_TEMPLATE_KINDS = BUILTIN_FOLDER_TEMPLATE_KINDS;
+
+function isBuiltinFolderTemplateKind(
+  kind: string,
+): kind is BuiltinFolderTemplateKind {
+  return (BUILTIN_FOLDER_TEMPLATE_KINDS as string[]).includes(kind);
+}
+
+function isFolderTemplateCustomId(kind: string): boolean {
+  return kind.startsWith("custom:");
+}
+
+function defaultClientCompanyBkFolders(): FolderTemplateFolder[] {
+  return [
+    {
+      id: "00-Admin",
+      nameEn: "00-Admin",
+      nameHe: "00-Admin",
+      children: [
+        {
+          id: "00-Admin-Correspondence",
+          nameEn: "Correspondence",
+          nameHe: "התכתבות",
+        },
+        {
+          id: "00-Admin-Engagement",
+          nameEn: "Engagement-letters",
+          nameHe: "מכתבי-התקשרות",
+        },
+      ],
+    },
+    {
+      id: "01-Bookkeeping",
+      nameEn: "01-Bookkeeping",
+      nameHe: "01-הנהלת-חשבונות",
+      yearScoped: true,
+      children: [
+        { id: "01-Bank", nameEn: "Bank", nameHe: "בנק" },
+        { id: "01-Suppliers", nameEn: "Suppliers", nameHe: "ספקים" },
+        { id: "01-Customers", nameEn: "Customers", nameHe: "לקוחות" },
+      ],
+    },
+    {
+      id: "02-Audit",
+      nameEn: "02-Audit",
+      nameHe: "02-ביקורת",
+      yearScoped: true,
+    },
+    {
+      id: "03-Tax",
+      nameEn: "03-Tax",
+      nameHe: "03-מס",
+      yearScoped: true,
+    },
+    {
+      id: "04-Payroll",
+      nameEn: "04-Payroll",
+      nameHe: "04-שכר",
+      yearScoped: true,
+    },
+    {
+      id: "05-Invoices",
+      nameEn: "05-Invoices",
+      nameHe: "05-חשבוניות",
+      yearScoped: true,
+    },
+    {
+      id: "06-Portal-Uploads",
+      nameEn: "06-Portal-Uploads",
+      nameHe: "06-העלאות-פורטל",
+      portalMonthScoped: true,
+    },
+    {
+      id: "07-IDs-and-KYC",
+      nameEn: "07-IDs-and-KYC",
+      nameHe: "07-זהויות-ו-KYC",
+    },
+  ];
+}
+
+function defaultTrustsFolders(): FolderTemplateFolder[] {
+  return [
+    {
+      id: "00-Deed",
+      nameEn: "00-Deed",
+      nameHe: "00-שטר-נאמנות",
+      children: [
+        { id: "00-Deed-Original", nameEn: "Original", nameHe: "מקור" },
+        { id: "00-Deed-Amendments", nameEn: "Amendments", nameHe: "תיקונים" },
+      ],
+    },
+    {
+      id: "01-Beneficiaries",
+      nameEn: "01-Beneficiaries",
+      nameHe: "01-נהנים",
+    },
+    {
+      id: "02-Tax",
+      nameEn: "02-Tax",
+      nameHe: "02-מס",
+      yearScoped: true,
+    },
+    {
+      id: "03-Distributions",
+      nameEn: "03-Distributions",
+      nameHe: "03-חלוקות",
+      yearScoped: true,
+    },
+    {
+      id: "04-Bank",
+      nameEn: "04-Bank",
+      nameHe: "04-בנק",
+      yearScoped: true,
+    },
+    {
+      id: "05-Portal-Uploads",
+      nameEn: "05-Portal-Uploads",
+      nameHe: "05-העלאות-פורטל",
+      portalMonthScoped: true,
+    },
+    {
+      id: "06-IDs-and-KYC",
+      nameEn: "06-IDs-and-KYC",
+      nameHe: "06-זהויות-ו-KYC",
+    },
+  ];
+}
+
+/** Matches Audit workspace year-folder tree (folder names only). */
+function defaultAuditFolders(): FolderTemplateFolder[] {
+  return [
+    {
+      id: "Sumit-Trial-balance",
+      nameEn: "Sumit-Trial-balance",
+      nameHe: "סאמיט-מאזן-בוחן",
+    },
+    {
+      id: "Workpapers",
+      nameEn: "Workpapers",
+      nameHe: "ניירות-עבודה",
+    },
+    {
+      id: "Form-1214",
+      nameEn: "Form-1214",
+      nameHe: "טופס-1214",
+    },
+    {
+      id: "Audited-report",
+      nameEn: "Audited-report",
+      nameHe: "דוח-מבוקר",
+    },
+    {
+      id: "Portal-uploads",
+      nameEn: "Portal-uploads",
+      nameHe: "העלאות-פורטל",
+      portalMonthScoped: true,
+    },
+  ];
+}
+
+/** Matches Tax return workspace year-folder taxonomy (folder names only). */
+function defaultTaxReturnFolders(): FolderTemplateFolder[] {
+  return [
+    {
+      id: "01-Client-materials",
+      nameEn: "01-Client-materials",
+      nameHe: "01-חומרי-לקוח",
+      children: [
+        { id: "01-Form-106", nameEn: "Form-106", nameHe: "טופס-106" },
+        {
+          id: "01-Slips-pensions",
+          nameEn: "Slips-pensions",
+          nameHe: "תלושים-ופנסיה",
+        },
+        { id: "01-Banks", nameEn: "Banks", nameHe: "בנקים" },
+        {
+          id: "01-Portal-uploads",
+          nameEn: "Portal-uploads",
+          nameHe: "העלאות-פורטל",
+          portalMonthScoped: true,
+        },
+      ],
+    },
+    {
+      id: "02-Supporting",
+      nameEn: "02-Supporting-documentation",
+      nameHe: "02-מסמכים-תומכים",
+    },
+    {
+      id: "03-Israeli-returns",
+      nameEn: "03-Israeli-Tax-Returns",
+      nameHe: "03-דוחות-מס-ישראליים",
+      children: [
+        { id: "03-Working-Excel", nameEn: "Working-Excel", nameHe: "אקסל-עבודה" },
+        { id: "03-Drafts", nameEn: "Drafts", nameHe: "טיוטות" },
+        { id: "03-Signed", nameEn: "Signed", nameHe: "חתום" },
+      ],
+    },
+    {
+      id: "04-Forms-annexes",
+      nameEn: "04-Forms-annexes",
+      nameHe: "04-טפסים-ונספחים",
+    },
+    {
+      id: "05-Correspondence",
+      nameEn: "05-Correspondence",
+      nameHe: "05-תכתובת",
+    },
+    {
+      id: "06-Client-info",
+      nameEn: "06-Client-Information-Sheet",
+      nameHe: "06-גיליון-פרטי-לקוח",
+    },
+    {
+      id: "07-Bituach-Leumi",
+      nameEn: "07-Bituach-Leumi",
+      nameHe: "07-ביטוח-לאומי",
+    },
+    {
+      id: "08-Hatzharat-Hon",
+      nameEn: "08-Hatzharat-Hon",
+      nameHe: "08-הצהרת-הון",
+    },
+  ];
+}
+
+function defaultPayrollFolders(): FolderTemplateFolder[] {
+  return [
+    {
+      id: "00-Inputs",
+      nameEn: "00-Inputs",
+      nameHe: "00-קלט",
+      yearScoped: true,
+      children: [
+        { id: "00-Attendance", nameEn: "Attendance", nameHe: "נוכחות" },
+        { id: "00-Changes", nameEn: "Changes", nameHe: "שינויים" },
+      ],
+    },
+    {
+      id: "01-Payslips",
+      nameEn: "01-Payslips",
+      nameHe: "01-תלושים",
+      yearScoped: true,
+    },
+    {
+      id: "02-Reports",
+      nameEn: "02-Reports",
+      nameHe: "02-דוחות",
+      yearScoped: true,
+    },
+    {
+      id: "03-Forms-102",
+      nameEn: "03-Forms-102",
+      nameHe: "03-טפסי-102",
+      yearScoped: true,
+    },
+    {
+      id: "04-Portal-uploads",
+      nameEn: "04-Portal-uploads",
+      nameHe: "04-העלאות-פורטל",
+      portalMonthScoped: true,
+    },
+  ];
+}
+
+function defaultPortalFolders(): FolderTemplateFolder[] {
+  return [
+    {
+      id: "00-Inbox",
+      nameEn: "00-Inbox",
+      nameHe: "00-דואר-נכנס",
+      portalMonthScoped: true,
+    },
+    {
+      id: "01-Requested",
+      nameEn: "01-Requested-docs",
+      nameHe: "01-מסמכים-מבוקשים",
+      portalMonthScoped: true,
+    },
+    {
+      id: "02-Signed",
+      nameEn: "02-Signed",
+      nameHe: "02-חתום",
+      portalMonthScoped: true,
+    },
+    {
+      id: "03-Shared-out",
+      nameEn: "03-Shared-to-client",
+      nameHe: "03-שותף-ללקוח",
+      portalMonthScoped: true,
+    },
+  ];
+}
+
+function emptyCustomFolderTemplate(): FolderTemplateFolder[] {
+  return [
+    {
+      id: "00-Root",
+      nameEn: "00-Root",
+      nameHe: "00-שורש",
+    },
+  ];
+}
+
+function defaultTreesForBuiltin(
+  kind: BuiltinFolderTemplateKind,
+): FolderTemplateFolder[] {
+  switch (kind) {
+    case "client":
+    case "company":
+    case "bookkeeping":
+      return defaultClientCompanyBkFolders();
+    case "trusts":
+      return defaultTrustsFolders();
+    case "audit":
+      return defaultAuditFolders();
+    case "tax-return":
+      return defaultTaxReturnFolders();
+    case "payroll":
+      return defaultPayrollFolders();
+    case "portal":
+      return defaultPortalFolders();
+    case "worker":
+      return [
+        {
+          id: "00-HR",
+          nameEn: "00-HR",
+          nameHe: "00-משאבי-אנוש",
+          children: [
+            { id: "00-HR-Onboarding", nameEn: "Onboarding", nameHe: "קליטה" },
+          ],
+        },
+        {
+          id: "01-Contracts",
+          nameEn: "01-Contracts",
+          nameHe: "01-חוזים",
+        },
+        {
+          id: "02-Payslips",
+          nameEn: "02-Payslips",
+          nameHe: "02-תלושי-שכר",
+          yearScoped: true,
+        },
+        {
+          id: "03-Certificates",
+          nameEn: "03-Certificates",
+          nameHe: "03-אישורים",
+        },
+      ];
+    case "billing":
+      return [
+        {
+          id: "00-Invoices",
+          nameEn: "00-Invoices",
+          nameHe: "00-חשבוניות",
+          yearScoped: true,
+          children: [
+            { id: "00-Invoices-Draft", nameEn: "Draft", nameHe: "טיוטה" },
+            { id: "00-Invoices-Sent", nameEn: "Sent", nameHe: "נשלח" },
+          ],
+        },
+        {
+          id: "01-Payment-Requests",
+          nameEn: "01-Payment-Requests",
+          nameHe: "01-דרישות-תשלום",
+          yearScoped: true,
+        },
+        {
+          id: "02-Receipts",
+          nameEn: "02-Receipts",
+          nameHe: "02-קבלות",
+          yearScoped: true,
+        },
+        {
+          id: "03-Statements",
+          nameEn: "03-Statements",
+          nameHe: "03-דוחות",
+          yearScoped: true,
+        },
+      ];
+  }
+}
+
+function buildDefaultFolderTemplatesV1(): FolderTemplatesV1 {
+  const trees: Record<string, FolderTemplateFolder[]> = {};
+  for (const kind of BUILTIN_FOLDER_TEMPLATE_KINDS) {
+    trees[kind] = defaultTreesForBuiltin(kind);
+  }
+  return {
+    schemaVersion: FOLDER_TEMPLATES_SCHEMA_VERSION,
+    trees,
+    customGroups: [],
+    hiddenKinds: [],
+  };
+}
+
+const DEFAULT_FOLDER_TEMPLATES: FolderTemplatesV1 = buildDefaultFolderTemplatesV1();
+
+/** Client root create template stays pinned; all other groups are removable. */
+const FOLDER_TEMPLATE_PROTECTED_KIND = "client";
+
+function isFolderTemplateGroupRemovable(kind: string): boolean {
+  if (kind === FOLDER_TEMPLATE_PROTECTED_KIND) return false;
+  return isBuiltinFolderTemplateKind(kind) || isFolderTemplateCustomId(kind);
+}
+
+function normalizeFolderTemplateHiddenKinds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    const id = String(item ?? "").trim();
+    if (!id || id === FOLDER_TEMPLATE_PROTECTED_KIND) continue;
+    if (!isBuiltinFolderTemplateKind(id)) continue;
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+function cloneFolderTemplateFolders(
+  folders: FolderTemplateFolder[],
+): FolderTemplateFolder[] {
+  return folders.map((f) => ({
+    ...f,
+    children: f.children?.length
+      ? cloneFolderTemplateFolders(f.children)
+      : undefined,
+  }));
+}
+
+function normalizeFolderTemplateNode(
+  row: Partial<FolderTemplateFolder> | null | undefined,
+  kind: FolderTemplateKind,
+  idx: number,
+  pathKey: string,
+): FolderTemplateFolder {
+  const id = String(row?.id || `folder-${kind}-${pathKey}${idx}`);
+  const nameEn = String(row?.nameEn || row?.nameHe || "Folder");
+  const nameHe = String(row?.nameHe || row?.nameEn || "Folder");
+  const childrenRaw = row?.children;
+  const children =
+    Array.isArray(childrenRaw) && childrenRaw.length > 0
+      ? childrenRaw.map((child, childIdx) =>
+          normalizeFolderTemplateNode(child, kind, childIdx, `${id}-`),
+        )
+      : undefined;
+  return {
+    id,
+    nameEn,
+    nameHe,
+    yearScoped: !!row?.yearScoped,
+    portalMonthScoped: !!row?.portalMonthScoped,
+    ...(children ? { children } : {}),
+  };
+}
+
+function normalizeFolderTemplateList(
+  list: unknown,
+  kind: string,
+): FolderTemplateFolder[] | null {
+  if (!Array.isArray(list) || list.length === 0) return null;
+  return cloneFolderTemplateFolders(
+    list.map((row, idx) =>
+      normalizeFolderTemplateNode(
+        row as Partial<FolderTemplateFolder>,
+        kind,
+        idx,
+        "",
+      ),
+    ),
+  );
+}
+
+function isLegacyFolderTemplatesRecord(
+  raw: unknown,
+): raw is Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const o = raw as Record<string, unknown>;
+  if (Array.isArray(o.trees) || (o.trees && typeof o.trees === "object")) {
+    return false;
+  }
+  return Array.isArray(o.client) || Array.isArray(o.company);
+}
+
+function normalizeFolderTemplatesV1(
+  raw: Partial<FolderTemplatesV1> | Record<string, unknown> | null | undefined,
+): FolderTemplatesV1 {
+  const base = buildDefaultFolderTemplatesV1();
+  if (!raw || typeof raw !== "object") return base;
+
+  const trees: Record<string, FolderTemplateFolder[]> = { ...base.trees };
+  let customGroups: FolderTemplateCustomGroup[] = [];
+
+  if (isLegacyFolderTemplatesRecord(raw)) {
+    for (const kind of BUILTIN_FOLDER_TEMPLATE_KINDS) {
+      const normalized = normalizeFolderTemplateList(raw[kind], kind);
+      if (normalized) trees[kind] = normalized;
+    }
+  } else {
+    const typed = raw as Partial<FolderTemplatesV1>;
+    const srcTrees =
+      typed.trees && typeof typed.trees === "object" ? typed.trees : {};
+    for (const kind of BUILTIN_FOLDER_TEMPLATE_KINDS) {
+      const normalized = normalizeFolderTemplateList(srcTrees[kind], kind);
+      trees[kind] = normalized ?? cloneFolderTemplateFolders(base.trees[kind]);
+    }
+    for (const [key, list] of Object.entries(srcTrees)) {
+      if (isBuiltinFolderTemplateKind(key)) continue;
+      const normalized = normalizeFolderTemplateList(list, key);
+      if (normalized) trees[key] = normalized;
+    }
+    if (Array.isArray(typed.customGroups)) {
+      customGroups = typed.customGroups
+        .filter((g) => g && typeof g === "object" && typeof g.id === "string")
+        .map((g) => {
+          const id = String(g.id).startsWith("custom:")
+            ? String(g.id)
+            : `custom:${String(g.id)}`;
+          const nameEn = String(g.nameEn || g.nameHe || "Custom").trim() || "Custom";
+          const nameHe = String(g.nameHe || g.nameEn || nameEn).trim() || nameEn;
+          const fromGroup = normalizeFolderTemplateList(g.folders, id);
+          const fromTrees = normalizeFolderTemplateList(trees[id], id);
+          const folders =
+            fromGroup ??
+            fromTrees ??
+            cloneFolderTemplateFolders(emptyCustomFolderTemplate());
+          trees[id] = folders;
+          return { id, nameEn, nameHe, folders };
+        });
+    }
+  }
+
+  const typedForHidden = raw as Partial<FolderTemplatesV1>;
+  const hiddenKinds = isLegacyFolderTemplatesRecord(raw)
+    ? []
+    : normalizeFolderTemplateHiddenKinds(typedForHidden.hiddenKinds);
+
+  return {
+    schemaVersion: FOLDER_TEMPLATES_SCHEMA_VERSION,
+    trees,
+    customGroups,
+    hiddenKinds,
+  };
+}
+
+function folderTemplatesForKind(
+  store: FolderTemplatesV1,
+  kind: FolderTemplateKind,
+): FolderTemplateFolder[] {
+  const normalized = normalizeFolderTemplatesV1(store);
+  if (isBuiltinFolderTemplateKind(kind)) {
+    return (
+      normalized.trees[kind] ??
+      cloneFolderTemplateFolders(defaultTreesForBuiltin(kind))
+    );
+  }
+  const custom = normalized.customGroups.find((g) => g.id === kind);
+  if (custom) {
+    return custom.folders.length
+      ? custom.folders
+      : cloneFolderTemplateFolders(emptyCustomFolderTemplate());
+  }
+  return (
+    normalized.trees[kind] ??
+    cloneFolderTemplateFolders(emptyCustomFolderTemplate())
+  );
+}
+
+function allFolderTemplatePillIds(store: FolderTemplatesV1): string[] {
+  const normalized = normalizeFolderTemplatesV1(store);
+  const hidden = new Set(normalized.hiddenKinds);
+  return [
+    ...BUILTIN_FOLDER_TEMPLATE_KINDS.filter((k) => !hidden.has(k)),
+    ...normalized.customGroups.map((g) => g.id),
+  ];
+}
+
+function folderTemplateHiddenBuiltinIds(store: FolderTemplatesV1): BuiltinFolderTemplateKind[] {
+  const normalized = normalizeFolderTemplatesV1(store);
+  const hidden = new Set(normalized.hiddenKinds);
+  return BUILTIN_FOLDER_TEMPLATE_KINDS.filter(
+    (k) => k !== FOLDER_TEMPLATE_PROTECTED_KIND && hidden.has(k),
+  );
+}
+
+function updateFolderTemplateNode(
+  folders: FolderTemplateFolder[],
+  id: string,
+  patch: Partial<FolderTemplateFolder>,
+): FolderTemplateFolder[] {
+  return folders.map((row) => {
+    if (row.id === id) {
+      const next: FolderTemplateFolder = { ...row, ...patch };
+      if (patch.children === undefined) next.children = row.children;
+      return next;
+    }
+    if (row.children?.length) {
+      return {
+        ...row,
+        children: updateFolderTemplateNode(row.children, id, patch),
+      };
+    }
+    return row;
+  });
+}
+
+function removeFolderTemplateNode(
+  folders: FolderTemplateFolder[],
+  id: string,
+): FolderTemplateFolder[] {
+  return folders
+    .filter((row) => row.id !== id)
+    .map((row) =>
+      row.children?.length
+        ? { ...row, children: removeFolderTemplateNode(row.children, id) }
+        : row,
+    );
+}
+
+function addFolderTemplateNode(
+  folders: FolderTemplateFolder[],
+  parentId: string | null,
+  child: FolderTemplateFolder,
+): FolderTemplateFolder[] {
+  if (parentId === null) return [...folders, child];
+  return folders.map((row) => {
+    if (row.id === parentId) {
+      return { ...row, children: [...(row.children ?? []), child] };
+    }
+    if (row.children?.length) {
+      return {
+        ...row,
+        children: addFolderTemplateNode(row.children, parentId, child),
+      };
+    }
+    return row;
+  });
+}
+
+/** Flatten nested template tree into create-path segments (includes scope years). */
+function flattenFolderTemplatePaths(
+  folders: FolderTemplateFolder[],
+  yyyy: string,
+  ym: string,
+  parent = "",
+): string[] {
+  const out: string[] = [];
+  for (const f of folders) {
+    const base = parent ? `${parent}\\${f.nameEn}` : f.nameEn;
+    let nodePath = base;
+    if (f.portalMonthScoped) nodePath = `${base}\\${ym}`;
+    else if (f.yearScoped) nodePath = `${base}\\${yyyy}`;
+    out.push(nodePath);
+    if (f.children?.length) {
+      out.push(...flattenFolderTemplatePaths(f.children, yyyy, ym, nodePath));
+    }
+  }
+  return out;
+}
+
+function folderTemplateKindFromClientFilter(
+  filter: ClientFilter | string | undefined,
+): FolderTemplateKind {
+  if (filter === "company" || filter === "companies") return "company";
+  if (filter === "bookkeeping") return "bookkeeping";
+  if (filter === "trust" || filter === "trusts") return "trusts";
+  return "client";
+}
+
+function folderTemplateTypeSegment(kind: FolderTemplateKind): string {
+  switch (kind) {
+    case "company":
+      return "Companies";
+    case "bookkeeping":
+      return "Bookkeeping";
+    case "trusts":
+      return "Trusts";
+    case "audit":
+      return "Audit";
+    case "tax-return":
+      return "Tax-return";
+    case "payroll":
+      return "Payroll";
+    case "portal":
+      return "Portal";
+    case "worker":
+      return "Workers";
+    case "billing":
+      return "Billing";
+    case "client":
+      return "Clients";
+    default:
+      return kind.startsWith("custom:") ? "Custom" : "Clients";
+  }
+}
+
+/** Strip Explorer tree glyphs / bullets from a pasted outline line. */
+function stripFolderOutlineDecor(line: string): string {
+  return line
+    .replace(/[\u2500-\u257F]+/g, " ")
+    .replace(/^[|\\/+*\-•·]+\s*/g, "")
+    .replace(/\s+$/g, "");
+}
+
+function detectFolderOutlineIndent(raw: string): number {
+  const m = raw.match(/^([\t ]+)/);
+  if (!m) return 0;
+  const ws = m[1];
+  const tabs = (ws.match(/\t/g) || []).length;
+  const spaces = ws.replace(/\t/g, "").length;
+  const unit = spaces >= 4 && spaces % 4 === 0 ? 4 : 2;
+  return tabs + Math.floor(spaces / unit);
+}
+
+function isFolderScopeSegment(seg: string): {
+  skip: boolean;
+  yearScoped?: boolean;
+  portalMonthScoped?: boolean;
+} {
+  const s = seg.trim();
+  if (!s) return { skip: true };
+  if (s === "{yyyy}" || s === "{year}" || /^20\d{2}$/.test(s)) {
+    return { skip: true, yearScoped: true };
+  }
+  if (
+    s === "{yyyy-mm}" ||
+    s === "{yyyy_mm}" ||
+    s === "{portal}" ||
+    /^\d{4}-\d{2}$/.test(s)
+  ) {
+    return { skip: true, portalMonthScoped: true };
+  }
+  return { skip: false };
+}
+
+function makeImportedFolderTemplate(
+  kind: FolderTemplateKind,
+  name: string,
+  flags?: { yearScoped?: boolean; portalMonthScoped?: boolean },
+): FolderTemplateFolder {
+  const nameEn = name.trim() || "Folder";
+  const id = `imp-${kind}-${nameEn
+    .toLowerCase()
+    .replace(/[^\w\-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "folder"}-${Date.now().toString(36)}-${Math.floor(
+    Math.random() * 10000,
+  )}`;
+  return {
+    id,
+    nameEn,
+    nameHe: nameEn,
+    ...(flags?.yearScoped ? { yearScoped: true } : {}),
+    ...(flags?.portalMonthScoped ? { portalMonthScoped: true } : {}),
+  };
+}
+
+function insertFolderPathSegments(
+  roots: FolderTemplateFolder[],
+  segments: string[],
+  kind: FolderTemplateKind,
+): void {
+  let level = roots;
+  let lastNode: FolderTemplateFolder | null = null;
+  let pendingYear = false;
+  let pendingPortal = false;
+  const applyPending = (node: FolderTemplateFolder) => {
+    if (pendingYear) {
+      node.yearScoped = true;
+      node.portalMonthScoped = false;
+      pendingYear = false;
+    }
+    if (pendingPortal) {
+      node.portalMonthScoped = true;
+      node.yearScoped = false;
+      pendingPortal = false;
+    }
+  };
+  for (let i = 0; i < segments.length; i++) {
+    const scope = isFolderScopeSegment(segments[i]);
+    if (scope.skip) {
+      if (scope.yearScoped) pendingYear = true;
+      if (scope.portalMonthScoped) pendingPortal = true;
+      if (lastNode) applyPending(lastNode);
+      continue;
+    }
+    const name = segments[i].trim();
+    let node = level.find(
+      (f) => f.nameEn.toLowerCase() === name.toLowerCase(),
+    );
+    if (!node) {
+      node = makeImportedFolderTemplate(kind, name);
+      level.push(node);
+    }
+    applyPending(node);
+    lastNode = node;
+    if (!node.children) node.children = [];
+    level = node.children;
+  }
+}
+
+function stripCommonPathPrefix(paths: string[][]): string[][] {
+  if (paths.length === 0) return paths;
+  const minLen = Math.min(...paths.map((p) => p.length));
+  if (minLen === 0) return paths;
+  let common = 0;
+  for (let i = 0; i < minLen; i++) {
+    const probe = paths[0][i].toLowerCase();
+    if (paths.every((p) => p[i].toLowerCase() === probe)) common = i + 1;
+    else break;
+  }
+  // Keep at least one segment; if all paths identical, keep last segment only
+  if (common >= minLen) {
+    return paths.map((p) => [p[p.length - 1]]);
+  }
+  // Don't strip if that would leave nothing useful on short paths
+  if (common === 0) return paths;
+  return paths.map((p) => p.slice(common));
+}
+
+function splitPathLineToSegments(line: string): string[] | null {
+  const trimmed = line.trim().replace(/^["']|["']$/g, "");
+  if (!trimmed) return null;
+  // UNC or drive path
+  let s = trimmed.replace(/^\\\\\?\\/, "");
+  // Normalize separators
+  if (s.includes("\\") || /^[A-Za-z]:\//.test(s) || s.startsWith("//")) {
+    s = s.replace(/\//g, "\\");
+    const parts = s.split("\\").map((p) => p.trim()).filter(Boolean);
+    return parts.length ? parts : null;
+  }
+  if (s.includes("/") && !s.includes(" ") && s.split("/").length >= 2) {
+    const parts = s.split("/").map((p) => p.trim()).filter(Boolean);
+    return parts.length ? parts : null;
+  }
+  return null;
+}
+
+function parseFolderStructureJson(
+  text: string,
+  kind: FolderTemplateKind,
+): FolderTemplateFolder[] | null {
+  try {
+    const data = JSON.parse(text);
+    const list = Array.isArray(data)
+      ? data
+      : data && typeof data === "object"
+        ? Array.isArray((data as FolderTemplatesV1)[kind])
+          ? (data as FolderTemplatesV1)[kind]
+          : Array.isArray((data as { folders?: unknown }).folders)
+            ? (data as { folders: unknown[] }).folders
+            : Array.isArray((data as { children?: unknown }).children)
+              ? (data as { children: unknown[] }).children
+              : null
+        : null;
+    if (!list) return null;
+    return list.map((row, idx) =>
+      normalizeFolderTemplateNode(
+        row as Partial<FolderTemplateFolder>,
+        kind,
+        idx,
+        "json-",
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse pasted company folder list into a nested template tree.
+ * Supports: JSON trees, Windows/UNC paths, indented outlines, CSV/one-name-per-line.
+ */
+function parseFolderStructurePaste(
+  text: string,
+  kind: FolderTemplateKind,
+): { folders: FolderTemplateFolder[]; mode: string } | { error: string } {
+  const raw = text.replace(/^\uFEFF/, "").trim();
+  if (!raw) return { error: "empty" };
+
+  if (raw.startsWith("[") || raw.startsWith("{")) {
+    const jsonFolders = parseFolderStructureJson(raw, kind);
+    if (jsonFolders?.length) return { folders: jsonFolders, mode: "json" };
+    if (raw.startsWith("[") || raw.startsWith("{")) {
+      return { error: "json" };
+    }
+  }
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+$/g, ""))
+    .filter((l) => l.trim().length > 0 && !/^\s*#/.test(l));
+
+  if (!lines.length) return { error: "empty" };
+
+  // Path-heavy paste (Explorer copy)
+  const pathSegs = lines
+    .map((l) => splitPathLineToSegments(stripFolderOutlineDecor(l.trim())))
+    .filter((p): p is string[] => !!p && p.length > 0);
+  const pathRatio = pathSegs.length / lines.length;
+  if (pathSegs.length >= 1 && pathRatio >= 0.5) {
+    const normalized = stripCommonPathPrefix(pathSegs);
+    const roots: FolderTemplateFolder[] = [];
+    for (const segs of normalized) {
+      insertFolderPathSegments(roots, segs, kind);
+    }
+    // Drop empty children arrays
+    const prune = (nodes: FolderTemplateFolder[]): FolderTemplateFolder[] =>
+      nodes.map((n) => {
+        const kids = n.children?.length ? prune(n.children) : undefined;
+        const { children: _c, ...rest } = n;
+        return kids?.length ? { ...rest, children: kids } : { ...rest };
+      });
+    const folders = prune(roots);
+    if (!folders.length) return { error: "parse" };
+    return { folders, mode: "paths" };
+  }
+
+  // Indented outline
+  const indentSamples = lines
+    .map((l) => (l.match(/^(\s+)/) ? l.match(/^(\s+)/)![1].length : 0))
+    .filter((n) => n > 0);
+  const looksIndented = indentSamples.length >= 1;
+
+  if (looksIndented) {
+    const roots: FolderTemplateFolder[] = [];
+    const stack: { depth: number; node: FolderTemplateFolder }[] = [];
+    for (const line of lines) {
+      const depth = detectFolderOutlineIndent(line);
+      const name = stripFolderOutlineDecor(line.trim());
+      if (!name) continue;
+      // CSV on a single indented line → take first column
+      const label = name.split(/[,;\t]/)[0].trim() || name;
+      const scope = isFolderScopeSegment(label);
+      if (scope.skip) {
+        if (stack.length) {
+          const parent = stack[stack.length - 1].node;
+          if (scope.yearScoped) {
+            parent.yearScoped = true;
+            parent.portalMonthScoped = false;
+          }
+          if (scope.portalMonthScoped) {
+            parent.portalMonthScoped = true;
+            parent.yearScoped = false;
+          }
+        }
+        continue;
+      }
+      while (stack.length && stack[stack.length - 1].depth >= depth) {
+        stack.pop();
+      }
+      const node = makeImportedFolderTemplate(kind, label);
+      if (!stack.length) {
+        roots.push(node);
+      } else {
+        const parent = stack[stack.length - 1].node;
+        parent.children = [...(parent.children ?? []), node];
+      }
+      stack.push({ depth, node });
+    }
+    if (!roots.length) return { error: "parse" };
+    return { folders: roots, mode: "indent" };
+  }
+
+  // Flat / CSV outline: one folder name per line (or first CSV column)
+  const roots: FolderTemplateFolder[] = [];
+  for (const line of lines) {
+    const cleaned = stripFolderOutlineDecor(line.trim());
+    // path-like single line already handled; here treat as name
+    const name = cleaned.split(/[,;\t]/)[0].trim();
+    if (!name || isFolderScopeSegment(name).skip) continue;
+    // If line still has path seps, use path insert
+    const segs = splitPathLineToSegments(cleaned);
+    if (segs && segs.length > 1) {
+      insertFolderPathSegments(roots, segs, kind);
+    } else {
+      if (!roots.some((r) => r.nameEn.toLowerCase() === name.toLowerCase())) {
+        roots.push(makeImportedFolderTemplate(kind, name));
+      }
+    }
+  }
+  if (!roots.length) return { error: "parse" };
+  return { folders: roots, mode: "flat" };
+}
+
+function mergeFolderTemplateTrees(
+  existing: FolderTemplateFolder[],
+  incoming: FolderTemplateFolder[],
+): FolderTemplateFolder[] {
+  const out = cloneFolderTemplateFolders(existing);
+  const mergeInto = (
+    target: FolderTemplateFolder[],
+    add: FolderTemplateFolder[],
+  ) => {
+    for (const node of add) {
+      const hit = target.find(
+        (t) => t.nameEn.toLowerCase() === node.nameEn.toLowerCase(),
+      );
+      if (!hit) {
+        target.push(cloneFolderTemplateFolders([node])[0]);
+        continue;
+      }
+      if (node.yearScoped) hit.yearScoped = true;
+      if (node.portalMonthScoped) hit.portalMonthScoped = true;
+      if (node.children?.length) {
+        if (!hit.children) hit.children = [];
+        mergeInto(hit.children, node.children);
+      }
+    }
+  };
+  mergeInto(out, incoming);
+  return out;
+}
+
+function flattenFolderTemplatePreviewLines(
+  folders: FolderTemplateFolder[],
+  depth = 0,
+): string[] {
+  const lines: string[] = [];
+  for (const f of folders) {
+    const pad = "  ".repeat(depth);
+    const flags = [
+      f.yearScoped ? "{yyyy}" : "",
+      f.portalMonthScoped ? "{yyyy-mm}" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    lines.push(`${pad}${f.nameEn}${flags ? `  ${flags}` : ""}`);
+    if (f.children?.length) {
+      lines.push(...flattenFolderTemplatePreviewLines(f.children, depth + 1));
+    }
+  }
+  return lines;
+}
+
+
+/**
+ * Seed path for a new client/company/bookkeeping working folder.
+ * Uses folderTemplates.v1 nested taxonomy + files-root type segment.
+ */
+function resolveNewClientFolderSeed(
+  name: string,
+  kind: FolderTemplateKind = "client",
+  templates?: FolderTemplatesV1,
+): { rootLabel: string; subfolders: string[] } {
+  const safe = name.trim() || "New client";
+  const typeSeg = folderTemplateTypeSegment(kind);
+  const folders = folderTemplatesForKind(
+    templates ? normalizeFolderTemplatesV1(templates) : DEFAULT_FOLDER_TEMPLATES,
+    kind,
+  );
+  const yyyy = "2026";
+  const ym = "2026-10";
+  return {
+    rootLabel: `Working files / ${typeSeg} / ${safe}`,
+    subfolders: flattenFolderTemplatePaths(folders, yyyy, ym),
+  };
+}
+
+
 function demoProspectWorkingFilePath(name: string): string {
   const safe = name.trim() || "Prospect";
   return `Working files / Prospects / ${safe} / Client file`;
 }
 
 /** Demo working-folder path for New client (Clients tree, not Prospects). */
-function demoClientWorkingFilePath(name: string): string {
-  const safe = name.trim() || "New client";
-  return `Working files / Clients / ${safe} / Client file`;
+function demoClientWorkingFilePath(
+  name: string,
+  kind: FolderTemplateKind = "client",
+): string {
+  const seed = resolveNewClientFolderSeed(name, kind);
+  return `${seed.rootLabel} / Client file`;
 }
 
 /**
@@ -23486,23 +25933,91 @@ type BillingEmailColorTone =
   | "link"
   | "muted";
 
-/** Firm template areas shown in Template settings (All = every category). */
-type FirmEmailTemplateCategory =
+/** Built-in firm template modules shown in Template settings. */
+type FirmEmailTemplateBuiltinCategory =
   | "billing"
   | "bookkeeping"
   | "worker"
   | "tax"
   | "general";
 
+/**
+ * Module / category slug for email templates.
+ * Built-ins plus demo custom categories (`custom-…`).
+ */
+type FirmEmailTemplateCategory = FirmEmailTemplateBuiltinCategory | string;
+
 type FirmEmailTemplateScope = "all" | FirmEmailTemplateCategory;
 
-const FIRM_EMAIL_TEMPLATE_CATEGORIES: FirmEmailTemplateCategory[] = [
+const FIRM_EMAIL_TEMPLATE_CATEGORIES: FirmEmailTemplateBuiltinCategory[] = [
   "billing",
   "bookkeeping",
   "worker",
   "tax",
   "general",
 ];
+
+type CustomFirmEmailCategory = {
+  id: string;
+  nameEn: string;
+  nameHe: string;
+};
+
+const FIRM_EMAIL_CUSTOM_CATEGORIES_KEY = "firmEmailTemplateCustomCategories.v1";
+const DEFAULT_CUSTOM_FIRM_EMAIL_CATEGORIES: CustomFirmEmailCategory[] = [];
+
+function isBuiltinFirmEmailCategory(
+  id: string,
+): id is FirmEmailTemplateBuiltinCategory {
+  return (
+    id === "billing" ||
+    id === "bookkeeping" ||
+    id === "worker" ||
+    id === "tax" ||
+    id === "general"
+  );
+}
+
+function slugifyFirmEmailCategory(name: string): string {
+  const base = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return base || "category";
+}
+
+function normalizeCustomFirmEmailCategory(
+  raw: Partial<CustomFirmEmailCategory> | null | undefined,
+): CustomFirmEmailCategory | null {
+  if (!raw || typeof raw.id !== "string") return null;
+  const id = raw.id.trim().toLowerCase();
+  if (!id || isBuiltinFirmEmailCategory(id)) return null;
+  if (!/^[a-z][a-z0-9_-]{0,63}$/.test(id)) return null;
+  const nameEn = typeof raw.nameEn === "string" ? raw.nameEn.trim() : "";
+  const nameHe = typeof raw.nameHe === "string" ? raw.nameHe.trim() : "";
+  if (!nameEn && !nameHe) return null;
+  return {
+    id,
+    nameEn: nameEn || nameHe,
+    nameHe: nameHe || nameEn,
+  };
+}
+
+function normalizeCustomFirmEmailCategories(
+  raw: CustomFirmEmailCategory[] | null | undefined,
+): CustomFirmEmailCategory[] {
+  const out: CustomFirmEmailCategory[] = [];
+  const seen = new Set<string>();
+  for (const item of raw ?? []) {
+    const cat = normalizeCustomFirmEmailCategory(item);
+    if (!cat || seen.has(cat.id)) continue;
+    seen.add(cat.id);
+    out.push(cat);
+  }
+  return out;
+}
 
 /**
  * Source mapping for template {…} merge fields (System Admin → Template fields).
@@ -23882,9 +26397,14 @@ type BillingEmailTemplate = {
   bodyTextTone: BillingEmailColorTone;
   bodyBgTone: BillingEmailColorTone | "none";
   bodyAlign: BillingEmailBodyAlign;
-  /** Template settings group — billing / bookkeeping / worker / tax / general. */
+  /** Template settings module — billing / bookkeeping / worker / tax / general. */
   category: FirmEmailTemplateCategory;
-  /** One default per category. */
+  /**
+   * Event / purpose slot within the module (e.g. invoice-sent, payment-reminder).
+   * Competing defaults never cross purposes — only versions of the same purpose.
+   */
+  purposeId: string;
+  /** Active version within the same category + purposeId. */
   isDefault: boolean;
 };
 
@@ -23930,6 +26450,7 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {client},\n\nמצורפת חשבונית {invoice} על סך {amount}. לתשלום עד: {due}.\n\nתודה,\nאינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "billing",
+    purposeId: "purpose-invoice-sent",
     isDefault: true,
   },
   {
@@ -23944,7 +26465,8 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {client},\n\nתזכורת ידידותית: חשבונית {invoice} ({amount}) לפירעון ב־{due}.\n\nגבייה — אינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "billing",
-    isDefault: false,
+    purposeId: "purpose-payment-reminder",
+    isDefault: true,
   },
   {
     id: "tpl-payment-received",
@@ -23958,7 +26480,8 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {client},\n\nקיבלנו את התשלום עבור חשבונית {invoice} ({amount}). תודה.\n\nאינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "billing",
-    isDefault: false,
+    purposeId: "purpose-payment-received",
+    isDefault: true,
   },
   {
     id: "tpl-bk-docs-request",
@@ -23972,6 +26495,7 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {client},\n\nנא להעלות את דפי הבנק וקבלות ההוצאות לחודש זה.\n\nהנהלת חשבונות — אינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "bookkeeping",
+    purposeId: "purpose-bk-docs-request",
     isDefault: true,
   },
   {
@@ -23986,7 +26510,8 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {client},\n\nסגרנו את החודש. ניתן לבקש דוח רווח והפסד או מאזן.\n\nאינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "bookkeeping",
-    isDefault: false,
+    purposeId: "purpose-bk-month-close",
+    isDefault: true,
   },
   {
     id: "tpl-worker-welcome",
@@ -24000,6 +26525,7 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {worker},\n\nהגישה ל־CRM מוכנה. דיווח שעות ב־עובד ← שעון נוכחות, ומשימות ב־Tasks.\n\nאינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "worker",
+    purposeId: "purpose-worker-welcome",
     isDefault: true,
   },
   {
@@ -24014,7 +26540,8 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {worker},\n\nנא להגיש את שעות השבוע שעבר עד סוף היום.\n\nמשאבי אנוש — אינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "worker",
-    isDefault: false,
+    purposeId: "purpose-worker-timesheet",
+    isDefault: true,
   },
   {
     id: "tpl-tax-docs",
@@ -24028,6 +26555,7 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {client},\n\nנא לשלוח טופס 106, תרומות וניירות ערך לשנת {year}.\n\nמסים — אינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "tax",
+    purposeId: "purpose-tax-docs",
     isDefault: true,
   },
   {
@@ -24042,6 +26570,7 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
       "שלום {client},\n\nרצינו לבדוק לגבי השיחה האחרונה. נשמח לעזור.\n\nאינטרטקס",
     ...DEFAULT_BILLING_EMAIL_STYLE,
     category: "general",
+    purposeId: "purpose-general-followup",
     isDefault: true,
   },
 ];
@@ -24049,18 +26578,63 @@ const DEFAULT_BILLING_EMAIL_TEMPLATES: BillingEmailTemplate[] = [
 /** Alias — Template settings hub uses the same firm-wide list. */
 const DEFAULT_FIRM_EMAIL_TEMPLATES = DEFAULT_BILLING_EMAIL_TEMPLATES;
 
+function purposeIdFromTemplateId(id: string): string {
+  const trimmed = (id || "").trim();
+  if (!trimmed) return "purpose-general";
+  if (trimmed.startsWith("purpose-")) return trimmed;
+  if (trimmed.startsWith("tpl-")) return `purpose-${trimmed.slice(4)}`;
+  return `purpose-${trimmed}`;
+}
+
+/** Ensure exactly one active (isDefault) template per category + purposeId. */
+function ensureOneDefaultPerPurpose(
+  templates: BillingEmailTemplate[],
+): BillingEmailTemplate[] {
+  const seen = new Set<string>();
+  const out = templates.map((tpl) => ({ ...tpl }));
+  for (const tpl of out) {
+    const key = `${tpl.category}::${tpl.purposeId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const group = out.filter(
+      (x) => x.category === tpl.category && x.purposeId === tpl.purposeId,
+    );
+    if (group.some((x) => x.isDefault)) {
+      let kept = false;
+      for (const g of group) {
+        if (g.isDefault && !kept) {
+          kept = true;
+        } else if (g.isDefault) {
+          g.isDefault = false;
+        }
+      }
+    } else if (group[0]) {
+      group[0].isDefault = true;
+    }
+  }
+  return out;
+}
+
+function activeTemplateForPurpose(
+  templates: BillingEmailTemplate[],
+  category: FirmEmailTemplateCategory,
+  purposeId: string,
+): BillingEmailTemplate | undefined {
+  const group = templates.filter(
+    (tpl) => tpl.category === category && tpl.purposeId === purposeId,
+  );
+  return group.find((tpl) => tpl.isDefault) ?? group[0];
+}
+
 function normalizeFirmEmailCategory(
   raw: string | null | undefined,
 ): FirmEmailTemplateCategory {
-  if (
-    raw === "billing" ||
-    raw === "bookkeeping" ||
-    raw === "worker" ||
-    raw === "tax" ||
-    raw === "general"
-  ) {
-    return raw;
-  }
+  if (typeof raw !== "string") return "billing";
+  const id = raw.trim().toLowerCase();
+  if (!id) return "billing";
+  if (isBuiltinFirmEmailCategory(id)) return id;
+  // Preserve custom module slugs so purpose slots survive reload.
+  if (/^[a-z][a-z0-9_-]{0,63}$/.test(id)) return id;
   return "billing";
 }
 
@@ -24106,6 +26680,10 @@ function normalizeBillingEmailTemplate(
         ? raw.bodyAlign
         : "start",
     category: normalizeFirmEmailCategory(raw?.category),
+    purposeId:
+      typeof raw?.purposeId === "string" && raw.purposeId.trim()
+        ? raw.purposeId.trim()
+        : purposeIdFromTemplateId(raw?.id ?? base.id),
     isDefault: Boolean(raw?.isDefault),
   };
 }
@@ -24113,24 +26691,56 @@ function normalizeBillingEmailTemplate(
 function firmEmailCategoryLabel(
   lang: UiLang,
   category: FirmEmailTemplateCategory,
+  customCategories: CustomFirmEmailCategory[] = [],
 ): string {
-  switch (category) {
-    case "billing":
-      return t(lang, "templateSettingsBilling");
-    case "bookkeeping":
-      return t(lang, "templateSettingsBookkeeping");
-    case "worker":
-      return t(lang, "templateSettingsWorker");
-    case "tax":
-      return t(lang, "templateSettingsTax");
-    case "general":
-      return t(lang, "templateSettingsGeneral");
+  if (category === "billing") return t(lang, "templateSettingsBilling");
+  if (category === "bookkeeping") return t(lang, "templateSettingsBookkeeping");
+  if (category === "worker") return t(lang, "templateSettingsWorker");
+  if (category === "tax") return t(lang, "templateSettingsTax");
+  if (category === "general") return t(lang, "templateSettingsGeneral");
+  const custom = customCategories.find((c) => c.id === category);
+  if (custom) {
+    return lang === "he"
+      ? custom.nameHe || custom.nameEn
+      : custom.nameEn || custom.nameHe;
   }
+  // Fallback: humanize slug
+  return category
+    .replace(/^custom-/, "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-function firmEmailScopeLabel(lang: UiLang, scope: FirmEmailTemplateScope): string {
+function firmEmailScopeLabel(
+  lang: UiLang,
+  scope: FirmEmailTemplateScope,
+  customCategories: CustomFirmEmailCategory[] = [],
+): string {
   if (scope === "all") return t(lang, "templateSettingsScopeAll");
-  return firmEmailCategoryLabel(lang, scope);
+  return firmEmailCategoryLabel(lang, scope, customCategories);
+}
+
+function firmEmailTemplatesEditorTitle(
+  lang: UiLang,
+  category: FirmEmailTemplateCategory,
+  customCategories: CustomFirmEmailCategory[] = [],
+): string {
+  const mod = firmEmailCategoryLabel(lang, category, customCategories);
+  const suffix = t(lang, "moduleTemplatesTitleSuffix");
+  if (lang === "he") return `${suffix} — ${mod}`;
+  return `${mod} ${suffix}`;
+}
+
+function firmEmailTemplatesEditorHint(
+  lang: UiLang,
+  category: FirmEmailTemplateCategory,
+): string {
+  if (category === "billing") return t(lang, "billingTemplatesHint");
+  if (category === "bookkeeping") return t(lang, "bookkeepingTemplatesHint");
+  if (category === "worker") return t(lang, "workerTemplatesHint");
+  if (category === "tax") return t(lang, "taxTemplatesHint");
+  if (category === "general") return t(lang, "generalTemplatesHint");
+  return t(lang, "moduleTemplatesHint");
 }
 
 function billingEmailToneColor(
@@ -31051,6 +33661,25 @@ function workDriveKindLabel(lang: UiLang, kind: WorkDriveKind): string {
   return t(lang, "workDriveKindLocal");
 }
 
+/** Label / hint / placeholder for Google Drive vs generic folder-link fields. */
+function workDriveUrlFieldCopy(
+  lang: UiLang,
+  kind: "google" | "link",
+): { label: string; hint: string; placeholder: string } {
+  if (kind === "google") {
+    return {
+      label: t(lang, "workDriveUrlLabelGoogle"),
+      hint: t(lang, "workDriveUrlHintGoogle"),
+      placeholder: t(lang, "workDriveUrlPlaceholderGoogle"),
+    };
+  }
+  return {
+    label: t(lang, "workDriveUrlLabelLink"),
+    hint: t(lang, "workDriveUrlHintLink"),
+    placeholder: t(lang, "workDriveUrlPlaceholderLink"),
+  };
+}
+
 function isCompanyArchiveDrive(drive: WorkDrive): boolean {
   return (
     drive.folderTreeId === COMPANY_ARCHIVE_TREE_ID ||
@@ -31669,6 +34298,7 @@ function ModuleTileIcon({
        * Windows File Explorer / This PC internal volume glyph:
        * isometric silver top, charcoal front + side, green activity LED.
        * No Windows four-square logo / badge.
+       * Work drives (+ Work secondary drive rows) only — not Files / Cloud.
        */
       return (
         <svg {...box}>
@@ -31698,6 +34328,32 @@ function ModuleTileIcon({
           {/* Green activity LED — left of front face only */}
           <circle cx="5.75" cy="13.65" r="1.25" fill="#00E676" />
           <circle cx="5.75" cy="13.65" r="0.55" fill="#B9F6CA" />
+        </svg>
+      );
+    case "files-root":
+      /**
+       * Office share / Files area — upright file cabinet + network-share nodes.
+       * Distinct from Work drives HDD and from Cloud tab cloud glyph.
+       */
+      return (
+        <svg {...box}>
+          {/* Cabinet shell */}
+          <rect x="4.2" y="3.8" width="12.6" height="16.4" rx="1.6" fill={p} />
+          {/* Top drawer */}
+          <rect x="5.6" y="5.4" width="9.8" height="4.4" rx="0.85" fill={s} />
+          <rect x="9.6" y="6.9" width="1.8" height="1.4" rx="0.35" fill="#FFFFFF" />
+          {/* Bottom drawer */}
+          <rect x="5.6" y="11.2" width="9.8" height="7.2" rx="0.85" fill={t} />
+          <rect x="9.6" y="13.9" width="1.8" height="1.4" rx="0.35" fill="#FFFFFF" />
+          {/* Network / share badge (folder-on-share cue) */}
+          <circle cx="18.2" cy="17.8" r="3.6" fill={s} />
+          <circle cx="16.9" cy="17.8" r="0.85" fill="#FFFFFF" />
+          <circle cx="19.35" cy="16.55" r="0.7" fill="#FFFFFF" />
+          <circle cx="19.35" cy="19.05" r="0.7" fill="#FFFFFF" />
+          <path
+            d="M17.55 17.8h1.15M18.55 17.35l.55-.5M18.55 18.25l.55.5"
+            {...stroke("#FFFFFF", 1.15)}
+          />
         </svg>
       );
     case "worker-files":
@@ -31884,7 +34540,8 @@ function ModuleTileIcon({
           <path d="M12 12.2v1.4" {...stroke(s, 1.6)} />
         </svg>
       );
-    case "files-root":
+    case "cloud":
+      /** Cloud import / vendor mapping — distinct from Files root cabinet. */
       return (
         <svg {...box}>
           <path
@@ -31893,6 +34550,17 @@ function ModuleTileIcon({
             stroke="none"
           />
           <path d="M9 14h6" {...stroke(s, 1.7)} />
+        </svg>
+      );
+    case "folder-templates":
+      return (
+        <svg {...box}>
+          <path
+            d="M4 8.5h6l1.5 2H20a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V10A1.5 1.5 0 0 1 4 8.5z"
+            fill={p}
+            stroke="none"
+          />
+          <path d="M7 14h3M7 16.5h6M14 13.5h3v4h-3z" {...stroke(s, 1.6)} />
         </svg>
       );
     case "help-feedback":
@@ -32576,6 +35244,8 @@ const TILE_ICON_COLORS: Record<string, string> = {
   "whatsapp-settings": "#25D366",
   "chats-settings": "#C85898",
   "files-root": "#5B9BD5",
+  cloud: "#5B9BD5",
+  "folder-templates": "#6B8F71",
   "work-drives": "#3B82C4",
   "help-feedback": "#70B0D8",
   "ai-maintenance": "#E8923C",
@@ -32654,6 +35324,8 @@ const TILE_ICON_SECONDARY: Record<string, string> = {
   "whatsapp-settings": "#128C7E",
   "chats-settings": "#5A6CC0",
   "files-root": "#94A3B8",
+  cloud: "#94A3B8",
+  "folder-templates": "#7A9E80",
   "work-drives": "#22A06B",
   "help-feedback": "#F0B429",
   "ai-maintenance": "#5A6CC0",
@@ -33067,6 +35739,7 @@ function chromeWhereKind(
     screen === "wave-import" ||
     screen === "users-rights" ||
     screen === "files-root" ||
+    screen === "folder-templates" ||
     screen === "work-drives"
   ) {
     return "systemadmin";
@@ -41261,11 +43934,13 @@ function TrustReportingWorkspace({
             <ChromeText size="small" tone="secondary">
               {trustTr(uiLang, "Due date", "תאריך יעד")}
             </ChromeText>
-            <TextInput
-              value={trustCase.dueDate}
-              onChange={(value) => patch({ dueDate: value })}
-              style={{ width: 160 }}
-            />
+            <div style={{ width: 180, flexShrink: 0 }}>
+              <DateChooser
+                value={trustCase.dueDate}
+                onChange={(value) => patch({ dueDate: value })}
+                lang={uiLang}
+              />
+            </div>
             <ChromeText size="small" tone="tertiary">
               {trustTr(
                 uiLang,
@@ -51953,7 +54628,7 @@ function normalizeCompanySettings(
 }
 
 /** System Admin — edit default Company documents folder template. */
-function CompanyDocsFolderTemplateScreen() {
+function CompanyDocsFolderTemplateScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [defaults, setDefaults] = useCanvasState<
@@ -52022,15 +54697,19 @@ function CompanyDocsFolderTemplateScreen() {
   };
 
   return (
-    <Stack gap={16} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
-      <Row align="center" gap={12} wrap>
-        <Spacer />
-        <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
-      </Row>
-      <Stack gap={4}>
-        <H1>{t(uiLang, "companyDocsDefaultFolders")}</H1>
-        <ChromeText tone="secondary">{t(uiLang, "companyDocsDefaultFoldersHint")}</ChromeText>
-      </Stack>
+    <Stack gap={embedded ? 12 : 16} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
+      {embedded ? null : (
+        <>
+          <Row align="center" gap={12} wrap>
+            <Spacer />
+            <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
+          </Row>
+          <Stack gap={4}>
+            <H1>{t(uiLang, "companyDocsDefaultFolders")}</H1>
+            <ChromeText tone="secondary">{t(uiLang, "companyDocsDefaultFoldersHint")}</ChromeText>
+          </Stack>
+        </>
+      )}
       {saveFlash ? (
         <Callout tone="success" title={t(uiLang, "save")}>
           {saveFlash}
@@ -55369,12 +58048,51 @@ function UsersRightsScreen() {
 }
 
 type FilesRootStage = "share" | "cloud";
-type FilesRootCloudVendor = "unset" | "onedrive" | "sharepoint" | "gdrive";
+type FilesRootCloudVendor =
+  | "unset"
+  | "gdrive"
+  | "onedrive"
+  | "sharepoint"
+  | "aws_s3"
+  | "dropbox"
+  | "box"
+  | "icloud"
+  | "other";
 type FilesRootSettings = {
   rootPath: string;
   stage: FilesRootStage;
   cloudVendor: FilesRootCloudVendor;
+  /** Free-text provider name when cloudVendor === "other". */
+  cloudVendorOther: string;
 };
+
+const FILES_ROOT_CLOUD_VENDOR_OPTIONS: Array<{
+  value: FilesRootCloudVendor;
+  labelKey: CrmUiKey;
+}> = [
+  { value: "unset", labelKey: "filesRootVendorUnset" },
+  { value: "gdrive", labelKey: "filesRootVendorGDrive" },
+  { value: "onedrive", labelKey: "filesRootVendorOneDrive" },
+  { value: "sharepoint", labelKey: "filesRootVendorSharePoint" },
+  { value: "aws_s3", labelKey: "filesRootVendorAwsS3" },
+  { value: "dropbox", labelKey: "filesRootVendorDropbox" },
+  { value: "box", labelKey: "filesRootVendorBox" },
+  { value: "icloud", labelKey: "filesRootVendorICloud" },
+  { value: "other", labelKey: "filesRootVendorOther" },
+];
+
+function filesRootVendorLabel(
+  lang: UiLang,
+  vendor: FilesRootCloudVendor,
+  customName?: string,
+): string {
+  if (vendor === "other") {
+    const trimmed = (customName ?? "").trim();
+    return trimmed || t(lang, "filesRootVendorOther");
+  }
+  const hit = FILES_ROOT_CLOUD_VENDOR_OPTIONS.find((o) => o.value === vendor);
+  return t(lang, hit?.labelKey ?? "filesRootVendorUnset");
+}
 
 type FilesBrowserEntry = {
   id: string;
@@ -55393,6 +58111,7 @@ const DEFAULT_FILES_ROOT_SETTINGS: FilesRootSettings = {
   rootPath: "\\\\server\\Intertax",
   stage: "share",
   cloudVendor: "unset",
+  cloudVendorOther: "",
 };
 
 /** Demo tree — locked taxonomy under Clients/{type}/{identity}-{name}. */
@@ -55672,7 +58391,217 @@ function filesBreadcrumb(
   return chain;
 }
 
-/** System Admin → Files root / cloud — Sumit-like share browser + stage A/B settings. */
+/** UNC/path for a share-browser folder under the configured files root. */
+function filesFolderUncPath(
+  rootPath: string,
+  entries: FilesBrowserEntry[],
+  folderId: string | null,
+  lang: UiLang,
+): string {
+  const prefix = (rootPath || "\\\\server\\Intertax").replace(/[\\/]+$/, "");
+  const crumbs = filesBreadcrumb(entries, folderId);
+  if (crumbs.length === 0) return prefix;
+  return `${prefix}\\${crumbs.map((c) => filesEntryLabel(lang, c)).join("\\")}`;
+}
+
+/** Demo share folders as Select options (path value → relative label). */
+function workDriveShareFolderOptions(
+  rootPath: string,
+  entries: FilesBrowserEntry[],
+  lang: UiLang,
+): Array<{ value: string; label: string }> {
+  const folders = entries
+    .filter((e) => e.kind === "folder")
+    .slice()
+    .sort((a, b) =>
+      filesFolderUncPath(rootPath, entries, a.id, lang).localeCompare(
+        filesFolderUncPath(rootPath, entries, b.id, lang),
+        lang === "he" ? "he" : "en",
+      ),
+    );
+  return folders.map((f) => {
+    const path = filesFolderUncPath(rootPath, entries, f.id, lang);
+    const crumbs = filesBreadcrumb(entries, f.id);
+    const rel = crumbs.map((c) => filesEntryLabel(lang, c)).join(" \\ ");
+    return { value: path, label: rel || path };
+  });
+}
+
+/** Compact share-folder picker for Work drives (local / company folders). */
+function WorkDriveFolderChooser({
+  pathValue,
+  onPathChange,
+}: {
+  pathValue: string;
+  onPathChange: (path: string) => void;
+}) {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [settings] = useCanvasState<FilesRootSettings>(
+    "crmFilesRootSettings.v1",
+    DEFAULT_FILES_ROOT_SETTINGS,
+  );
+  const [entries] = useCanvasState<FilesBrowserEntry[]>(
+    "crmFilesRootBrowser.v1",
+    DEFAULT_FILES_BROWSER_ENTRIES,
+  );
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [folderId, setFolderId] = useState<string | null>("dir-clients");
+
+  const rootPath = settings.rootPath || DEFAULT_FILES_ROOT_SETTINGS.rootPath;
+  const quickOpts = workDriveShareFolderOptions(rootPath, entries, uiLang);
+  const crumbs = filesBreadcrumb(entries, folderId);
+  const crumbPath = filesFolderUncPath(rootPath, entries, folderId, uiLang);
+  const currentRows = entries
+    .filter((e) => e.parentId === folderId && e.kind === "folder")
+    .slice()
+    .sort((a, b) =>
+      filesEntryLabel(uiLang, a).localeCompare(
+        filesEntryLabel(uiLang, b),
+        uiLang === "he" ? "he" : "en",
+      ),
+    );
+  const parentOfCurrent =
+    folderId == null
+      ? null
+      : (entries.find((e) => e.id === folderId)?.parentId ?? null);
+
+  const matchedQuick =
+    quickOpts.find((o) => o.value === pathValue)?.value ?? "";
+
+  return (
+    <Stack gap={8} style={{ gridColumn: "1 / -1" }}>
+      <Stack gap={4}>
+        <FieldLabel>{t(uiLang, "workDriveFolderLabel")}</FieldLabel>
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, "workDriveFolderHint")}
+        </ChromeText>
+      </Stack>
+      <Stack gap={4}>
+        <FieldLabel>{t(uiLang, "workDriveQuickPick")}</FieldLabel>
+        <Select
+          value={matchedQuick}
+          onChange={(v) => {
+            if (v) onPathChange(v);
+          }}
+          options={[
+            { value: "", label: t(uiLang, "workDriveQuickPickNone") },
+            ...quickOpts,
+          ]}
+        />
+      </Stack>
+      <ChromeTextInput
+        value={pathValue}
+        onChange={onPathChange}
+        placeholder={t(uiLang, "workDriveFolderPathPh")}
+      />
+      <Row gap={8} wrap align="center">
+        <Button
+          variant="secondary"
+          onClick={() => setBrowseOpen((o) => !o)}
+        >
+          {browseOpen
+            ? t(uiLang, "workDriveHideBrowser")
+            : t(uiLang, "workDriveChooseFolder")}
+        </Button>
+        {pathValue.trim() ? (
+          <ChromeText size="small" tone="secondary">
+            {pathValue.trim()}
+          </ChromeText>
+        ) : null}
+      </Row>
+      {browseOpen ? (
+        <Stack
+          gap={10}
+          style={{
+            padding: 12,
+            borderRadius: 10,
+            background: chromeSoftFill(theme),
+            border: `1px solid ${chromeBorder(theme)}`,
+          }}
+        >
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "workDriveBrowseHint")}
+          </ChromeText>
+          <ChromeText size="small" weight="semibold">
+            {crumbPath}
+          </ChromeText>
+          <Row gap={8} wrap>
+            <Button
+              variant="secondary"
+              disabled={folderId == null}
+              onClick={() => setFolderId(parentOfCurrent)}
+            >
+              {t(uiLang, "filesRootUp")}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                onPathChange(crumbPath);
+                setBrowseOpen(false);
+              }}
+            >
+              {t(uiLang, "workDriveUseFolder")}
+            </Button>
+          </Row>
+          {crumbs.length > 0 ? (
+            <Row gap={6} wrap>
+              <Button
+                variant="secondary"
+                onClick={() => setFolderId(null)}
+              >
+                {rootPath}
+              </Button>
+              {crumbs.map((c) => (
+                <Button
+                  key={c.id}
+                  variant="secondary"
+                  onClick={() => setFolderId(c.id)}
+                >
+                  {filesEntryLabel(uiLang, c)}
+                </Button>
+              ))}
+            </Row>
+          ) : null}
+          <Stack gap={4}>
+            {currentRows.length === 0 ? (
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "filesRootEmptyFolder")}
+              </ChromeText>
+            ) : (
+              currentRows.map((row) => (
+                <Row key={row.id} gap={8} align="center" wrap>
+                  <ChromeText style={{ flex: 1, minWidth: 120 }}>
+                    {filesEntryLabel(uiLang, row)}
+                  </ChromeText>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setFolderId(row.id)}
+                  >
+                    {t(uiLang, "filesRootOpenFolder")}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      onPathChange(
+                        filesFolderUncPath(rootPath, entries, row.id, uiLang),
+                      );
+                      setBrowseOpen(false);
+                    }}
+                  >
+                    {t(uiLang, "workDriveUseFolder")}
+                  </Button>
+                </Row>
+              ))
+            )}
+          </Stack>
+        </Stack>
+      ) : null}
+    </Stack>
+  );
+}
+
+/** System Admin → Files area (Files root | Cloud top tabs). */
 type HelpFeedbackKind = "help" | "bug" | "suggestion";
 type HelpFeedbackStatus =
   | "queued"
@@ -60822,6 +63751,3826 @@ function WorkerHelpFeedbackFab({
   );
 }
 
+/** Sumit-style Excel↔folder match targets (Stage A import). */
+type FilesImportMatchTarget =
+  | "clients"
+  | "companies"
+  | "bookkeeping"
+  | "workers"
+  | "billing"
+  | "trusts"
+  | "other";
+
+const FILES_IMPORT_MATCH_TARGET_ORDER: FilesImportMatchTarget[] = [
+  "clients",
+  "companies",
+  "bookkeeping",
+  "workers",
+  "billing",
+  "trusts",
+  "other",
+];
+
+function filesImportMatchTargetLabel(
+  lang: UiLang,
+  target: FilesImportMatchTarget,
+): string {
+  switch (target) {
+    case "clients":
+      return t(lang, "filesImportTargetClients");
+    case "companies":
+      return t(lang, "filesImportTargetCompanies");
+    case "bookkeeping":
+      return t(lang, "filesImportTargetBookkeeping");
+    case "workers":
+      return t(lang, "filesImportTargetWorkers");
+    case "billing":
+      return t(lang, "filesImportTargetBilling");
+    case "trusts":
+      return t(lang, "filesImportTargetTrusts");
+    case "other":
+      return t(lang, "filesImportTargetOther");
+  }
+}
+
+const DEFAULT_FILES_IMPORT_OTHER_TYPES_TEXT =
+  "Associations, Funds, Partnerships";
+
+function filesImportParseOtherTypeNames(text: string): string[] {
+  return text
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+type FilesImportCompareField =
+  | "name"
+  | "fullName"
+  | "identity"
+  | "accountKey";
+
+type FilesImportPairStatus =
+  | "matched"
+  | "unmatched-folder"
+  | "unmatched-excel"
+  | "entity-without-file";
+
+type FilesImportMatchPair = {
+  id: string;
+  folderName: string;
+  folderNameHe: string;
+  excelName: string;
+  excelNameHe: string;
+  compareValue: string;
+  selected: boolean;
+  status: FilesImportPairStatus;
+};
+
+type FilesImportDemoBundle = {
+  pairs: FilesImportMatchPair[];
+  unmatchedFolders: { id: string; name: string; nameHe: string }[];
+  unmatchedExcel: { id: string; name: string; nameHe: string }[];
+};
+
+function filesImportNormalize(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/['"`]/g, "")
+    .replace(/[.\-_]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function filesImportDemoBundle(
+  target: FilesImportMatchTarget,
+): FilesImportDemoBundle {
+  if (target === "companies") {
+    return {
+      pairs: [
+        {
+          id: "co-1",
+          folderName: "515418499-LBN-Lee-Newark",
+          folderNameHe: "515418499-אל.בי.אן-לי-ניוק",
+          excelName: "LBN Lee Newark Ltd",
+          excelNameHe: "אל.בי.אן - לי ניוק בע״מ",
+          compareValue: "515418499",
+          selected: true,
+          status: "matched",
+        },
+        {
+          id: "co-2",
+          folderName: "514902113-Market-Plus",
+          folderNameHe: "514902113-מרקט-פלוס",
+          excelName: "Market Plus Ltd",
+          excelNameHe: "מרקט פלוס בע״מ",
+          compareValue: "514902113",
+          selected: true,
+          status: "matched",
+        },
+      ],
+      unmatchedFolders: [
+        {
+          id: "co-uf-1",
+          name: "513887221-Oranim-Holdings",
+          nameHe: "513887221-אורנים-אחזקות",
+        },
+      ],
+      unmatchedExcel: [
+        {
+          id: "co-ue-1",
+          name: "Green Osek Ltd",
+          nameHe: "גרין עוסק בע״מ",
+        },
+      ],
+    };
+  }
+  if (target === "bookkeeping") {
+    return {
+      pairs: [
+        {
+          id: "bk-1",
+          folderName: "BK-515418499-LBN",
+          folderNameHe: "הנהח-515418499-אל.בי.אן",
+          excelName: "LBN Lee Newark — Bookkeeping",
+          excelNameHe: "אל.בי.אן - לי ניוק — הנה״ח",
+          compareValue: "515418499",
+          selected: true,
+          status: "matched",
+        },
+        {
+          id: "bk-2",
+          folderName: "BK-209445118-Cohen",
+          folderNameHe: "הנהח-209445118-כהן",
+          excelName: "Cohen Books — Monthly BK",
+          excelNameHe: "כהן הנה״ח — חודשי",
+          compareValue: "209445118",
+          selected: true,
+          status: "matched",
+        },
+      ],
+      unmatchedFolders: [
+        {
+          id: "bk-uf-1",
+          name: "BK-513887221-Oranim",
+          nameHe: "הנהח-513887221-אורנים",
+        },
+      ],
+      unmatchedExcel: [
+        {
+          id: "bk-ue-1",
+          name: "Green Osek — Bookkeeping",
+          nameHe: "גרין עוסק — הנה״ח",
+        },
+      ],
+    };
+  }
+  if (target === "workers") {
+    return {
+      pairs: [
+        {
+          id: "wk-1",
+          folderName: "staff-avi",
+          folderNameHe: "עובד-אבי",
+          excelName: "Avi Cohen",
+          excelNameHe: "אבי כהן",
+          compareValue: "avi",
+          selected: true,
+          status: "matched",
+        },
+        {
+          id: "wk-2",
+          folderName: "staff-dana",
+          folderNameHe: "עובד-דנה",
+          excelName: "Dana Levi",
+          excelNameHe: "דנה לוי",
+          compareValue: "dana",
+          selected: true,
+          status: "matched",
+        },
+      ],
+      unmatchedFolders: [
+        { id: "wk-uf-1", name: "staff-noa", nameHe: "עובד-נועה" },
+      ],
+      unmatchedExcel: [
+        { id: "wk-ue-1", name: "Noa Shapira", nameHe: "נועה שפירא" },
+      ],
+    };
+  }
+  if (target === "billing") {
+    return {
+      pairs: [
+        {
+          id: "bl-1",
+          folderName: "Billing-2026-Q3",
+          folderNameHe: "חיוב-2026-Q3",
+          excelName: "Q3 2026 billing batch",
+          excelNameHe: "אצוות חיוב Q3 2026",
+          compareValue: "2026-q3",
+          selected: true,
+          status: "matched",
+        },
+        {
+          id: "bl-2",
+          folderName: "Masav-Sep-2026",
+          folderNameHe: "מסב-ספט-2026",
+          excelName: "Masav Sep 2026",
+          excelNameHe: "מס״ב ספטמבר 2026",
+          compareValue: "masav-sep",
+          selected: true,
+          status: "matched",
+        },
+      ],
+      unmatchedFolders: [
+        {
+          id: "bl-uf-1",
+          name: "Wave-Import-Pending",
+          nameHe: "ייבוא-Wave-ממתין",
+        },
+      ],
+      unmatchedExcel: [
+        {
+          id: "bl-ue-1",
+          name: "Payment requests Oct 2026",
+          nameHe: "דרישות תשלום אוק׳ 2026",
+        },
+      ],
+    };
+  }
+  if (target === "trusts") {
+    return {
+      pairs: [
+        {
+          id: "tr-1",
+          folderName: "448812900-Shalom-Trust",
+          folderNameHe: "448812900-שלום-נאמנות",
+          excelName: "Shalom Family Trust",
+          excelNameHe: "נאמנות משפחת שלום",
+          compareValue: "448812900",
+          selected: true,
+          status: "matched",
+        },
+        {
+          id: "tr-2",
+          folderName: "551122334-Oranim-Trust",
+          folderNameHe: "551122334-אורנים-נאמנות",
+          excelName: "Oranim Discretionary Trust",
+          excelNameHe: "נאמנות שיקול דעת אורנים",
+          compareValue: "551122334",
+          selected: true,
+          status: "matched",
+        },
+      ],
+      unmatchedFolders: [
+        {
+          id: "tr-uf-1",
+          name: "559900112-Levi-Trust",
+          nameHe: "559900112-לוי-נאמנות",
+        },
+      ],
+      unmatchedExcel: [
+        {
+          id: "tr-ue-1",
+          name: "Cohen Charitable Trust",
+          nameHe: "נאמנות צדקה כהן",
+        },
+      ],
+    };
+  }
+  if (target === "other") {
+    return {
+      pairs: [
+        {
+          id: "ot-1",
+          folderName: "580123456-Green-Association",
+          folderNameHe: "580123456-עמותת-ירוק",
+          excelName: "Green Association",
+          excelNameHe: "עמותת ירוק",
+          compareValue: "580123456",
+          selected: true,
+          status: "matched",
+        },
+        {
+          id: "ot-2",
+          folderName: "Fund-Horizon-2024",
+          folderNameHe: "קרן-הורייזן-2024",
+          excelName: "Horizon Fund",
+          excelNameHe: "קרן הורייזן",
+          compareValue: "horizon",
+          selected: true,
+          status: "matched",
+        },
+      ],
+      unmatchedFolders: [
+        {
+          id: "ot-uf-1",
+          name: "Partnership-Delta",
+          nameHe: "שותפות-דלתא",
+        },
+      ],
+      unmatchedExcel: [
+        {
+          id: "ot-ue-1",
+          name: "Coastal Fund",
+          nameHe: "קרן החוף",
+        },
+      ],
+    };
+  }
+  return {
+    pairs: [
+      {
+        id: "cl-1",
+        folderName: "321981763-Mildred-Luxenberg",
+        folderNameHe: "321981763-מילדרד-לוקסנברג",
+        excelName: "Mildred Luxenberg Frenkel",
+        excelNameHe: "מילדרד לוקסנברג פרנקל",
+        compareValue: "321981763",
+        selected: true,
+        status: "matched",
+      },
+      {
+        id: "cl-2",
+        folderName: "209445118-Cohen-Books",
+        folderNameHe: "209445118-כהן-הנהח",
+        excelName: "Cohen Books",
+        excelNameHe: "כהן הנה״ח",
+        compareValue: "209445118",
+        selected: true,
+        status: "matched",
+      },
+      {
+        id: "cl-3",
+        folderName: "A-Dexter",
+        folderNameHe: "A-Dexter",
+        excelName: "A. Dexter",
+        excelNameHe: "A. Dexter",
+        compareValue: "a dexter",
+        selected: true,
+        status: "matched",
+      },
+    ],
+    unmatchedFolders: [
+      {
+        id: "cl-uf-1",
+        name: "448812900-Shalom-Trust",
+        nameHe: "448812900-שלום-נאמנות",
+      },
+    ],
+    unmatchedExcel: [
+      {
+        id: "cl-ue-1",
+        name: "Dana Individual",
+        nameHe: "דנה פרטית",
+      },
+    ],
+  };
+}
+
+function filesImportCompareOptions(
+  lang: UiLang,
+): { value: FilesImportCompareField; label: string }[] {
+  return [
+    { value: "name", label: t(lang, "filesImportCompareName") },
+    { value: "fullName", label: t(lang, "filesImportCompareFullName") },
+    { value: "identity", label: t(lang, "filesImportCompareIdentity") },
+    { value: "accountKey", label: t(lang, "filesImportCompareAccountKey") },
+  ];
+}
+
+function filesImportEntityWithoutFileLabel(
+  lang: UiLang,
+  target: FilesImportMatchTarget,
+): string {
+  if (target === "clients") return t(lang, "filesImportClientWithoutFile");
+  return t(lang, "filesImportEntityWithoutFile");
+}
+
+/**
+ * Shared Sumit-style match row grid (FilesImportMatchPanel + ClientBookkeepingPairPanel).
+ * Fixed checkbox + arrow tracks so → stays in the same place on every row.
+ * Last track is reserved actions (never `auto` — that shifts the 1fr columns).
+ */
+const SUMIT_MATCH_ROW_GRID =
+  "28px minmax(0, 1fr) 32px minmax(0, 1fr) 120px 140px";
+const SUMIT_MATCH_ARROW_CELL: CSSProperties = {
+  boxSizing: "border-box",
+  width: 32,
+  minWidth: 32,
+  maxWidth: 32,
+  textAlign: "center",
+  fontWeight: 700,
+  lineHeight: "20px",
+  justifySelf: "center",
+};
+const SUMIT_MATCH_TRUNC_CELL: CSSProperties = {
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+type ClientBkPairCompareField = "name" | "identity" | "nameHe";
+
+type ClientBkPairRow = {
+  id: string;
+  selected: boolean;
+  clientId: string | null;
+  clientLabel: string;
+  bkId: string | null;
+  bkLabel: string;
+  status: "matched" | "unmatched-client" | "unmatched-bk" | "no-file";
+};
+
+const DEMO_CLIENT_BK_LEFT: Array<{ id: string; name: string; nameHe: string; identity: string }> = [
+  { id: "c-sharontech", name: "Sharon Tech", nameHe: "שרון טק", identity: "514998877" },
+  { id: "c-olive", name: "Olive Grove Holdings", nameHe: "אוליב גרוב אחזקות", identity: "515667788" },
+  { id: "c-greenleaf", name: "Green Leaf Ltd", nameHe: "גרין ליף בע״מ", identity: "513334455" },
+  { id: "c-avi-cohen", name: "Avi Cohen", nameHe: "אבי כהן", identity: "301112223" },
+  { id: "c-no-bk", name: "Orchid Design", nameHe: "אורכיד עיצוב", identity: "516778899" },
+];
+
+const DEMO_CLIENT_BK_RIGHT: Array<{ id: string; name: string; nameHe: string; identity: string }> = [
+  { id: "c-cohen", name: "Cohen Books", nameHe: "ספרי כהן", identity: "301112223" },
+  { id: "c-malki", name: "Malki Stationery", nameHe: "מלכי כלי כתיבה", identity: "302223334" },
+  { id: "bk-sharon", name: "Sharon Tech Books", nameHe: "הנה״ח שרון טק", identity: "514998877" },
+  { id: "bk-olive", name: "Olive Grove Books", nameHe: "הנה״ח אוליב גרוב", identity: "515667788" },
+  { id: "bk-orphan", name: "Legacy Books Co", nameHe: "ספרים ישנים בע״מ", identity: "599000111" },
+];
+
+function clientBkCompareValue(
+  row: { name: string; nameHe: string; identity: string },
+  field: ClientBkPairCompareField,
+): string {
+  if (field === "identity") return row.identity.trim();
+  if (field === "nameHe") return row.nameHe.trim().toLowerCase();
+  return row.name.trim().toLowerCase();
+}
+
+function buildDefaultClientBkPairs(
+  field: ClientBkPairCompareField,
+): ClientBkPairRow[] {
+  const usedBk = new Set<string>();
+  const rows: ClientBkPairRow[] = [];
+  for (const left of DEMO_CLIENT_BK_LEFT) {
+    const lv = clientBkCompareValue(left, field);
+    const hit = DEMO_CLIENT_BK_RIGHT.find(
+      (r) => !usedBk.has(r.id) && clientBkCompareValue(r, field) === lv,
+    );
+    if (hit) {
+      usedBk.add(hit.id);
+      rows.push({
+        id: `pair-${left.id}-${hit.id}`,
+        selected: true,
+        clientId: left.id,
+        clientLabel: left.name,
+        bkId: hit.id,
+        bkLabel: hit.name,
+        status: "matched",
+      });
+    } else {
+      rows.push({
+        id: `pair-${left.id}-none`,
+        selected: true,
+        clientId: left.id,
+        clientLabel: left.name,
+        bkId: null,
+        bkLabel: "",
+        status: left.id === "c-no-bk" ? "no-file" : "unmatched-client",
+      });
+    }
+  }
+  for (const right of DEMO_CLIENT_BK_RIGHT) {
+    if (usedBk.has(right.id)) continue;
+    rows.push({
+      id: `pair-none-${right.id}`,
+      selected: false,
+      clientId: null,
+      clientLabel: "",
+      bkId: right.id,
+      bkLabel: right.name,
+      status: "unmatched-bk",
+    });
+  }
+  return rows;
+}
+
+
+type FilesImportManualBucket = {
+  unmatchedFolders: { id: string; name: string; nameHe: string }[];
+  unmatchedExcel: { id: string; name: string; nameHe: string }[];
+  accepted: {
+    id: string;
+    folderName: string;
+    folderNameHe: string;
+    excelName: string;
+    excelNameHe: string;
+  }[];
+};
+
+function filesImportManualPurpose(
+  lang: UiLang,
+  target: FilesImportMatchTarget,
+): string {
+  switch (target) {
+    case "clients":
+      return t(lang, "filesImportManualPurposeClients");
+    case "companies":
+      return t(lang, "filesImportManualPurposeCompanies");
+    case "bookkeeping":
+      return t(lang, "filesImportManualPurposeBookkeeping");
+    case "workers":
+      return t(lang, "filesImportManualPurposeWorkers");
+    case "billing":
+      return t(lang, "filesImportManualPurposeBilling");
+    case "trusts":
+      return t(lang, "filesImportManualPurposeTrusts");
+    case "other":
+      return t(lang, "filesImportManualPurposeOther");
+  }
+}
+
+function filesImportManualBucketFromDemo(
+  target: FilesImportMatchTarget,
+): FilesImportManualBucket {
+  const bundle = filesImportDemoBundle(target);
+  return {
+    unmatchedFolders: bundle.unmatchedFolders.map((f) => ({ ...f })),
+    unmatchedExcel: bundle.unmatchedExcel.map((e) => ({ ...e })),
+    accepted: [],
+  };
+}
+
+function filesImportEnsureManualBuckets(
+  prev: Partial<Record<FilesImportMatchTarget, FilesImportManualBucket>>,
+  targets: FilesImportMatchTarget[],
+): Partial<Record<FilesImportMatchTarget, FilesImportManualBucket>> {
+  const next = { ...prev };
+  for (const id of targets) {
+    if (!next[id]) next[id] = filesImportManualBucketFromDemo(id);
+  }
+  return next;
+}
+
+/** Auto-match one stage-2 target into a sidebar bucket (accepted = suggestions). */
+function filesImportComputeAutoBucket(
+  target: FilesImportMatchTarget,
+  field: FilesImportCompareField,
+): FilesImportManualBucket {
+  const bundle = filesImportDemoBundle(target);
+  const excelPool = [
+    ...bundle.pairs.map((p) => ({
+      id: `ex-${p.id}`,
+      name: p.excelName,
+      nameHe: p.excelNameHe,
+    })),
+    ...bundle.unmatchedExcel,
+  ];
+  const folderPool = [
+    ...bundle.pairs.map((p) => ({
+      id: `fd-${p.id}`,
+      name: p.folderName,
+      nameHe: p.folderNameHe,
+      compareValue: p.compareValue,
+    })),
+    ...bundle.unmatchedFolders.map((f) => ({
+      ...f,
+      compareValue: f.name,
+    })),
+  ];
+  const usedExcel = new Set<string>();
+  const accepted: FilesImportManualBucket["accepted"] = [];
+  const stillFolders: FilesImportDemoBundle["unmatchedFolders"] = [];
+
+  for (const folder of folderPool) {
+    const folderKey = filesImportNormalize(
+      field === "identity" || field === "accountKey"
+        ? folder.compareValue
+        : folder.name,
+    );
+    const hit = excelPool.find((ex) => {
+      if (usedExcel.has(ex.id)) return false;
+      const exKey = filesImportNormalize(
+        field === "identity" || field === "accountKey"
+          ? ex.name.replace(/\D+/g, "") || ex.name
+          : ex.name,
+      );
+      return (
+        folderKey === exKey ||
+        folderKey.includes(exKey) ||
+        exKey.includes(folderKey) ||
+        filesImportNormalize(folder.name).includes(
+          filesImportNormalize(ex.name).split(" ")[0] || "",
+        )
+      );
+    });
+    if (hit) {
+      usedExcel.add(hit.id);
+      accepted.push({
+        id: `auto-${folder.id}-${hit.id}`,
+        folderName: folder.name,
+        folderNameHe: folder.nameHe,
+        excelName: hit.name,
+        excelNameHe: hit.nameHe,
+      });
+    } else {
+      stillFolders.push({
+        id: folder.id,
+        name: folder.name,
+        nameHe: folder.nameHe,
+      });
+    }
+  }
+
+  return {
+    unmatchedFolders: stillFolders,
+    unmatchedExcel: excelPool.filter((ex) => !usedExcel.has(ex.id)),
+    accepted,
+  };
+}
+
+function filesImportSeedAutoBuckets(
+  targets: FilesImportMatchTarget[],
+  field: FilesImportCompareField,
+): Partial<Record<FilesImportMatchTarget, FilesImportManualBucket>> {
+  const next: Partial<Record<FilesImportMatchTarget, FilesImportManualBucket>> =
+    {};
+  for (const id of targets) {
+    next[id] = filesImportComputeAutoBucket(id, field);
+  }
+  return next;
+}
+
+/**
+ * Sumit-style Excel ↔ folder matching panel (demo).
+ * Mounted from FilesRootScreen Stage A; safe for wizard siblings to reuse.
+ * Automatic + Manual match share the same audit-style sidebar of import
+ * suggestions per stage-2 target (auto pre-fills suggested pairs; manual is user-driven).
+ */
+function FilesImportMatchPanel({
+  rootPath,
+  allowedTargets,
+  otherTypeNames,
+}: {
+  /** Optional UNC/root shown in unmatched create-folder hints. */
+  rootPath?: string;
+  /** Preferred wizard targets — dropdown still lists every match target. */
+  allowedTargets?: FilesImportMatchTarget[];
+  /** Custom “Other” names from the wizard targets step (demo). */
+  otherTypeNames?: string[];
+}) {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [target, setTarget] = useCanvasState<FilesImportMatchTarget>(
+    "crmFilesImportMatchTarget.v1",
+    "clients",
+  );
+  /** Always list full match-target set so Bookkeeping / Other are reachable here. */
+  const matchTargetOptions = FILES_IMPORT_MATCH_TARGET_ORDER.map((id) => ({
+    value: id,
+    label: filesImportMatchTargetLabel(uiLang, id),
+  }));
+  const [compareField, setCompareField] =
+    useCanvasState<FilesImportCompareField>(
+      "crmFilesImportCompareField.v1",
+      "name",
+    );
+  const [mode, setMode] = useCanvasState<"auto" | "manual">(
+    "crmFilesImportMatchMode.v1",
+    "auto",
+  );
+  const [shown, setShown] = useCanvasState(
+    "crmFilesImportMatchShown.v1",
+    true,
+  );
+  const [pairs, setPairs] = useCanvasState<FilesImportMatchPair[]>(
+    "crmFilesImportMatchPairs.v1",
+    filesImportDemoBundle("clients").pairs,
+  );
+  const [unmatchedFolders, setUnmatchedFolders] = useCanvasState<
+    FilesImportDemoBundle["unmatchedFolders"]
+  >(
+    "crmFilesImportUnmatchedFolders.v1",
+    filesImportDemoBundle("clients").unmatchedFolders,
+  );
+  const [unmatchedExcel, setUnmatchedExcel] = useCanvasState<
+    FilesImportDemoBundle["unmatchedExcel"]
+  >(
+    "crmFilesImportUnmatchedExcel.v1",
+    filesImportDemoBundle("clients").unmatchedExcel,
+  );
+  const [otherTypesText, setOtherTypesText] = useCanvasState(
+    "crmFilesImportMatchOtherTypes.v1",
+    DEFAULT_FILES_IMPORT_OTHER_TYPES_TEXT,
+  );
+  const [assignDraft, setAssignDraft] = useState<Record<string, string>>({});
+  const [flash, setFlash] = useState("");
+  const sidebarTargets: FilesImportMatchTarget[] =
+    allowedTargets && allowedTargets.length > 0
+      ? FILES_IMPORT_MATCH_TARGET_ORDER.filter((id) =>
+          allowedTargets.includes(id),
+        )
+      : [...FILES_IMPORT_MATCH_TARGET_ORDER];
+  const [manualSection, setManualSection] =
+    useCanvasState<FilesImportMatchTarget>(
+      "crmFilesImportManualSection.v1",
+      sidebarTargets[0] ?? "clients",
+    );
+  const [manualBuckets, setManualBuckets] = useCanvasState<
+    Partial<Record<FilesImportMatchTarget, FilesImportManualBucket>>
+  >("crmFilesImportManualBuckets.v1", {});
+  const [bkPairRows, setBkPairRows] = useCanvasState<ClientBkPairRow[]>(
+    "clientBkPair.rows.v1",
+    buildDefaultClientBkPairs("identity"),
+  );
+  const [bkPairDraft, setBkPairDraft] = useState<Record<string, string>>({});
+
+  const rtl = uiLang === "he";
+  const arrow = rtl ? "←" : "→";
+  const pathHint = (rootPath || "\\\\server\\Intertax").replace(/[\\/]+$/, "");
+  const parsedOtherTypes = filesImportParseOtherTypeNames(otherTypesText);
+  const compareOptions = filesImportCompareOptions(uiLang);
+  const activeManualSection = sidebarTargets.includes(manualSection)
+    ? manualSection
+    : (sidebarTargets[0] ?? "clients");
+  const activeManualBucket =
+    manualBuckets[activeManualSection] ??
+    (mode === "manual"
+      ? filesImportManualBucketFromDemo(activeManualSection)
+      : filesImportComputeAutoBucket(activeManualSection, compareField));
+
+  const loadTarget = (next: FilesImportMatchTarget) => {
+    setTarget(next);
+    setManualSection(next);
+    setAssignDraft({});
+    setShown(true);
+    if (mode === "auto") {
+      const field = compareField;
+      const buckets = filesImportSeedAutoBuckets(sidebarTargets, field);
+      const bucket =
+        buckets[next] ?? filesImportComputeAutoBucket(next, field);
+      setManualBuckets(buckets);
+      setPairs(
+        bucket.accepted.map((row) => ({
+          id: row.id,
+          folderName: row.folderName,
+          folderNameHe: row.folderNameHe,
+          excelName: row.excelName,
+          excelNameHe: row.excelNameHe,
+          compareValue: row.folderName,
+          selected: true,
+          status: "matched" as const,
+        })),
+      );
+      setUnmatchedFolders(bucket.unmatchedFolders.map((f) => ({ ...f })));
+      setUnmatchedExcel(bucket.unmatchedExcel.map((e) => ({ ...e })));
+      setFlash("");
+      return;
+    }
+    const bundle = filesImportDemoBundle(next);
+    setPairs(bundle.pairs.map((p) => ({ ...p, selected: true })));
+    setUnmatchedFolders(bundle.unmatchedFolders);
+    setUnmatchedExcel(bundle.unmatchedExcel);
+    setFlash("");
+  };
+
+  useEffect(() => {
+    if (otherTypeNames && otherTypeNames.length > 0) {
+      setOtherTypesText(otherTypeNames.join(", "));
+    }
+  }, [otherTypeNames?.join("|")]);
+
+  useEffect(() => {
+    if (mode !== "auto") return;
+    setManualBuckets((prev) => {
+      const hasAny = sidebarTargets.some(
+        (id) => (prev[id]?.accepted.length ?? 0) > 0,
+      );
+      if (hasAny) return filesImportEnsureManualBuckets(prev, sidebarTargets);
+      return filesImportSeedAutoBuckets(sidebarTargets, compareField);
+    });
+  }, [mode, compareField, sidebarTargets.join("|")]);
+
+  useEffect(() => {
+    if (!matchTargetOptions.length) return;
+    if (matchTargetOptions.some((o) => o.value === target)) return;
+    const preferred =
+      allowedTargets?.find((id) =>
+        matchTargetOptions.some((o) => o.value === id),
+      ) ?? matchTargetOptions[0]!.value;
+    loadTarget(preferred);
+  }, [allowedTargets, target]);
+
+  const runShowPairs = () => {
+    setShown(true);
+    setFlash("");
+  };
+
+  const runAutomaticMatch = (
+    fieldOverride?: FilesImportCompareField,
+    targetOverride?: FilesImportMatchTarget,
+  ) => {
+    const field = fieldOverride ?? compareField;
+    const matchTarget = targetOverride ?? target;
+    if (fieldOverride != null) setCompareField(fieldOverride);
+    if (targetOverride != null) {
+      setTarget(targetOverride);
+      setManualSection(targetOverride);
+    }
+    const buckets = filesImportSeedAutoBuckets(sidebarTargets, field);
+    const bucket =
+      buckets[matchTarget] ?? filesImportComputeAutoBucket(matchTarget, field);
+    setManualBuckets(buckets);
+    setPairs(
+      bucket.accepted.map((row) => ({
+        id: row.id,
+        folderName: row.folderName,
+        folderNameHe: row.folderNameHe,
+        excelName: row.excelName,
+        excelNameHe: row.excelNameHe,
+        compareValue: row.folderName,
+        selected: true,
+        status: "matched" as const,
+      })),
+    );
+    setUnmatchedFolders(bucket.unmatchedFolders.map((f) => ({ ...f })));
+    setUnmatchedExcel(bucket.unmatchedExcel.map((e) => ({ ...e })));
+    setAssignDraft({});
+    setMode("auto");
+    setShown(true);
+    if (!sidebarTargets.includes(manualSection) && !targetOverride) {
+      setManualSection(matchTarget);
+    }
+    if (fieldOverride != null) {
+      const fieldLabel =
+        compareOptions.find((o) => o.value === field)?.label ?? field;
+      setFlash(
+        t(uiLang, "filesImportFlashCompare").replace("{field}", fieldLabel),
+      );
+    } else if (targetOverride == null) {
+      setFlash(t(uiLang, "filesImportFlashAuto"));
+    }
+  };
+
+  const toggleAll = (checked: boolean) => {
+    setPairs((prev) => prev.map((p) => ({ ...p, selected: checked })));
+  };
+
+  const allSelected = pairs.length > 0 && pairs.every((p) => p.selected);
+
+  const assignFolder = (folderId: string) => {
+    const excelId = assignDraft[folderId];
+    if (!excelId) return;
+    const folder = unmatchedFolders.find((f) => f.id === folderId);
+    const excel = unmatchedExcel.find((e) => e.id === excelId);
+    if (!folder || !excel) return;
+    setPairs((prev) => [
+      ...prev,
+      {
+        id: `manual-${folder.id}-${excel.id}`,
+        folderName: folder.name,
+        folderNameHe: folder.nameHe,
+        excelName: excel.name,
+        excelNameHe: excel.nameHe,
+        compareValue: folder.name,
+        selected: true,
+        status: "matched",
+      },
+    ]);
+    setUnmatchedFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setUnmatchedExcel((prev) => prev.filter((e) => e.id !== excelId));
+    setFlash(
+      t(uiLang, "filesImportFlashAssigned")
+        .replace("{folder}", uiLang === "he" ? folder.nameHe : folder.name)
+        .replace("{excel}", uiLang === "he" ? excel.nameHe : excel.name),
+    );
+  };
+
+  const markWithoutFile = (excelId: string) => {
+    const excel = unmatchedExcel.find((e) => e.id === excelId);
+    if (!excel) return;
+    setPairs((prev) => [
+      ...prev,
+      {
+        id: `nofile-${excel.id}`,
+        folderName: "—",
+        folderNameHe: "—",
+        excelName: excel.name,
+        excelNameHe: excel.nameHe,
+        compareValue: "",
+        selected: true,
+        status: "entity-without-file",
+      },
+    ]);
+    setUnmatchedExcel((prev) => prev.filter((e) => e.id !== excelId));
+    setFlash(
+      t(uiLang, "filesImportFlashWithoutFile").replace(
+        "{name}",
+        uiLang === "he" ? excel.nameHe : excel.name,
+      ),
+    );
+  };
+
+  const createFolderForExcel = (excelId: string) => {
+    const excel = unmatchedExcel.find((e) => e.id === excelId);
+    if (!excel) return;
+    const folderName = excel.name.replace(/\s+/g, "-");
+    setPairs((prev) => [
+      ...prev,
+      {
+        id: `created-${excel.id}`,
+        folderName,
+        folderNameHe: excel.nameHe.replace(/\s+/g, "-"),
+        excelName: excel.name,
+        excelNameHe: excel.nameHe,
+        compareValue: folderName,
+        selected: true,
+        status: "matched",
+      },
+    ]);
+    setUnmatchedExcel((prev) => prev.filter((e) => e.id !== excelId));
+    setFlash(
+      t(uiLang, "filesImportFlashCreated").replace(
+        "{name}",
+        `${pathHint}\\…\\${folderName}`,
+      ),
+    );
+  };
+
+  const pairLabel = (p: FilesImportMatchPair, side: "folder" | "excel") => {
+    if (side === "folder") {
+      return uiLang === "he" ? p.folderNameHe : p.folderName;
+    }
+    return uiLang === "he" ? p.excelNameHe : p.excelName;
+  };
+
+  return (
+    <Stack gap={14} style={{ direction: rtl ? "rtl" : "ltr" }}>
+      <FormSection
+        title={t(uiLang, "filesImportMatchTitle")}
+        hint={t(uiLang, "filesImportMatchHint")}
+      >
+        <Row gap={8} wrap align="center">
+          <Button
+            variant={mode === "auto" ? "primary" : "secondary"}
+            onClick={() => runAutomaticMatch()}
+          >
+            {t(uiLang, "filesImportAutoMatch")}
+          </Button>
+          <Button
+            variant={mode === "manual" ? "primary" : "secondary"}
+            onClick={() => {
+              setMode("manual");
+              setManualBuckets((prev) =>
+                filesImportEnsureManualBuckets(prev, sidebarTargets),
+              );
+              if (!sidebarTargets.includes(manualSection)) {
+                setManualSection(sidebarTargets[0] ?? "clients");
+              }
+              setFlash(t(uiLang, "filesImportFlashManual"));
+            }}
+          >
+            {t(uiLang, "filesImportManualMatch")}
+          </Button>
+        </Row>
+
+        <Callout tone="info" title={t(uiLang, "filesImportMatchTitle")}>
+          {mode === "manual"
+            ? t(uiLang, "filesImportManualSidebarHint")
+            : t(uiLang, "filesImportAutoSidebarHint")}
+        </Callout>
+
+        {flash ? (
+          <Callout tone="success" title={t(uiLang, "save")}>
+            {flash}
+          </Callout>
+        ) : null}
+
+        <ModuleSectionFrame
+            ariaLabel={t(
+              uiLang,
+              mode === "manual"
+                ? "filesImportManualSidebarTitle"
+                : "filesImportAutoSidebarTitle",
+            )}
+            title={t(
+              uiLang,
+              mode === "manual"
+                ? "filesImportManualSidebarTitle"
+                : "filesImportAutoSidebarTitle",
+            )}
+            items={sidebarTargets.map((id) => {
+              const bucket =
+                mode === "manual"
+                  ? (manualBuckets[id] ??
+                    filesImportManualBucketFromDemo(id))
+                  : (manualBuckets[id] ??
+                    filesImportComputeAutoBucket(id, compareField));
+              const unmatched =
+                bucket.unmatchedFolders.length + bucket.unmatchedExcel.length;
+              const suggested = bucket.accepted.length;
+              const count = mode === "manual" ? unmatched : suggested;
+              return {
+                id,
+                label: filesImportMatchTargetLabel(uiLang, id),
+                badge: count > 0 ? String(count) : undefined,
+              };
+            })}
+            activeId={activeManualSection}
+            onSelect={(id) => {
+              const next = id as FilesImportMatchTarget;
+              setManualSection(next);
+              setAssignDraft({});
+              if (mode === "auto") {
+                runAutomaticMatch(undefined, next);
+              }
+            }}
+            minHeight={320}
+            contentStyle={{
+              padding: 12,
+              borderRadius: 10,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: chromeSoftFill(theme),
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <Stack gap={4}>
+              <ChromeText weight="semibold">
+                {filesImportMatchTargetLabel(uiLang, activeManualSection)}
+              </ChromeText>
+              <ChromeText size="small" tone="secondary">
+                {filesImportManualPurpose(uiLang, activeManualSection)}
+              </ChromeText>
+            </Stack>
+
+            {activeManualBucket.unmatchedFolders.length === 0 &&
+            activeManualBucket.unmatchedExcel.length === 0 ? (
+              <ChromeText tone="secondary">
+                {t(uiLang, "filesImportManualNoSuggestions")}
+              </ChromeText>
+            ) : null}
+
+            {activeManualBucket.unmatchedFolders.map((folder) => (
+              <Stack
+                key={folder.id}
+                gap={6}
+                style={{
+                  padding: 10,
+                  borderRadius: 8,
+                  background: theme.bg.chrome,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                }}
+              >
+                <ChromeText size="small" tone="secondary">
+                  {filesImportManualPurpose(uiLang, activeManualSection)}
+                </ChromeText>
+                <Row gap={8} wrap align="end">
+                  <Stack gap={4} style={{ flex: 1, minWidth: 140 }}>
+                    <FieldLabel>{t(uiLang, "filesImportColFolder")}</FieldLabel>
+                    <ChromeText weight="semibold">
+                      {uiLang === "he" ? folder.nameHe : folder.name}
+                    </ChromeText>
+                  </Stack>
+                  <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+                    <FieldLabel>
+                      {activeManualSection === "bookkeeping"
+                        ? t(uiLang, "clientBkPairColBk")
+                        : t(uiLang, "filesImportColExcel")}
+                    </FieldLabel>
+                    <Select
+                      value={assignDraft[folder.id] || ""}
+                      onChange={(v) =>
+                        setAssignDraft((prev) => ({
+                          ...prev,
+                          [folder.id]: v,
+                        }))
+                      }
+                      placeholder={t(uiLang, "filesImportManualEntityPick")}
+                      options={activeManualBucket.unmatchedExcel.map((ex) => ({
+                        value: ex.id,
+                        label: uiLang === "he" ? ex.nameHe : ex.name,
+                      }))}
+                    />
+                  </Stack>
+                  <Button
+                    variant="primary"
+                    disabled={!assignDraft[folder.id]}
+                    onClick={() => {
+                      const excelId = assignDraft[folder.id];
+                      if (!excelId) return;
+                      const excel = activeManualBucket.unmatchedExcel.find(
+                        (e) => e.id === excelId,
+                      );
+                      if (!excel) return;
+                      const section = activeManualSection;
+                      setManualBuckets((prev) => {
+                        const base =
+                          prev[section] ??
+                          filesImportManualBucketFromDemo(section);
+                        return {
+                          ...prev,
+                          [section]: {
+                            unmatchedFolders: base.unmatchedFolders.filter(
+                              (f) => f.id !== folder.id,
+                            ),
+                            unmatchedExcel: base.unmatchedExcel.filter(
+                              (e) => e.id !== excelId,
+                            ),
+                            accepted: [
+                              {
+                                id: `manual-${folder.id}-${excel.id}`,
+                                folderName: folder.name,
+                                folderNameHe: folder.nameHe,
+                                excelName: excel.name,
+                                excelNameHe: excel.nameHe,
+                              },
+                              ...base.accepted,
+                            ],
+                          },
+                        };
+                      });
+                      setPairs((prev) => [
+                        ...prev,
+                        {
+                          id: `manual-${folder.id}-${excel.id}`,
+                          folderName: folder.name,
+                          folderNameHe: folder.nameHe,
+                          excelName: excel.name,
+                          excelNameHe: excel.nameHe,
+                          compareValue: folder.name,
+                          selected: true,
+                          status: "matched" as const,
+                        },
+                      ]);
+                      if (section === target) {
+                        setUnmatchedFolders((prev) =>
+                          prev.filter((f) => f.id !== folder.id),
+                        );
+                        setUnmatchedExcel((prev) =>
+                          prev.filter((e) => e.id !== excelId),
+                        );
+                      }
+                      setFlash(
+                        t(uiLang, "filesImportFlashAssigned")
+                          .replace(
+                            "{folder}",
+                            uiLang === "he" ? folder.nameHe : folder.name,
+                          )
+                          .replace(
+                            "{excel}",
+                            uiLang === "he" ? excel.nameHe : excel.name,
+                          ),
+                      );
+                      setAssignDraft((prev) => {
+                        const next = { ...prev };
+                        delete next[folder.id];
+                        return next;
+                      });
+                    }}
+                  >
+                    {t(uiLang, "filesImportManualApply")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      const section = activeManualSection;
+                      setManualBuckets((prev) => {
+                        const base =
+                          prev[section] ??
+                          filesImportManualBucketFromDemo(section);
+                        return {
+                          ...prev,
+                          [section]: {
+                            ...base,
+                            unmatchedFolders: base.unmatchedFolders.filter(
+                              (f) => f.id !== folder.id,
+                            ),
+                          },
+                        };
+                      });
+                      setFlash(t(uiLang, "filesImportManualReject"));
+                    }}
+                  >
+                    {t(uiLang, "filesImportManualReject")}
+                  </Button>
+                </Row>
+              </Stack>
+            ))}
+
+            {activeManualBucket.unmatchedExcel.map((excel) => (
+              <Row
+                key={excel.id}
+                gap={8}
+                wrap
+                align="center"
+                style={{
+                  padding: 10,
+                  borderRadius: 8,
+                  background: theme.bg.chrome,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                }}
+              >
+                <Pill tone="warning">
+                  {t(uiLang, "filesImportUnmatchedExcel")}
+                </Pill>
+                <ChromeText
+                  style={{ color: theme.accent.primary, fontWeight: 600 }}
+                >
+                  {uiLang === "he" ? excel.nameHe : excel.name}
+                </ChromeText>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const section = activeManualSection;
+                    const folderName = excel.name.replace(/\s+/g, "-");
+                    setManualBuckets((prev) => {
+                      const base =
+                        prev[section] ??
+                        filesImportManualBucketFromDemo(section);
+                      return {
+                        ...prev,
+                        [section]: {
+                          unmatchedFolders: base.unmatchedFolders,
+                          unmatchedExcel: base.unmatchedExcel.filter(
+                            (e) => e.id !== excel.id,
+                          ),
+                          accepted: [
+                            {
+                              id: `created-${excel.id}`,
+                              folderName,
+                              folderNameHe: excel.nameHe.replace(/\s+/g, "-"),
+                              excelName: excel.name,
+                              excelNameHe: excel.nameHe,
+                            },
+                            ...base.accepted,
+                          ],
+                        },
+                      };
+                    });
+                    if (section === target) {
+                      createFolderForExcel(excel.id);
+                    } else {
+                      setFlash(
+                        t(uiLang, "filesImportFlashCreated").replace(
+                          "{name}",
+                          `${pathHint}\\…\\${folderName}`,
+                        ),
+                      );
+                    }
+                  }}
+                >
+                  {t(uiLang, "filesImportCreateFolder")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const section = activeManualSection;
+                    setManualBuckets((prev) => {
+                      const base =
+                        prev[section] ??
+                        filesImportManualBucketFromDemo(section);
+                      return {
+                        ...prev,
+                        [section]: {
+                          ...base,
+                          unmatchedExcel: base.unmatchedExcel.filter(
+                            (e) => e.id !== excel.id,
+                          ),
+                        },
+                      };
+                    });
+                    if (section === target) {
+                      markWithoutFile(excel.id);
+                    } else {
+                      setFlash(
+                        t(uiLang, "filesImportFlashWithoutFile").replace(
+                          "{name}",
+                          uiLang === "he" ? excel.nameHe : excel.name,
+                        ),
+                      );
+                    }
+                  }}
+                >
+                  {filesImportEntityWithoutFileLabel(
+                    uiLang,
+                    activeManualSection,
+                  )}
+                </Button>
+              </Row>
+            ))}
+
+            {activeManualBucket.accepted.length > 0 ? (
+              <Stack gap={6}>
+                <ChromeText size="small" weight="semibold">
+                  {t(
+                    uiLang,
+                    mode === "manual"
+                      ? "filesImportManualAccepted"
+                      : "filesImportAutoSuggested",
+                  )}
+                </ChromeText>
+                {activeManualBucket.accepted.map((row) => (
+                  <ChromeText key={row.id} size="small" tone="secondary">
+                    {(uiLang === "he" ? row.folderNameHe : row.folderName) +
+                      ` ${arrow} ` +
+                      (uiLang === "he" ? row.excelNameHe : row.excelName)}
+                  </ChromeText>
+                ))}
+              </Stack>
+            ) : null}
+
+            {activeManualSection === "bookkeeping" ? (
+              <Stack
+                gap={10}
+                style={{
+                  marginTop: 4,
+                  paddingTop: 12,
+                  borderTop: `1px solid ${chromeBorder(theme)}`,
+                }}
+              >
+                <Stack gap={4}>
+                  <ChromeText weight="semibold">
+                    {t(uiLang, "filesImportManualBkPairTitle")}
+                  </ChromeText>
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "filesImportManualBkPairHint")}
+                  </ChromeText>
+                </Stack>
+                {bkPairRows
+                  .filter(
+                    (r) =>
+                      r.status === "unmatched-client" ||
+                      r.status === "no-file",
+                  )
+                  .map((row) => (
+                    <Row
+                      key={row.id}
+                      gap={8}
+                      wrap
+                      align="end"
+                      style={{
+                        padding: 10,
+                        borderRadius: 8,
+                        background: theme.bg.chrome,
+                        border: `1px solid ${chromeBorder(theme)}`,
+                      }}
+                    >
+                      <Stack gap={4} style={{ flex: 1, minWidth: 140 }}>
+                        <FieldLabel>
+                          {t(uiLang, "clientBkPairColClient")}
+                        </FieldLabel>
+                        <ChromeText weight="semibold">
+                          {row.clientLabel}
+                        </ChromeText>
+                        <ChromeText size="small" tone="secondary">
+                          {t(uiLang, "filesImportManualBkPairPurpose")}
+                        </ChromeText>
+                      </Stack>
+                      <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+                        <FieldLabel>
+                          {t(uiLang, "clientBkPairColBk")}
+                        </FieldLabel>
+                        <Select
+                          value={bkPairDraft[row.id] || ""}
+                          onChange={(v) =>
+                            setBkPairDraft((prev) => ({
+                              ...prev,
+                              [row.id]: v,
+                            }))
+                          }
+                          placeholder={t(uiLang, "clientBkPairPick")}
+                          options={DEMO_CLIENT_BK_RIGHT.map((c) => ({
+                            value: c.id,
+                            label: c.name,
+                          }))}
+                        />
+                      </Stack>
+                      <Button
+                        variant="secondary"
+                        disabled={!bkPairDraft[row.id]}
+                        onClick={() => {
+                          const bkId = bkPairDraft[row.id];
+                          if (!bkId || !row.clientId) return;
+                          const left = DEMO_CLIENT_BK_LEFT.find(
+                            (c) => c.id === row.clientId,
+                          );
+                          const right = DEMO_CLIENT_BK_RIGHT.find(
+                            (c) => c.id === bkId,
+                          );
+                          if (!left || !right) return;
+                          setBkPairRows((prev) => {
+                            const next = prev
+                              .filter(
+                                (r) =>
+                                  r.clientId !== left.id &&
+                                  r.bkId !== right.id &&
+                                  !(
+                                    r.status === "unmatched-client" &&
+                                    r.clientId === left.id
+                                  ) &&
+                                  !(
+                                    r.status === "unmatched-bk" &&
+                                    r.bkId === right.id
+                                  ),
+                              )
+                              .filter(
+                                (r) => !(r.clientId === left.id && !r.bkId),
+                              )
+                              .filter(
+                                (r) => !(r.bkId === right.id && !r.clientId),
+                              );
+                            return [
+                              {
+                                id: `pair-${left.id}-${right.id}-manual`,
+                                selected: true,
+                                clientId: left.id,
+                                clientLabel: left.name,
+                                bkId: right.id,
+                                bkLabel: right.name,
+                                status: "matched" as const,
+                              },
+                              ...next,
+                            ];
+                          });
+                          setBkPairDraft((prev) => {
+                            const next = { ...prev };
+                            delete next[row.id];
+                            return next;
+                          });
+                          setFlash(t(uiLang, "clientBkPairManualDone"));
+                        }}
+                      >
+                        {t(uiLang, "filesImportManualApply")}
+                      </Button>
+                    </Row>
+                  ))}
+              </Stack>
+            ) : null}
+          </ModuleSectionFrame>
+
+        {mode !== "manual" ? (
+          <Grid columns={2} gap={12}>
+            <Stack gap={4}>
+              <FieldLabel>{t(uiLang, "filesImportTargetLabel")}</FieldLabel>
+              <Select
+                value={target}
+                onChange={(v) => loadTarget(v as FilesImportMatchTarget)}
+                options={matchTargetOptions}
+                style={{ width: "100%", minWidth: 180 }}
+              />
+              {target === "other" ? (
+                <Stack gap={6}>
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "filesImportOtherTypesHint")}
+                  </ChromeText>
+                  <ChromeTextInput
+                    value={otherTypesText}
+                    onChange={setOtherTypesText}
+                    placeholder={t(uiLang, "filesImportOtherTypesPlaceholder")}
+                  />
+                  {parsedOtherTypes.length > 0 ? (
+                    <ChromeText size="small" tone="secondary">
+                      {t(uiLang, "filesImportOtherTypesMatchHint")}{" "}
+                      {parsedOtherTypes.join(" · ")}
+                    </ChromeText>
+                  ) : null}
+                </Stack>
+              ) : null}
+            </Stack>
+            <Stack gap={4}>
+              <FieldLabel>{t(uiLang, "filesImportCompareLabel")}</FieldLabel>
+              <Row gap={8} wrap align="end">
+                <Select
+                  value={compareField}
+                  onChange={(v) =>
+                    runAutomaticMatch(v as FilesImportCompareField)
+                  }
+                  options={compareOptions}
+                  style={{ width: "100%", minWidth: 180, flex: 1 }}
+                />
+                <Button variant="secondary" onClick={runShowPairs}>
+                  {t(uiLang, "filesImportShowPairs")}
+                </Button>
+              </Row>
+            </Stack>
+          </Grid>
+        ) : null}
+
+        {shown ? (
+          <Stack
+            gap={10}
+            style={{
+              padding: 12,
+              borderRadius: 10,
+              background: chromeSoftFill(theme),
+              border: `1px solid ${chromeBorder(theme)}`,
+            }}
+          >
+            {pairs.length === 0 ? (
+              <ChromeText tone="secondary">
+                {t(uiLang, "filesImportNoPairs")}
+              </ChromeText>
+            ) : (
+              <>
+                <Checkbox
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  label={t(uiLang, "filesImportTickAll")}
+                />
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: SUMIT_MATCH_ROW_GRID,
+                    gap: 8,
+                    width: "100%",
+                    boxSizing: "border-box",
+                    alignItems: "center",
+                    padding: "6px 4px",
+                    borderBottom: `1px solid ${chromeBorder(theme)}`,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: CHROME_INK_MUTED,
+                  }}
+                >
+                  <span style={{ textAlign: "center" }}>
+                    {t(uiLang, "filesImportColSelect")}
+                  </span>
+                  <span style={SUMIT_MATCH_TRUNC_CELL}>
+                    {t(uiLang, "filesImportColFolder")}
+                  </span>
+                  <span style={SUMIT_MATCH_ARROW_CELL}>{arrow}</span>
+                  <span style={SUMIT_MATCH_TRUNC_CELL}>
+                    {t(uiLang, "filesImportColExcel")}
+                  </span>
+                  <span style={SUMIT_MATCH_TRUNC_CELL}>
+                    {t(uiLang, "filesImportColValue")}
+                  </span>
+                  <span />
+                </div>
+                {pairs.map((p) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: SUMIT_MATCH_ROW_GRID,
+                      gap: 8,
+                      width: "100%",
+                      boxSizing: "border-box",
+                      alignItems: "center",
+                      padding: "8px 4px",
+                      borderBottom: `1px solid ${chromeBorder(theme)}`,
+                      fontSize: 13,
+                      color: CHROME_INK,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 28,
+                        display: "flex",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Checkbox
+                        checked={p.selected}
+                        onChange={(v) =>
+                          setPairs((prev) =>
+                            prev.map((row) =>
+                              row.id === p.id ? { ...row, selected: v } : row,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <ChromeText
+                      truncate
+                      weight={
+                        p.status === "entity-without-file"
+                          ? "normal"
+                          : "semibold"
+                      }
+                      style={SUMIT_MATCH_TRUNC_CELL}
+                    >
+                      {p.status === "entity-without-file"
+                        ? filesImportEntityWithoutFileLabel(uiLang, target)
+                        : pairLabel(p, "folder")}
+                    </ChromeText>
+                    <div style={SUMIT_MATCH_ARROW_CELL}>{arrow}</div>
+                    <ChromeText
+                      truncate
+                      style={{
+                        ...SUMIT_MATCH_TRUNC_CELL,
+                        color: theme.accent.primary,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {pairLabel(p, "excel")}
+                    </ChromeText>
+                    <ChromeText
+                      size="small"
+                      tone="secondary"
+                      truncate
+                      style={SUMIT_MATCH_TRUNC_CELL}
+                    >
+                      {p.compareValue || "—"}
+                    </ChromeText>
+                    <span />
+                  </div>
+                ))}
+              </>
+            )}
+          </Stack>
+        ) : null}
+
+        {(unmatchedFolders.length > 0 || unmatchedExcel.length > 0) &&
+        (mode === "manual" || shown) ? (
+          <Stack
+            gap={10}
+            style={{
+              padding: 12,
+              borderRadius: 10,
+              background: chromeSoftFill(theme),
+              border: `1px solid ${chromeBorder(theme)}`,
+            }}
+          >
+            <ChromeText weight="semibold">
+              {t(uiLang, "filesImportUnmatchedTitle")}
+            </ChromeText>
+
+            {unmatchedFolders.map((folder) => (
+              <div
+                key={folder.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: SUMIT_MATCH_ROW_GRID,
+                  gap: 8,
+                  width: "100%",
+                  boxSizing: "border-box",
+                  alignItems: "center",
+                }}
+              >
+                <span />
+                <ChromeText
+                  truncate
+                  weight="semibold"
+                  style={SUMIT_MATCH_TRUNC_CELL}
+                >
+                  {uiLang === "he" ? folder.nameHe : folder.name}
+                </ChromeText>
+                <div style={SUMIT_MATCH_ARROW_CELL}>{arrow}</div>
+                <div style={{ minWidth: 0 }}>
+                  <Select
+                    value={assignDraft[folder.id] || ""}
+                    onChange={(v) =>
+                      setAssignDraft((prev) => ({ ...prev, [folder.id]: v }))
+                    }
+                    placeholder={t(uiLang, "filesImportColExcel")}
+                    options={unmatchedExcel.map((ex) => ({
+                      value: ex.id,
+                      label: uiLang === "he" ? ex.nameHe : ex.name,
+                    }))}
+                  />
+                </div>
+                <ChromeText
+                  size="small"
+                  tone="secondary"
+                  truncate
+                  style={SUMIT_MATCH_TRUNC_CELL}
+                >
+                  {t(uiLang, "filesImportUnmatchedFolder")}
+                </ChromeText>
+                <Button
+                  variant="primary"
+                  disabled={!assignDraft[folder.id]}
+                  onClick={() => assignFolder(folder.id)}
+                >
+                  {t(uiLang, "filesImportAssign")}
+                </Button>
+              </div>
+            ))}
+
+            {unmatchedExcel.map((excel) => (
+              <Row key={excel.id} gap={8} wrap align="center">
+                <Pill tone="warning">
+                  {t(uiLang, "filesImportUnmatchedExcel")}
+                </Pill>
+                <ChromeText
+                  style={{ color: theme.accent.primary, fontWeight: 600 }}
+                >
+                  {uiLang === "he" ? excel.nameHe : excel.name}
+                </ChromeText>
+                <Button
+                  variant="secondary"
+                  onClick={() => createFolderForExcel(excel.id)}
+                >
+                  {t(uiLang, "filesImportCreateFolder")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => markWithoutFile(excel.id)}
+                >
+                  {filesImportEntityWithoutFileLabel(uiLang, target)}
+                </Button>
+              </Row>
+            ))}
+          </Stack>
+        ) : null}
+      </FormSection>
+    </Stack>
+  );
+}
+
+
+/**
+ * Clients ↔ Bookkeeping companies pairing — same Sumit-style match structure as
+ * FilesImportMatchPanel (sibling): compare field, left|→|right rows, ticks,
+ * Automatic / Manual match, unmatched assignable, entity-without-file, create folder.
+ *
+ * Wizard sibling: mount as a late Stage A step AFTER Excel↔folder match
+ * (do not rebuild questionnaire or FilesImportMatchPanel here).
+ * Manual suggestions for folder↔entity kinds live in FilesImportMatchPanel
+ * Manual match sidebar; this step is Client↔BK pairing only.
+ */
+
+function ClientBookkeepingPairPanel({
+  embedded = false,
+}: {
+  /** When true, omit outer chrome (wizard step body). */
+  embedded?: boolean;
+}) {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [compareField, setCompareField] = useCanvasState<ClientBkPairCompareField>(
+    "clientBkPair.compareField.v1",
+    "identity",
+  );
+  const [pairs, setPairs] = useCanvasState<ClientBkPairRow[]>(
+    "clientBkPair.rows.v1",
+    buildDefaultClientBkPairs("identity"),
+  );
+  const [flash, setFlash] = useCanvasState("clientBkPair.flash.v1", "");
+  const [manualClientId, setManualClientId] = useState("");
+  const [manualBkId, setManualBkId] = useState("");
+
+  const runAuto = () => {
+    setPairs(buildDefaultClientBkPairs(compareField));
+    setFlash(t(uiLang, "clientBkPairAutoDone"));
+  };
+
+  const selectAll = (on: boolean) => {
+    setPairs((prev) => prev.map((r) => ({ ...r, selected: on })));
+  };
+
+  const applyManual = () => {
+    if (!manualClientId || !manualBkId) {
+      setFlash(t(uiLang, "clientBkPairManualNeedBoth"));
+      return;
+    }
+    const left = DEMO_CLIENT_BK_LEFT.find((c) => c.id === manualClientId);
+    const right = DEMO_CLIENT_BK_RIGHT.find((c) => c.id === manualBkId);
+    if (!left || !right) return;
+    setPairs((prev) => {
+      const next = prev
+        .filter(
+          (r) =>
+            r.clientId !== left.id &&
+            r.bkId !== right.id &&
+            !(r.status === "unmatched-client" && r.clientId === left.id) &&
+            !(r.status === "unmatched-bk" && r.bkId === right.id),
+        )
+        .filter((r) => !(r.clientId === left.id && !r.bkId))
+        .filter((r) => !(r.bkId === right.id && !r.clientId));
+      return [
+        {
+          id: `pair-${left.id}-${right.id}-manual`,
+          selected: true,
+          clientId: left.id,
+          clientLabel: left.name,
+          bkId: right.id,
+          bkLabel: right.name,
+          status: "matched" as const,
+        },
+        ...next,
+      ];
+    });
+    setManualClientId("");
+    setManualBkId("");
+    setFlash(t(uiLang, "clientBkPairManualDone"));
+  };
+
+  const createBkFolder = (clientLabel: string) => {
+    setFlash(
+      t(uiLang, "clientBkPairCreateFolderDone").replace("{name}", clientLabel),
+    );
+  };
+
+  const border = chromeBorder(theme);
+  const soft = chromeSoftFill(theme);
+  const rtl = uiLang === "he";
+  const arrow = rtl ? "←" : "→";
+
+  const body = (
+    <Stack gap={14} style={{ direction: rtl ? "rtl" : "ltr" }}>
+      {!embedded ? (
+        <Stack gap={4}>
+          <H2>{t(uiLang, "clientBkPairTitle")}</H2>
+          <ChromeText tone="secondary">{t(uiLang, "clientBkPairHint")}</ChromeText>
+        </Stack>
+      ) : null}
+
+      <Row gap={8} wrap align="end">
+        <Stack gap={4} style={{ minWidth: 180 }}>
+          <FieldLabel>{t(uiLang, "clientBkPairCompareField")}</FieldLabel>
+          <Select
+            value={compareField}
+            onChange={(v) => setCompareField(v as ClientBkPairCompareField)}
+            options={[
+              { value: "identity", label: t(uiLang, "clientBkPairFieldIdentity") },
+              { value: "name", label: t(uiLang, "clientBkPairFieldName") },
+              { value: "nameHe", label: t(uiLang, "clientBkPairFieldNameHe") },
+            ]}
+          />
+        </Stack>
+        <Button variant="primary" onClick={runAuto}>
+          {t(uiLang, "clientBkPairAuto")}
+        </Button>
+        <Button variant="secondary" onClick={() => selectAll(true)}>
+          {t(uiLang, "clientBkPairSelectAll")}
+        </Button>
+        <Button variant="secondary" onClick={() => selectAll(false)}>
+          {t(uiLang, "clientBkPairSelectNone")}
+        </Button>
+      </Row>
+
+      {flash ? (
+        <Callout tone="success" title={t(uiLang, "save")}>
+          {flash}
+        </Callout>
+      ) : null}
+
+      <Stack
+        gap={6}
+        style={{
+          padding: 10,
+          borderRadius: 10,
+          background: soft,
+          border: `1px solid ${border}`,
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: SUMIT_MATCH_ROW_GRID,
+            gap: 8,
+            width: "100%",
+            boxSizing: "border-box",
+            alignItems: "center",
+            padding: "6px 4px",
+          }}
+        >
+          <ChromeText size="small" weight="semibold" style={{ textAlign: "center" }}>
+            #
+          </ChromeText>
+          <ChromeText size="small" weight="semibold" style={SUMIT_MATCH_TRUNC_CELL}>
+            {t(uiLang, "clientBkPairColClient")}
+          </ChromeText>
+          <div style={{ ...SUMIT_MATCH_ARROW_CELL, color: CHROME_INK_MUTED }}>
+            {arrow}
+          </div>
+          <ChromeText size="small" weight="semibold" style={SUMIT_MATCH_TRUNC_CELL}>
+            {t(uiLang, "clientBkPairColBk")}
+          </ChromeText>
+          <ChromeText size="small" weight="semibold" style={SUMIT_MATCH_TRUNC_CELL}>
+            {t(uiLang, "clientBkPairColStatus")}
+          </ChromeText>
+          <span />
+        </div>
+        {pairs.map((row) => {
+          const statusLabel =
+            row.status === "matched"
+              ? t(uiLang, "clientBkPairStatusMatched")
+              : row.status === "no-file"
+                ? t(uiLang, "clientBkPairStatusNoFile")
+                : row.status === "unmatched-bk"
+                  ? t(uiLang, "clientBkPairStatusUnmatchedBk")
+                  : t(uiLang, "clientBkPairStatusUnmatchedClient");
+          return (
+            <div
+              key={row.id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: SUMIT_MATCH_ROW_GRID,
+                gap: 8,
+                width: "100%",
+                boxSizing: "border-box",
+                alignItems: "center",
+                padding: "8px 6px",
+                borderRadius: 8,
+                background: theme.bg.chrome,
+                border: `1px solid ${border}`,
+              }}
+            >
+              <div
+                style={{
+                  width: 28,
+                  display: "flex",
+                  justifyContent: "center",
+                }}
+              >
+                <Checkbox
+                  checked={row.selected}
+                  onChange={(v) => {
+                    setPairs((prev) =>
+                      prev.map((r) =>
+                        r.id === row.id ? { ...r, selected: v } : r,
+                      ),
+                    );
+                  }}
+                />
+              </div>
+              <ChromeText size="small" truncate style={SUMIT_MATCH_TRUNC_CELL}>
+                {row.clientLabel || t(uiLang, "clientBkPairEmptySide")}
+              </ChromeText>
+              <div style={{ ...SUMIT_MATCH_ARROW_CELL, color: CHROME_INK_MUTED }}>
+                {arrow}
+              </div>
+              <ChromeText size="small" truncate style={SUMIT_MATCH_TRUNC_CELL}>
+                {row.bkLabel || t(uiLang, "clientBkPairEmptySide")}
+              </ChromeText>
+              <div style={SUMIT_MATCH_TRUNC_CELL}>
+                <Pill size="sm" tone={row.status === "matched" ? "info" : "neutral"}>
+                  {statusLabel}
+                </Pill>
+              </div>
+              {row.status === "no-file" || row.status === "unmatched-client" ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => createBkFolder(row.clientLabel || "Client")}
+                >
+                  {t(uiLang, "clientBkPairCreateFolder")}
+                </Button>
+              ) : (
+                <span />
+              )}
+            </div>
+          );
+        })}
+      </Stack>
+
+      <FormSection
+        title={t(uiLang, "clientBkPairManualTitle")}
+        hint={t(uiLang, "clientBkPairManualHint")}
+      >
+        <Stack gap={10}>
+          {pairs
+            .filter(
+              (r) =>
+                r.status === "unmatched-client" || r.status === "no-file",
+            )
+            .map((row) => (
+              <Row
+                key={row.id}
+                gap={8}
+                wrap
+                align="end"
+                style={{
+                  padding: 10,
+                  borderRadius: 8,
+                  background: soft,
+                  border: `1px solid ${border}`,
+                }}
+              >
+                <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+                  <FieldLabel>{t(uiLang, "clientBkPairColClient")}</FieldLabel>
+                  <ChromeText weight="semibold">
+                    {row.clientLabel || t(uiLang, "clientBkPairEmptySide")}
+                  </ChromeText>
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "filesImportManualBkPairPurpose")}
+                  </ChromeText>
+                </Stack>
+                <Stack gap={4} style={{ flex: 1, minWidth: 180 }}>
+                  <FieldLabel>{t(uiLang, "clientBkPairColBk")}</FieldLabel>
+                  <Select
+                    value={
+                      manualClientId === row.clientId ? manualBkId : ""
+                    }
+                    onChange={(v) => {
+                      setManualClientId(row.clientId || "");
+                      setManualBkId(v);
+                    }}
+                    options={[
+                      { value: "", label: t(uiLang, "clientBkPairPick") },
+                      ...DEMO_CLIENT_BK_RIGHT.map((c) => ({
+                        value: c.id,
+                        label: c.name,
+                      })),
+                    ]}
+                  />
+                </Stack>
+                <Button
+                  variant="secondary"
+                  disabled={
+                    !(manualClientId === row.clientId && manualBkId)
+                  }
+                  onClick={applyManual}
+                >
+                  {t(uiLang, "clientBkPairManualApply")}
+                </Button>
+              </Row>
+            ))}
+          {pairs.filter(
+            (r) =>
+              r.status === "unmatched-client" || r.status === "no-file",
+          ).length === 0 ? (
+            <ChromeText tone="secondary">
+              {t(uiLang, "filesImportManualNoSuggestions")}
+            </ChromeText>
+          ) : null}
+        </Stack>
+      </FormSection>
+
+    </Stack>
+  );
+
+  return body;
+}
+
+/** System Admin — default nested folder-structure templates per entity group. */
+function FolderTemplatesScreen() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  const [, setFilesAreaTab] = useCanvasState<FilesAreaTab>(
+    FILES_AREA_TAB_KEY,
+    "files-root",
+  );
+  const [, setWizardRaw] = useCanvasState<FilesImportWizardState>(
+    FILES_IMPORT_WIZARD_KEY,
+    DEFAULT_FILES_IMPORT_WIZARD,
+  );
+  const [raw, setRaw] = useCanvasState<FolderTemplatesV1>(
+    "folderTemplates.v1",
+    DEFAULT_FOLDER_TEMPLATES,
+  );
+  const templates = normalizeFolderTemplatesV1(raw);
+  const [kind, setKind] = useCanvasState<FolderTemplateKind>(
+    "folderTemplates.activeKind.v1",
+    "client",
+  );
+  const [saveFlash, setSaveFlash] = useCanvasState(
+    "folderTemplates.flash.v1",
+    "",
+  );
+  const [newNameEn, setNewNameEn] = useState("");
+  const [newNameHe, setNewNameHe] = useState("");
+  const [previewName, setPreviewName] = useState("New client");
+  const [pasteText, setPasteText] = useState("");
+  const [importPreview, setImportPreview] = useState<FolderTemplateFolder[] | null>(
+    null,
+  );
+  const [importMode, setImportMode] = useState("");
+  const [importError, setImportError] = useState("");
+  const [addingCustom, setAddingCustom] = useState(false);
+  const [customNameEn, setCustomNameEn] = useState("");
+  const [customNameHe, setCustomNameHe] = useState("");
+  const structureFileRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const normalized = normalizeFolderTemplatesV1(raw);
+    const legacyMissing =
+      !raw ||
+      typeof raw !== "object" ||
+      !("schemaVersion" in raw) ||
+      (raw as FolderTemplatesV1).schemaVersion !== FOLDER_TEMPLATES_SCHEMA_VERSION ||
+      isLegacyFolderTemplatesRecord(raw) ||
+      !(raw as FolderTemplatesV1).trees ||
+      BUILTIN_FOLDER_TEMPLATE_KINDS.some(
+        (k) => !Array.isArray((raw as FolderTemplatesV1).trees?.[k]),
+      );
+    if (legacyMissing) {
+      setRaw(normalized);
+    }
+  }, [raw]);
+
+  const pillIds = allFolderTemplatePillIds(templates);
+  const activeKind = pillIds.includes(kind) ? kind : "client";
+  const folders = folderTemplatesForKind(templates, activeKind);
+  const canRemoveActive = isFolderTemplateGroupRemovable(activeKind);
+  const hiddenBuiltinIds = folderTemplateHiddenBuiltinIds(templates);
+
+  const patchKind = (next: FolderTemplateFolder[]) => {
+    setRaw((prev) => {
+      const base = normalizeFolderTemplatesV1(prev);
+      if (isFolderTemplateCustomId(activeKind)) {
+        return {
+          ...base,
+          trees: { ...base.trees, [activeKind]: next },
+          customGroups: base.customGroups.map((g) =>
+            g.id === activeKind ? { ...g, folders: next } : g,
+          ),
+        };
+      }
+      return {
+        ...base,
+        trees: { ...base.trees, [activeKind]: next },
+      };
+    });
+  };
+
+  const updateRow = (id: string, patch: Partial<FolderTemplateFolder>) => {
+    patchKind(updateFolderTemplateNode(folders, id, patch));
+  };
+
+  const removeRow = (id: string) => {
+    patchKind(removeFolderTemplateNode(folders, id));
+  };
+
+  const makeFolder = (): FolderTemplateFolder => {
+    const nameEn = newNameEn.trim() || "Folder";
+    const nameHe = newNameHe.trim() || nameEn;
+    return {
+      id: `custom-${activeKind}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      nameEn,
+      nameHe,
+    };
+  };
+
+  const addRootFolder = () => {
+    patchKind(addFolderTemplateNode(folders, null, makeFolder()));
+    setNewNameEn("");
+    setNewNameHe("");
+  };
+
+  const addNestedFolder = (parentId: string) => {
+    patchKind(addFolderTemplateNode(folders, parentId, makeFolder()));
+    setNewNameEn("");
+    setNewNameHe("");
+  };
+
+  const resetKind = () => {
+    if (isFolderTemplateCustomId(activeKind)) {
+      patchKind(cloneFolderTemplateFolders(emptyCustomFolderTemplate()));
+    } else if (isBuiltinFolderTemplateKind(activeKind)) {
+      patchKind(cloneFolderTemplateFolders(defaultTreesForBuiltin(activeKind)));
+    }
+    setSaveFlash(t(uiLang, "folderTemplatesResetDone"));
+  };
+
+  const createCustomGroup = () => {
+    const nameEn = customNameEn.trim();
+    const nameHe = customNameHe.trim() || nameEn;
+    if (!nameEn) {
+      setSaveFlash(t(uiLang, "folderTemplatesAddMoreNeedName"));
+      return;
+    }
+    const slug = nameEn
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40);
+    const id = `custom:${slug || "group"}-${Date.now().toString(36)}`;
+    const foldersNew = cloneFolderTemplateFolders(emptyCustomFolderTemplate());
+    setRaw((prev) => {
+      const base = normalizeFolderTemplatesV1(prev);
+      return {
+        ...base,
+        trees: { ...base.trees, [id]: foldersNew },
+        customGroups: [
+          ...base.customGroups,
+          { id, nameEn, nameHe, folders: foldersNew },
+        ],
+      };
+    });
+    setKind(id);
+    setCustomNameEn("");
+    setCustomNameHe("");
+    setAddingCustom(false);
+    setSaveFlash(t(uiLang, "folderTemplatesAddMoreDone"));
+  };
+
+  const removeTemplateGroup = (groupId: string) => {
+    if (!isFolderTemplateGroupRemovable(groupId)) return;
+    setRaw((prev) => {
+      const base = normalizeFolderTemplatesV1(prev);
+      if (isFolderTemplateCustomId(groupId)) {
+        const trees = { ...base.trees };
+        delete trees[groupId];
+        return {
+          ...base,
+          trees,
+          customGroups: base.customGroups.filter((g) => g.id !== groupId),
+        };
+      }
+      const hiddenKinds = base.hiddenKinds.includes(groupId)
+        ? base.hiddenKinds
+        : [...base.hiddenKinds, groupId];
+      return { ...base, hiddenKinds };
+    });
+    if (kind === groupId || activeKind === groupId) {
+      setKind("client");
+    }
+    setSaveFlash(t(uiLang, "folderTemplatesRemoveCustomDone"));
+  };
+
+  const restoreHiddenBuiltin = (groupId: string) => {
+    if (!isBuiltinFolderTemplateKind(groupId)) return;
+    if (groupId === FOLDER_TEMPLATE_PROTECTED_KIND) return;
+    setRaw((prev) => {
+      const base = normalizeFolderTemplatesV1(prev);
+      return {
+        ...base,
+        hiddenKinds: base.hiddenKinds.filter((k) => k !== groupId),
+        trees: {
+          ...base.trees,
+          [groupId]:
+            base.trees[groupId] ??
+            cloneFolderTemplateFolders(defaultTreesForBuiltin(groupId)),
+        },
+      };
+    });
+    setKind(groupId);
+    setAddingCustom(false);
+    setSaveFlash(t(uiLang, "folderTemplatesRestoreHiddenDone"));
+  };
+
+  const runSplitPaste = (sourceText?: string) => {
+    const src = (sourceText ?? pasteText).trim();
+    const parsed = parseFolderStructurePaste(src, activeKind);
+    if ("error" in parsed) {
+      setImportPreview(null);
+      setImportMode("");
+      setImportError(
+        parsed.error === "empty"
+          ? t(uiLang, "folderTemplatesImportEmpty")
+          : t(uiLang, "folderTemplatesImportParseFail"),
+      );
+      return;
+    }
+    setImportError("");
+    setImportPreview(parsed.folders);
+    setImportMode(parsed.mode);
+  };
+
+  const applyImport = (mode: "replace" | "merge") => {
+    if (!importPreview?.length) {
+      setImportError(t(uiLang, "folderTemplatesImportEmpty"));
+      return;
+    }
+    const next =
+      mode === "replace"
+        ? cloneFolderTemplateFolders(importPreview)
+        : mergeFolderTemplateTrees(folders, importPreview);
+    patchKind(next);
+    setImportPreview(null);
+    setImportMode("");
+    setImportError("");
+    setSaveFlash(t(uiLang, "folderTemplatesImportApplied"));
+  };
+
+  const onStructureFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text =
+        typeof reader.result === "string" ? reader.result : "";
+      setPasteText(text);
+      runSplitPaste(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const seed = resolveNewClientFolderSeed(previewName, activeKind, templates);
+  const kindLabel = (k: FolderTemplateKind) => {
+    switch (k) {
+      case "client":
+        return t(uiLang, "folderTemplatesKindClient");
+      case "company":
+        return t(uiLang, "folderTemplatesKindCompany");
+      case "bookkeeping":
+        return t(uiLang, "folderTemplatesKindBookkeeping");
+      case "trusts":
+        return t(uiLang, "folderTemplatesKindTrusts");
+      case "audit":
+        return t(uiLang, "folderTemplatesKindAudit");
+      case "tax-return":
+        return t(uiLang, "folderTemplatesKindTaxReturn");
+      case "payroll":
+        return t(uiLang, "folderTemplatesKindPayroll");
+      case "portal":
+        return t(uiLang, "folderTemplatesKindPortal");
+      case "worker":
+        return t(uiLang, "folderTemplatesKindWorker");
+      case "billing":
+        return t(uiLang, "folderTemplatesKindBilling");
+      default: {
+        const custom = templates.customGroups.find((g) => g.id === k);
+        if (custom) {
+          return uiLang === "he" ? custom.nameHe : custom.nameEn;
+        }
+        return k;
+      }
+    }
+  };
+
+  const renderTreeRows = (nodes: FolderTemplateFolder[], depth: number) =>
+    nodes.flatMap((row) => {
+      const pad = depth * 18;
+      const hasChildren = !!row.children?.length;
+      const rowEl = (
+        <Row
+          key={row.id}
+          gap={8}
+          wrap
+          align="end"
+          style={{
+            marginInlineStart: pad,
+            paddingInlineStart: depth > 0 ? 8 : 0,
+            borderInlineStart:
+              depth > 0 ? `2px solid ${chromeBorder(theme)}` : undefined,
+          }}
+        >
+          <Stack
+            gap={4}
+            align="center"
+            style={{
+              flexShrink: 0,
+              width: 28,
+              paddingBottom: 2,
+            }}
+          >
+            <ChromeText size="small" tone="tertiary" style={{ opacity: 0 }}>
+              ·
+            </ChromeText>
+            <ExplorerFileIcon
+              label={row.nameEn || "Folder"}
+              kind="folder"
+              size="md"
+              open={hasChildren}
+              variant={depth === 0 ? "root" : "default"}
+            />
+          </Stack>
+          <Stack gap={4} style={{ flex: 1, minWidth: 140 }}>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "companyDocsLabelEn")}
+            </ChromeText>
+            <ChromeTextInput
+              value={row.nameEn}
+              onChange={(v) => updateRow(row.id, { nameEn: v })}
+            />
+          </Stack>
+          <Stack gap={4} style={{ flex: 1, minWidth: 140 }}>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "companyDocsLabelHe")}
+            </ChromeText>
+            <ChromeTextInput
+              value={row.nameHe}
+              onChange={(v) => updateRow(row.id, { nameHe: v })}
+            />
+          </Stack>
+          <Button
+            variant={row.yearScoped ? "primary" : "secondary"}
+            onClick={() =>
+              updateRow(row.id, {
+                yearScoped: !row.yearScoped,
+                portalMonthScoped: false,
+              })
+            }
+          >
+            {t(uiLang, "folderTemplatesYearScoped")}
+          </Button>
+          <Button
+            variant={row.portalMonthScoped ? "primary" : "secondary"}
+            onClick={() =>
+              updateRow(row.id, {
+                portalMonthScoped: !row.portalMonthScoped,
+                yearScoped: false,
+              })
+            }
+          >
+            {t(uiLang, "folderTemplatesPortalScoped")}
+          </Button>
+          <Button variant="secondary" onClick={() => addNestedFolder(row.id)}>
+            {t(uiLang, "folderTemplatesAddNested")}
+          </Button>
+          <Button variant="secondary" onClick={() => removeRow(row.id)}>
+            {t(uiLang, "companyDocsRemoveDefault")}
+          </Button>
+        </Row>
+      );
+      const childEls = row.children?.length
+        ? renderTreeRows(row.children, depth + 1)
+        : [];
+      return [rowEl, ...childEls];
+    });
+
+  
+  const openInitialWorkingDriveSort = () => {
+    setWizardRaw((prev) =>
+      normalizeFilesImportWizard({
+        ...normalizeFilesImportWizard(prev),
+        stageId: "method",
+        method: "folders-only",
+        targets: [...FILES_IMPORT_WIZARD_TARGET_ORDER],
+        initialSort: true,
+      }),
+    );
+    setFilesAreaTab("files-root");
+    setScreen("files-root");
+  };
+
+return (
+    <Stack gap={16} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
+      <Row align="center" gap={12} wrap>
+        <Spacer />
+        <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
+      </Row>
+      <Stack gap={4}>
+        <H1>{t(uiLang, "folderTemplatesTitle")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "folderTemplatesHint")}</ChromeText>
+      </Stack>
+
+      <Callout tone="info" title={t(uiLang, "folderTemplatesHomeWhyTitle")}>
+        {t(uiLang, "folderTemplatesHomeWhyBody")}
+      </Callout>
+
+      <Stack gap={8}>
+        <Row gap={8} wrap align="center">
+          <Button variant="primary" onClick={openInitialWorkingDriveSort}>
+            {t(uiLang, "folderTemplatesSortCta")}
+          </Button>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "folderTemplatesSortCtaHint")}
+          </ChromeText>
+        </Row>
+      </Stack>
+
+      {saveFlash ? (
+        <Callout tone="success" title={t(uiLang, "save")}>
+          {saveFlash}
+        </Callout>
+      ) : null}
+
+      <Stack gap={6}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          {pillIds.map((k) => {
+            const removable = isFolderTemplateGroupRemovable(k);
+            return (
+              <div
+                key={k}
+                style={{
+                  display: "inline-flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 2,
+                  flexShrink: 0,
+                  width: "auto",
+                }}
+              >
+                <Button
+                  variant={activeKind === k ? "primary" : "secondary"}
+                  onClick={() => setKind(k)}
+                >
+                  {kindLabel(k)}
+                </Button>
+                {removable ? (
+                  <IconButton
+                    title={t(uiLang, "folderTemplatesRemoveChipTitle")}
+                    size="sm"
+                    onClick={() => removeTemplateGroup(k)}
+                  >
+                    ×
+                  </IconButton>
+                ) : null}
+              </div>
+            );
+          })}
+          <Button
+            variant={addingCustom ? "primary" : "secondary"}
+            onClick={() => setAddingCustom((v) => !v)}
+          >
+            {t(uiLang, "folderTemplatesAddMore")}
+          </Button>
+        </div>
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, "folderTemplatesPillHelper")}
+        </ChromeText>
+      </Stack>
+
+      {addingCustom ? (
+        <FormSection
+          title={t(uiLang, "folderTemplatesAddMoreTitle")}
+          hint={t(uiLang, "folderTemplatesPillHelper")}
+        >
+          <Row gap={8} wrap align="end">
+            <Stack gap={4} style={{ minWidth: 160, flex: 1 }}>
+              <ChromeText size="small" tone="tertiary">
+                {t(uiLang, "companyDocsLabelEn")}
+              </ChromeText>
+              <ChromeTextInput
+                value={customNameEn}
+                onChange={setCustomNameEn}
+                placeholder={t(uiLang, "folderTemplatesAddMoreNamePh")}
+              />
+            </Stack>
+            <Stack gap={4} style={{ minWidth: 160, flex: 1 }}>
+              <ChromeText size="small" tone="tertiary">
+                {t(uiLang, "companyDocsLabelHe")}
+              </ChromeText>
+              <ChromeTextInput value={customNameHe} onChange={setCustomNameHe} />
+            </Stack>
+            <Button variant="primary" onClick={createCustomGroup}>
+              {t(uiLang, "folderTemplatesAddMoreCreate")}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setAddingCustom(false);
+                setCustomNameEn("");
+                setCustomNameHe("");
+              }}
+            >
+              {t(uiLang, "folderTemplatesAddMoreCancel")}
+            </Button>
+          </Row>
+          {hiddenBuiltinIds.length > 0 ? (
+            <Stack gap={6}>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "folderTemplatesRestoreHidden")}
+              </ChromeText>
+              <Row gap={8} wrap>
+                {hiddenBuiltinIds.map((k) => (
+                  <Button
+                    key={`restore-${k}`}
+                    variant="secondary"
+                    onClick={() => restoreHiddenBuiltin(k)}
+                  >
+                    {kindLabel(k)}
+                  </Button>
+                ))}
+              </Row>
+            </Stack>
+          ) : null}
+        </FormSection>
+      ) : null}
+
+      {activeKind === "client" ? (
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "folderTemplatesClientDocsNote")}
+        </ChromeText>
+      ) : null}
+
+      <Stack
+        gap={10}
+        style={{
+          padding: 12,
+          borderRadius: 10,
+          background: chromeSoftFill(theme),
+          border: `1px solid ${chromeBorder(theme)}`,
+        }}
+      >
+        {renderTreeRows(folders, 0)}
+      </Stack>
+
+      <FormSection
+        title={t(uiLang, "folderTemplatesPasteTitle")}
+        hint={t(uiLang, "folderTemplatesPasteHelper")}
+      >
+        <Stack gap={10}>
+          <ChromeText size="small" tone="secondary">
+            {t(uiLang, "folderTemplatesPasteHelper")}
+          </ChromeText>
+          <ChromeTextArea
+            value={pasteText}
+            onChange={(v) => {
+              setPasteText(v);
+              setImportError("");
+            }}
+            placeholder={t(uiLang, "folderTemplatesPastePlaceholder")}
+            rows={8}
+            style={{
+              minHeight: 160,
+              fontFamily: "ui-monospace, Consolas, monospace",
+            }}
+          />
+          <Row gap={8} wrap align="center">
+            <Button variant="primary" onClick={() => runSplitPaste()}>
+              {t(uiLang, "folderTemplatesSplit")}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPasteText("");
+                setImportPreview(null);
+                setImportMode("");
+                setImportError("");
+              }}
+            >
+              {t(uiLang, "folderTemplatesPasteClear")}
+            </Button>
+            <Spacer />
+            <input
+              ref={structureFileRef}
+              type="file"
+              accept=".json,.txt,.csv,.tsv,text/plain,application/json"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                onStructureFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <Button
+              variant="ghost"
+              onClick={() => structureFileRef.current?.click()}
+            >
+              {t(uiLang, "folderTemplatesUploadSecondary")}
+            </Button>
+          </Row>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "folderTemplatesUploadHint")}
+          </ChromeText>
+          {importError ? (
+            <Callout tone="warning" title={t(uiLang, "folderTemplatesSplit")}>
+              {importError}
+            </Callout>
+          ) : null}
+          {importPreview?.length ? (
+            <Stack
+              gap={8}
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                background: chromeSoftFill(theme),
+                border: `1px solid ${chromeBorder(theme)}`,
+              }}
+            >
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "folderTemplatesImportPreview")}
+                {importMode ? ` · ${importMode}` : ""}
+              </ChromeText>
+              <Stack gap={2} style={{ maxHeight: 220, overflow: "auto" }}>
+                {flattenFolderTemplatePreviewLines(importPreview).map(
+                  (line, idx) => (
+                    <ChromeText
+                      key={`imp-prev-${idx}`}
+                      size="small"
+                      tone="secondary"
+                      style={{
+                        fontFamily: "ui-monospace, Consolas, monospace",
+                      }}
+                    >
+                      {line}
+                    </ChromeText>
+                  ),
+                )}
+              </Stack>
+              <Row gap={8} wrap>
+                <Button
+                  variant="primary"
+                  onClick={() => applyImport("replace")}
+                >
+                  {t(uiLang, "folderTemplatesReplaceTree")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => applyImport("merge")}
+                >
+                  {t(uiLang, "folderTemplatesMergeTree")}
+                </Button>
+              </Row>
+            </Stack>
+          ) : null}
+        </Stack>
+      </FormSection>
+
+      <Row gap={8} wrap align="end">
+        <Stack gap={4} style={{ minWidth: 140, flex: 1 }}>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "companyDocsLabelEn")}
+          </ChromeText>
+          <ChromeTextInput
+            value={newNameEn}
+            onChange={setNewNameEn}
+            placeholder={t(uiLang, "companyDocsFolderNamePh")}
+          />
+        </Stack>
+        <Stack gap={4} style={{ minWidth: 140, flex: 1 }}>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "companyDocsLabelHe")}
+          </ChromeText>
+          <ChromeTextInput value={newNameHe} onChange={setNewNameHe} />
+        </Stack>
+        <Button variant="secondary" onClick={addRootFolder}>
+          {t(uiLang, "folderTemplatesAdd")}
+        </Button>
+        <Button variant="secondary" onClick={resetKind}>
+          {t(uiLang, "folderTemplatesReset")}
+        </Button>
+        {canRemoveActive ? (
+          <Button
+            variant="secondary"
+            onClick={() => removeTemplateGroup(activeKind)}
+          >
+            {t(uiLang, "folderTemplatesRemoveCustom")}
+          </Button>
+        ) : null}
+        <Button
+          variant="primary"
+          onClick={() => {
+            setRaw(normalizeFolderTemplatesV1(templates));
+            setSaveFlash(t(uiLang, "folderTemplatesSaved"));
+          }}
+        >
+          {t(uiLang, "save")}
+        </Button>
+      </Row>
+
+      <FormSection
+        title={t(uiLang, "folderTemplatesPreviewTitle")}
+        hint={t(uiLang, "folderTemplatesPreviewHint")}
+      >
+        <Stack gap={8}>
+          <Stack gap={4} style={{ maxWidth: 320 }}>
+            <FieldLabel>{t(uiLang, "folderTemplatesPreviewName")}</FieldLabel>
+            <ChromeTextInput value={previewName} onChange={setPreviewName} />
+          </Stack>
+          <ChromeText size="small" weight="semibold">
+            {seed.rootLabel}
+          </ChromeText>
+          {seed.subfolders.map((sf) => (
+            <ChromeText key={sf} size="small" tone="secondary">
+              {`└ ${sf}`}
+            </ChromeText>
+          ))}
+        </Stack>
+      </FormSection>
+    </Stack>
+  );
+}
+
+
+
+/**
+ * System Admin → Folder structures — single create-template editor.
+ * Client kind includes Docs (Year / General / Other) as one note + one tree.
+ * Other entity kinds keep their own trees. Template settings stays separate.
+ */
+function FolderStructuresAreaScreen() {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const rtl = uiLang === "he" ? "rtl" : "ltr";
+
+  return (
+    <Stack gap={12} style={{ direction: rtl }} data-chrome={`folder-structures-${GMAIL_DUAL_NAV_BUILD}`}>
+      <ChromeText tone="secondary" size="small">
+        {t(uiLang, "folderStructuresTabTemplatesHelp")}
+      </ChromeText>
+      <FolderTemplatesScreen />
+    </Stack>
+  );
+}
+
+/** Legacy screen id → Folder structures, Client kind (one create-template editor). */
+function CompanyDocsFoldersLegacyRedirect() {
+  const [, setKind] = useCanvasState<FolderTemplateKind>(
+    "folderTemplates.activeKind.v1",
+    "client",
+  );
+  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  useEffect(() => {
+    setKind("client");
+    setScreen("folder-templates");
+  }, []);
+  return null;
+}
+
+
+/** Files import wizard — Next/Next shell; ends at UNC. Cloud is a Files area top tab. */
+type FilesImportMethod = "excel" | "folders-only";
+type FilesImportWizardTarget = FilesImportMatchTarget;
+type FilesImportWizardStageId =
+  | "method"
+  | "upload-excel"
+  | "pick-folders"
+  | "targets"
+  | "match"
+  | "bk-pair"
+  | "unc";
+
+type FilesImportExcelUpload = {
+  id: string;
+  /** Workbook file name */
+  name: string;
+  /** Sheet / table name within the workbook */
+  tableName: string;
+  /** Import target category this table feeds */
+  category: FilesImportWizardTarget | "";
+};
+
+type FilesImportPickedFolder = {
+  id: string;
+  path: string;
+  pathHe: string;
+  selected: boolean;
+};
+
+type FilesImportFolderSourceKind = "custom" | "files-root" | "work-drive";
+
+type FilesImportWizardState = {
+  stageId: FilesImportWizardStageId;
+  method: FilesImportMethod;
+  targets: FilesImportWizardTarget[];
+  /** Comma-separated custom entity type names when “Other types” is selected. */
+  otherTypesText: string;
+  /** Excel tables (workbook+sheet rows) on the Upload Excel stage. */
+  excelUploads: FilesImportExcelUpload[];
+  /** Folders listed on the Pick folders stage (editable paths). */
+  pickedFolders: FilesImportPickedFolder[];
+  /** Working drive UNC / path / URL where folders are picked from. */
+  folderSourcePath: string;
+  /** How the source was chosen: custom field, Files root, or a Work drive. */
+  folderSourceKind: FilesImportFolderSourceKind | "";
+  /** Work drive id when folderSourceKind === "work-drive". */
+  folderSourceWorkDriveId: string;
+  /**
+   * When true, wizard was opened as first-time working-drive → modules sort
+   * (from Folder structures CTA). Same stages; UI labels the intent.
+   */
+  initialSort: boolean;
+};
+
+const FILES_IMPORT_WIZARD_KEY = "crmFilesImportWizard.v1";
+const DEFAULT_FILES_IMPORT_EXCEL_UPLOADS: FilesImportExcelUpload[] = [
+  {
+    id: "xlsx-clients-clients",
+    name: "Clients-Companies-2026.xlsx",
+    tableName: "Clients",
+    category: "clients",
+  },
+  {
+    id: "xlsx-clients-companies",
+    name: "Clients-Companies-2026.xlsx",
+    tableName: "Companies",
+    category: "companies",
+  },
+  {
+    id: "xlsx-clients-bk",
+    name: "Clients-Companies-2026.xlsx",
+    tableName: "Bookkeeping",
+    category: "bookkeeping",
+  },
+];
+
+function filesImportGuessCategoryFromSheet(
+  sheet: string,
+): FilesImportWizardTarget | "" {
+  const s = sheet.trim().toLowerCase();
+  if (!s) return "";
+  if (s.includes("client") || s.includes("לקוח")) return "clients";
+  if (s.includes("compan") || s.includes("חבר")) return "companies";
+  if (s.includes("book") || s.includes("הנה") || s === "bk") return "bookkeeping";
+  if (s.includes("worker") || s.includes("עובד")) return "workers";
+  if (s.includes("bill") || s.includes("חיוב") || s.includes("masav")) return "billing";
+  if (s.includes("trust") || s.includes("נאמ")) return "trusts";
+  if (s.includes("other") || s.includes("אחר")) return "other";
+  return "";
+}
+
+function filesImportExpandLegacyExcelUploads(
+  raw: unknown[],
+): FilesImportExcelUpload[] {
+  const out: FilesImportExcelUpload[] = [];
+  for (const u of raw) {
+    if (!u || typeof u !== "object") continue;
+    const row = u as Record<string, unknown>;
+    if (typeof row.id !== "string" || typeof row.name !== "string") continue;
+    if (typeof row.tableName === "string") {
+      const cat = row.category;
+      const category: FilesImportWizardTarget | "" =
+        typeof cat === "string" &&
+        (FILES_IMPORT_WIZARD_TARGET_ORDER as string[]).includes(cat)
+          ? (cat as FilesImportWizardTarget)
+          : cat === ""
+            ? ""
+            : filesImportGuessCategoryFromSheet(row.tableName);
+      out.push({
+        id: row.id,
+        name: row.name,
+        tableName: row.tableName,
+        category,
+      });
+      continue;
+    }
+    const sheets = Array.isArray(row.sheets)
+      ? row.sheets.filter((s): s is string => typeof s === "string")
+      : [];
+    if (sheets.length === 0) {
+      out.push({
+        id: row.id,
+        name: row.name,
+        tableName: row.name.replace(/\.xlsx$/i, ""),
+        category: "",
+      });
+      continue;
+    }
+    for (let i = 0; i < sheets.length; i++) {
+      const tableName = sheets[i]!;
+      out.push({
+        id: `${row.id}-${i}-${tableName}`,
+        name: row.name,
+        tableName,
+        category: filesImportGuessCategoryFromSheet(tableName),
+      });
+    }
+  }
+  return out;
+}
+const DEFAULT_FILES_IMPORT_PICKED_FOLDERS: FilesImportPickedFolder[] = [];
+const DEFAULT_FILES_IMPORT_WIZARD: FilesImportWizardState = {
+  stageId: "method",
+  method: "excel",
+  targets: ["clients", "companies", "bookkeeping"],
+  otherTypesText: DEFAULT_FILES_IMPORT_OTHER_TYPES_TEXT,
+  excelUploads: DEFAULT_FILES_IMPORT_EXCEL_UPLOADS,
+  pickedFolders: DEFAULT_FILES_IMPORT_PICKED_FOLDERS,
+  folderSourcePath: "",
+  folderSourceKind: "",
+  folderSourceWorkDriveId: "",
+  initialSort: false,
+};
+
+const FILES_IMPORT_WIZARD_TARGET_ORDER: FilesImportWizardTarget[] = [
+  ...FILES_IMPORT_MATCH_TARGET_ORDER,
+];
+
+function filesImportWizardTargetLabel(
+  lang: UiLang,
+  target: FilesImportWizardTarget,
+): string {
+  return filesImportMatchTargetLabel(lang, target);
+}
+
+function filesImportWizardEverythingSelected(
+  targets: FilesImportWizardTarget[],
+): boolean {
+  return FILES_IMPORT_WIZARD_TARGET_ORDER.every((id) => targets.includes(id));
+}
+
+function filesImportWizardStageLabel(
+  lang: UiLang,
+  stageId: FilesImportWizardStageId,
+): string {
+  switch (stageId) {
+    case "method":
+      return t(lang, "filesImportStepMethod");
+    case "upload-excel":
+      return t(lang, "filesImportStepUploadExcel");
+    case "pick-folders":
+      return t(lang, "filesImportStepPickFolders");
+    case "targets":
+      return t(lang, "filesImportStepTargets");
+    case "match":
+      return t(lang, "filesImportStepMatch");
+    case "bk-pair":
+      return t(lang, "filesImportStepBkPair");
+    case "unc":
+      return t(lang, "filesImportStepUnc");
+  }
+}
+
+/** Visible stages depend on method + targets (demo click-through branches). */
+function filesImportVisibleStages(
+  method: FilesImportMethod,
+  targets: FilesImportWizardTarget[],
+): FilesImportWizardStageId[] {
+  const stages: FilesImportWizardStageId[] = ["method"];
+  stages.push(method === "excel" ? "upload-excel" : "pick-folders");
+  stages.push("targets");
+  if (method === "excel") stages.push("match");
+  if (
+    targets.includes("clients") ||
+    targets.includes("companies") ||
+    targets.includes("bookkeeping")
+  ) {
+    stages.push("bk-pair");
+  }
+  stages.push("unc");
+  return stages;
+}
+
+function normalizeFilesImportWizard(
+  raw: Partial<FilesImportWizardState> | undefined,
+): FilesImportWizardState {
+  const method: FilesImportMethod =
+    raw?.method === "folders-only" ? "folders-only" : "excel";
+  const targets = FILES_IMPORT_WIZARD_TARGET_ORDER.filter((id) =>
+    (raw?.targets ?? DEFAULT_FILES_IMPORT_WIZARD.targets).includes(id),
+  );
+  const resolvedTargets = targets.length
+    ? targets
+    : [...DEFAULT_FILES_IMPORT_WIZARD.targets];
+  const otherTypesText =
+    typeof raw?.otherTypesText === "string"
+      ? raw.otherTypesText
+      : DEFAULT_FILES_IMPORT_OTHER_TYPES_TEXT;
+  const excelUploads = Array.isArray(raw?.excelUploads)
+    ? filesImportExpandLegacyExcelUploads(raw!.excelUploads!)
+    : DEFAULT_FILES_IMPORT_EXCEL_UPLOADS.map((u) => ({ ...u }));
+  const folderSourcePath =
+    typeof raw?.folderSourcePath === "string" ? raw.folderSourcePath : "";
+  const folderSourceKind: FilesImportFolderSourceKind | "" =
+    raw?.folderSourceKind === "custom" ||
+    raw?.folderSourceKind === "files-root" ||
+    raw?.folderSourceKind === "work-drive"
+      ? raw.folderSourceKind
+      : "";
+  const folderSourceWorkDriveId =
+    typeof raw?.folderSourceWorkDriveId === "string"
+      ? raw.folderSourceWorkDriveId
+      : "";
+  const pickedFolders = Array.isArray(raw?.pickedFolders)
+    ? raw!.pickedFolders!
+        .filter(
+          (f) =>
+            f &&
+            typeof f.id === "string" &&
+            typeof f.path === "string" &&
+            typeof f.selected === "boolean",
+        )
+        .map((f) => ({
+          id: f.id,
+          path: f.path,
+          pathHe: typeof f.pathHe === "string" ? f.pathHe : f.path,
+          selected: !!f.selected,
+        }))
+    : DEFAULT_FILES_IMPORT_PICKED_FOLDERS.map((f) => ({ ...f }));
+  const visible = filesImportVisibleStages(method, resolvedTargets);
+  const legacyStage = raw?.stageId as string | undefined;
+  let rawStage: string | undefined =
+    legacyStage === "cloud"
+      ? "unc"
+      : legacyStage === "upload"
+        ? method === "excel"
+          ? "upload-excel"
+          : "pick-folders"
+        : raw?.stageId;
+  if (rawStage === "upload-excel" && method === "folders-only") {
+    rawStage = "pick-folders";
+  }
+  if (rawStage === "pick-folders" && method === "excel") {
+    rawStage = "upload-excel";
+  }
+  const stageId =
+    rawStage && visible.includes(rawStage as FilesImportWizardStageId)
+      ? (rawStage as FilesImportWizardStageId)
+      : visible[0]!;
+  return {
+    stageId,
+    method,
+    targets: resolvedTargets,
+    otherTypesText,
+    excelUploads,
+    pickedFolders,
+    folderSourcePath,
+    folderSourceKind,
+    folderSourceWorkDriveId,
+    initialSort: !!raw?.initialSort,
+  };
+}
+
+function FilesImportWizardProgressBar({
+  lang,
+  stages,
+  stageId,
+}: {
+  lang: UiLang;
+  stages: FilesImportWizardStageId[];
+  stageId: FilesImportWizardStageId;
+}) {
+  const theme = useHostTheme();
+  const idx = Math.max(0, stages.indexOf(stageId));
+  const total = stages.length;
+  return (
+    <Stack gap={8}>
+      <ChromeText size="small" tone="secondary">
+        {t(lang, "filesImportProgress")
+          .replace("{n}", String(idx + 1))
+          .replace("{total}", String(total))}
+      </ChromeText>
+      <Row gap={6} wrap align="center">
+        {stages.map((id, i) => {
+          const active = i === idx;
+          const done = i < idx;
+          return (
+            <span
+              key={id}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 10px",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: active ? 700 : 500,
+                color: active || done ? theme.text.primary : CHROME_INK_MUTED,
+                background: active ? chromeSoftFill(theme) : "transparent",
+                border: `1px solid ${
+                  active || done ? theme.accent.primary : chromeBorder(theme)
+                }`,
+                opacity: done && !active ? 0.75 : 1,
+              }}
+            >
+              {i + 1}. {filesImportWizardStageLabel(lang, id)}
+            </span>
+          );
+        })}
+      </Row>
+      <div
+        style={{
+          height: 6,
+          borderRadius: 999,
+          background: chromeBorder(theme),
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: `${total <= 1 ? 100 : (idx / (total - 1)) * 100}%`,
+            background: theme.accent.primary,
+            borderRadius: 999,
+            transition: "width 160ms ease",
+          }}
+        />
+      </div>
+    </Stack>
+  );
+}
+
+
+
+/** Files area tab — office share wizard vs cloud import module. */
+type FilesAreaTab = "files-root" | "cloud";
+const FILES_AREA_TAB_KEY = "crmFilesAreaTab.v1";
+
+/**
+ * System Admin → Cloud — vendor lock + demo upload/mapping for the same
+ * folder taxonomy as Files root (not a wizard step).
+ */
+/** Demo cloud staff workflow state (connect, root URL, map, queue, who-can). */
+type CloudQueueJobStatus = "queued" | "running" | "paused" | "done";
+
+type CloudQueueJob = {
+  id: string;
+  label: string;
+  labelHe: string;
+  status: CloudQueueJobStatus;
+  progress: number;
+};
+
+type CloudStaffWorkflowV1 = {
+  connected: boolean;
+  rootUrl: string;
+  /** Folder-template kind ids marked mapped in the demo. */
+  mappedKindIds: string[];
+  queue: CloudQueueJob[];
+  queueRunning: boolean;
+  allowManager: boolean;
+  allowWorker: boolean;
+};
+
+const CLOUD_STAFF_WORKFLOW_KEY = "crmCloudStaffWorkflow.v1";
+
+const DEFAULT_CLOUD_QUEUE: CloudQueueJob[] = [
+  {
+    id: "q-companies-batch",
+    label: "Clients\\Companies — 12 folders",
+    labelHe: "Clients\\Companies — 12 תיקיות",
+    status: "queued",
+    progress: 0,
+  },
+  {
+    id: "q-bk-batch",
+    label: "Clients\\Bookkeeping — 8 folders",
+    labelHe: "Clients\\Bookkeeping — 8 תיקיות",
+    status: "queued",
+    progress: 0,
+  },
+  {
+    id: "q-portal-catchup",
+    label: "06-Portal-Uploads catch-up",
+    labelHe: "השלמת 06-Portal-Uploads",
+    status: "paused",
+    progress: 42,
+  },
+];
+
+const DEFAULT_CLOUD_STAFF_WORKFLOW: CloudStaffWorkflowV1 = {
+  connected: false,
+  rootUrl: "",
+  mappedKindIds: ["client", "company"],
+  queue: DEFAULT_CLOUD_QUEUE.map((j) => ({ ...j })),
+  queueRunning: false,
+  allowManager: true,
+  allowWorker: false,
+};
+
+function cloudVendorRootPlaceholder(
+  vendor: FilesRootCloudVendor,
+  customName?: string,
+): string {
+  switch (vendor) {
+    case "gdrive":
+      return "https://drive.google.com/drive/folders/…";
+    case "onedrive":
+      return "https://onedrive.live.com/?id=…";
+    case "sharepoint":
+      return "https://contoso.sharepoint.com/sites/Intertax/Shared Documents/…";
+    case "aws_s3":
+      return "s3://intertax-files/Clients/…";
+    case "dropbox":
+      return "https://www.dropbox.com/home/Intertax/Clients/…";
+    case "box":
+      return "https://app.box.com/folder/…";
+    case "icloud":
+      return "iCloud Drive / Intertax / Clients / …";
+    case "other": {
+      const name = (customName ?? "").trim() || "provider";
+      return `${name} root URL or folder id…`;
+    }
+    default:
+      return "Lock a vendor to see a root URL example…";
+  }
+}
+
+function cloudFolderTemplateKindLabel(
+  lang: UiLang,
+  kind: string,
+  templates: FolderTemplatesV1,
+): string {
+  switch (kind) {
+    case "client":
+      return t(lang, "folderTemplatesKindClient");
+    case "company":
+      return t(lang, "folderTemplatesKindCompany");
+    case "bookkeeping":
+      return t(lang, "folderTemplatesKindBookkeeping");
+    case "trusts":
+      return t(lang, "folderTemplatesKindTrusts");
+    case "audit":
+      return t(lang, "folderTemplatesKindAudit");
+    case "tax-return":
+      return t(lang, "folderTemplatesKindTaxReturn");
+    case "payroll":
+      return t(lang, "folderTemplatesKindPayroll");
+    case "portal":
+      return t(lang, "folderTemplatesKindPortal");
+    case "worker":
+      return t(lang, "folderTemplatesKindWorker");
+    case "billing":
+      return t(lang, "folderTemplatesKindBilling");
+    default: {
+      const custom = templates.customGroups.find((g) => g.id === kind);
+      if (custom) return lang === "he" ? custom.nameHe : custom.nameEn;
+      return kind;
+    }
+  }
+}
+
+function cloudQueueStatusLabel(
+  lang: UiLang,
+  status: CloudQueueJobStatus,
+): string {
+  if (status === "running") return t(lang, "cloudImportQueueRunning");
+  if (status === "paused") return t(lang, "cloudImportQueuePaused");
+  if (status === "done") return t(lang, "cloudImportQueueDone");
+  return t(lang, "cloudImportQueueQueued");
+}
+
+function cloudQueueStatusTone(
+  status: CloudQueueJobStatus,
+): "info" | "success" | "warning" | "neutral" {
+  if (status === "running") return "info";
+  if (status === "done") return "success";
+  if (status === "paused") return "warning";
+  return "neutral";
+}
+
+/**
+ * System Admin → Cloud — staff demo workflow:
+ * Lock vendor → Connect → Map taxonomy → Upload/sync queue (+ who can run).
+ */
+function CloudImportScreen() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [settings, setSettings] = useCanvasState<FilesRootSettings>(
+    "crmFilesRootSettings.v1",
+    DEFAULT_FILES_ROOT_SETTINGS,
+  );
+  const [workflow, setWorkflow] = useCanvasState<CloudStaffWorkflowV1>(
+    CLOUD_STAFF_WORKFLOW_KEY,
+    DEFAULT_CLOUD_STAFF_WORKFLOW,
+  );
+  const [rawTemplates] = useCanvasState<FolderTemplatesV1>(
+    "folderTemplates.v1",
+    DEFAULT_FOLDER_TEMPLATES,
+  );
+  const templates = normalizeFolderTemplatesV1(rawTemplates);
+  const [flash, setFlash] = useCanvasState("crmCloudImportFlash.v1", "");
+  const rtl = uiLang === "he" ? "rtl" : "ltr";
+
+  const patchSettings = (partial: Partial<FilesRootSettings>) => {
+    setSettings((prev) => ({ ...prev, ...partial, stage: "cloud" }));
+  };
+
+  const patchWorkflow = (partial: Partial<CloudStaffWorkflowV1>) => {
+    setWorkflow((prev) => ({ ...prev, ...partial }));
+  };
+
+  const vendorLocked =
+    settings.cloudVendor !== "unset" &&
+    !(
+      settings.cloudVendor === "other" &&
+      !(settings.cloudVendorOther ?? "").trim()
+    );
+
+  const vendorLabel = filesRootVendorLabel(
+    uiLang,
+    settings.cloudVendor,
+    settings.cloudVendorOther,
+  );
+
+  const rootPlaceholder = cloudVendorRootPlaceholder(
+    settings.cloudVendor,
+    settings.cloudVendorOther,
+  );
+
+  const kindIds: string[] = allFolderTemplatePillIds(templates);
+
+  const mappedSet = new Set(workflow.mappedKindIds);
+  const mappedCount = kindIds.filter((k) => mappedSet.has(k)).length;
+  const pendingCount = kindIds.length - mappedCount;
+
+  const onSave = () => {
+    if (!vendorLocked) {
+      setFlash(t(uiLang, "cloudImportNeedVendor"));
+      return;
+    }
+    setFlash(t(uiLang, "cloudImportSaved"));
+  };
+
+  const onConnect = () => {
+    if (!vendorLocked) {
+      setFlash(t(uiLang, "cloudImportNeedVendor"));
+      return;
+    }
+    const nextUrl =
+      workflow.rootUrl.trim() ||
+      cloudVendorRootPlaceholder(
+        settings.cloudVendor,
+        settings.cloudVendorOther,
+      ).replace("…", "demo");
+    patchWorkflow({ connected: true, rootUrl: nextUrl });
+    setFlash(
+      t(uiLang, "cloudImportConnected") + " — " + vendorLabel,
+    );
+  };
+
+  const onDisconnect = () => {
+    patchWorkflow({ connected: false, queueRunning: false });
+    setFlash(t(uiLang, "cloudImportNotConnected"));
+  };
+
+  const toggleMapped = (kindId: string) => {
+    setWorkflow((prev) => {
+      const has = prev.mappedKindIds.includes(kindId);
+      return {
+        ...prev,
+        mappedKindIds: has
+          ? prev.mappedKindIds.filter((id) => id !== kindId)
+          : [...prev.mappedKindIds, kindId],
+      };
+    });
+  };
+
+  const onDemoUpload = () => {
+    if (!vendorLocked) {
+      setFlash(t(uiLang, "cloudImportNeedVendor"));
+      return;
+    }
+    if (!workflow.connected) {
+      setFlash(t(uiLang, "cloudImportNeedConnect"));
+      return;
+    }
+    setWorkflow((prev) => {
+      const base =
+        prev.queue.length > 0
+          ? prev.queue.map((j) =>
+              j.status === "done"
+                ? j
+                : {
+                    ...j,
+                    status:
+                      j.status === "paused" ? ("paused" as const) : ("queued" as const),
+                  },
+            )
+          : DEFAULT_CLOUD_QUEUE.map((j) => ({ ...j }));
+      return {
+        ...prev,
+        queue: base,
+        queueRunning: true,
+      };
+    });
+    setFlash(
+      t(uiLang, "cloudImportUploadFlash").replace("{vendor}", vendorLabel),
+    );
+  };
+
+  const setJobStatus = (id: string, status: CloudQueueJobStatus) => {
+    setWorkflow((prev) => ({
+      ...prev,
+      queue: prev.queue.map((j) => {
+        if (j.id !== id) return j;
+        let progress = j.progress;
+        if (status === "running" && progress <= 0) progress = 8;
+        if (status === "done") progress = 100;
+        return { ...j, status, progress };
+      }),
+      queueRunning:
+        status === "running"
+          ? true
+          : prev.queue.some(
+              (j) => j.id !== id && j.status === "running",
+            ),
+    }));
+  };
+
+  const flashTone =
+    flash === t(uiLang, "cloudImportNeedVendor") ||
+    flash === t(uiLang, "cloudImportNeedConnect")
+      ? "warning"
+      : "success";
+
+  return (
+    <Stack gap={16} style={{ direction: rtl }}>
+      <Stack gap={4}>
+        <H1>{t(uiLang, "cloudImportTitle")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "cloudImportHint")}</ChromeText>
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, "cloudImportPathStrip")}
+        </ChromeText>
+      </Stack>
+
+      {flash ? (
+        <Callout tone={flashTone} title={t(uiLang, "save")}>
+          {flash}
+        </Callout>
+      ) : null}
+
+      <Callout tone="info" title={t(uiLang, "cloudImportPolicyTitle")}>
+        {t(uiLang, "cloudImportPolicyBody")}
+      </Callout>
+
+      <FormSection
+        title={t(uiLang, "cloudImportStepLock")}
+        hint={t(uiLang, "cloudImportStepLockHint")}
+      >
+        <Select
+          value={settings.cloudVendor}
+          onChange={(v) =>
+            patchSettings({ cloudVendor: v as FilesRootCloudVendor })
+          }
+          options={FILES_ROOT_CLOUD_VENDOR_OPTIONS.map((o) => ({
+            value: o.value,
+            label: t(uiLang, o.labelKey),
+          }))}
+        />
+        {settings.cloudVendor === "other" ? (
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "filesRootVendorOtherLabel")}</FieldLabel>
+            <ChromeTextInput
+              value={settings.cloudVendorOther ?? ""}
+              onChange={(v) => patchSettings({ cloudVendorOther: v })}
+              placeholder={t(uiLang, "filesRootVendorOtherPlaceholder")}
+            />
+          </Stack>
+        ) : null}
+        <Row gap={8} wrap align="center">
+          <Button variant="primary" onClick={onSave}>
+            {t(uiLang, "save")}
+          </Button>
+          {vendorLocked ? (
+            <Pill tone="success" size="sm">
+              {vendorLabel}
+            </Pill>
+          ) : (
+            <Pill tone="warning" size="sm">
+              {t(uiLang, "filesRootVendorUnset")}
+            </Pill>
+          )}
+        </Row>
+      </FormSection>
+
+      <Divider />
+
+      <FormSection
+        title={t(uiLang, "cloudImportStepConnect")}
+        hint={t(uiLang, "cloudImportStepConnectHint")}
+      >
+        <Row gap={8} wrap align="center">
+          <Pill
+            tone={workflow.connected ? "success" : "neutral"}
+            size="sm"
+          >
+            {workflow.connected
+              ? t(uiLang, "cloudImportConnected")
+              : t(uiLang, "cloudImportNotConnected")}
+          </Pill>
+          {workflow.connected ? (
+            <Button variant="secondary" onClick={onDisconnect}>
+              {t(uiLang, "cloudImportDisconnectBtn")}
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={onConnect}>
+              {t(uiLang, "cloudImportConnectBtn")}
+            </Button>
+          )}
+        </Row>
+        <Stack gap={4}>
+          <FieldLabel>{t(uiLang, "cloudImportRootLabel")}</FieldLabel>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "cloudImportRootHint")}
+          </ChromeText>
+          <ChromeTextInput
+            value={workflow.rootUrl}
+            onChange={(v) => patchWorkflow({ rootUrl: v })}
+            placeholder={rootPlaceholder}
+          />
+        </Stack>
+      </FormSection>
+
+      <Divider />
+
+      <FormSection
+        title={t(uiLang, "cloudImportStepMap")}
+        hint={t(uiLang, "cloudImportStepMapHint")}
+      >
+        <Row gap={16} wrap>
+          <Stat
+            value={String(mappedCount)}
+            label={t(uiLang, "cloudImportMapMapped")}
+            tone="success"
+          />
+          <Stat
+            value={String(pendingCount)}
+            label={t(uiLang, "cloudImportMapPending")}
+            tone={pendingCount > 0 ? "warning" : "neutral"}
+          />
+        </Row>
+        <Stack gap={8}>
+          {kindIds.map((kindId) => {
+            const folders = templates.trees[kindId] ?? [];
+            const topNames = folders
+              .slice(0, 6)
+              .map((f) => (uiLang === "he" ? f.nameHe : f.nameEn))
+              .join(", ");
+            const isMapped = mappedSet.has(kindId);
+            return (
+              <Stack
+                key={kindId}
+                gap={4}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  border: `1px solid ${theme.stroke.secondary}`,
+                  background: theme.bg.elevated,
+                }}
+              >
+                <Row gap={8} wrap align="center">
+                  <ChromeText weight="medium">
+                    {cloudFolderTemplateKindLabel(uiLang, kindId, templates)}
+                  </ChromeText>
+                  <Pill
+                    tone={isMapped ? "success" : "warning"}
+                    size="sm"
+                  >
+                    {isMapped
+                      ? t(uiLang, "cloudImportMapMapped")
+                      : t(uiLang, "cloudImportMapPending")}
+                  </Pill>
+                  <Spacer />
+                  <Checkbox
+                    checked={isMapped}
+                    onChange={() => toggleMapped(kindId)}
+                    label={t(uiLang, "cloudImportMapToggle")}
+                  />
+                </Row>
+                {topNames ? (
+                  <ChromeText size="small" tone="tertiary">
+                    {t(uiLang, "cloudImportMapFolders")}: {topNames}
+                    {folders.length > 6 ? "…" : ""}
+                  </ChromeText>
+                ) : null}
+              </Stack>
+            );
+          })}
+        </Stack>
+      </FormSection>
+
+      <Divider />
+
+      <FormSection
+        title={t(uiLang, "cloudImportStepQueue")}
+        hint={t(uiLang, "cloudImportStepQueueHint")}
+      >
+        <Row gap={8} wrap>
+          <Button variant="primary" onClick={onDemoUpload}>
+            {t(uiLang, "cloudImportUploadDemo")}
+          </Button>
+        </Row>
+        {workflow.queue.length === 0 ? (
+          <ChromeText tone="secondary">
+            {t(uiLang, "cloudImportQueueEmptyHint")}
+          </ChromeText>
+        ) : (
+          <Stack gap={8}>
+            {workflow.queue.map((job) => {
+              const label = uiLang === "he" ? job.labelHe : job.label;
+              const pct = Math.max(0, Math.min(100, job.progress));
+              return (
+                <Stack
+                  key={job.id}
+                  gap={6}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: `1px solid ${theme.stroke.secondary}`,
+                  }}
+                >
+                  <Row gap={8} wrap align="center">
+                    <ChromeText weight="medium">{label}</ChromeText>
+                    <Pill
+                      tone={cloudQueueStatusTone(job.status)}
+                      size="sm"
+                    >
+                      {cloudQueueStatusLabel(uiLang, job.status)}
+                    </Pill>
+                    <ChromeText size="small" tone="tertiary">
+                      {pct}%
+                    </ChromeText>
+                    <Spacer />
+                    {job.status === "running" ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => setJobStatus(job.id, "paused")}
+                      >
+                        {t(uiLang, "cloudImportQueuePause")}
+                      </Button>
+                    ) : job.status === "done" ? null : (
+                      <Button
+                        variant="secondary"
+                        onClick={() => setJobStatus(job.id, "running")}
+                      >
+                        {t(uiLang, "cloudImportQueueStart")}
+                      </Button>
+                    )}
+                  </Row>
+                  <div
+                    style={{
+                      height: 6,
+                      borderRadius: 3,
+                      background: theme.fill.tertiary,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${pct}%`,
+                        height: "100%",
+                        background:
+                          job.status === "done"
+                            ? theme.chart.palette.green
+                            : theme.accent.primary,
+                      }}
+                    />
+                  </div>
+                </Stack>
+              );
+            })}
+          </Stack>
+        )}
+      </FormSection>
+
+      <Divider />
+
+      <FormSection
+        title={t(uiLang, "cloudImportWhoTitle")}
+        hint={t(uiLang, "cloudImportWhoHint")}
+      >
+        <Stack gap={10}>
+          <Row gap={10} align="center" wrap>
+            <Toggle checked={true} onChange={() => undefined} disabled />
+            <ChromeText weight="medium">
+              {t(uiLang, "cloudImportWhoSystemadmin")}
+            </ChromeText>
+          </Row>
+          <Row gap={10} align="center" wrap>
+            <Toggle
+              checked={workflow.allowManager}
+              onChange={(v) => patchWorkflow({ allowManager: v })}
+            />
+            <ChromeText weight="medium">
+              {t(uiLang, "cloudImportWhoManager")}
+            </ChromeText>
+          </Row>
+          <Row gap={10} align="center" wrap>
+            <Toggle
+              checked={workflow.allowWorker}
+              onChange={(v) => patchWorkflow({ allowWorker: v })}
+            />
+            <ChromeText weight="medium">
+              {t(uiLang, "cloudImportWhoWorker")}
+            </ChromeText>
+          </Row>
+        </Stack>
+      </FormSection>
+
+      <Callout tone="info" title={t(uiLang, "filesRootPathSection")}>
+        {settings.rootPath || DEFAULT_FILES_ROOT_SETTINGS.rootPath}
+        {" — "}
+        {t(uiLang, "filesRootPolicyBody")}
+      </Callout>
+    </Stack>
+  );
+}
+
+
+/**
+ * System Admin → Files area — Gmail top tabs: Files root | Cloud.
+ * Single sidebar tile; tabs switch the module (not wizard step 5).
+ */
+function FilesAreaScreen() {
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [tab, setTab] = useCanvasState<FilesAreaTab>(
+    FILES_AREA_TAB_KEY,
+    "files-root",
+  );
+  const [, setSettings] = useCanvasState<FilesRootSettings>(
+    "crmFilesRootSettings.v1",
+    DEFAULT_FILES_ROOT_SETTINGS,
+  );
+  const rtl = uiLang === "he" ? "rtl" : "ltr";
+  const active: FilesAreaTab = tab === "cloud" ? "cloud" : "files-root";
+
+  const selectTab = (next: FilesAreaTab) => {
+    setTab(next);
+    setSettings((prev) => ({
+      ...prev,
+      stage: next === "cloud" ? "cloud" : "share",
+    }));
+  };
+
+  return (
+    <Stack gap={12} style={{ direction: rtl }}>
+      <Row
+        gap={8}
+        wrap
+        align="center"
+        style={{ width: "100%" }}
+        data-chrome={`files-area-tabs-${GMAIL_DUAL_NAV_BUILD}`}
+      >
+        <GmailButton
+          variant={active === "files-root" ? "primary" : "secondary"}
+          size="compact"
+          iconId="files-root"
+          onClick={() => selectTab("files-root")}
+        >
+          {t(uiLang, "filesAreaTabRoot")}
+        </GmailButton>
+        <GmailButton
+          variant={active === "cloud" ? "primary" : "secondary"}
+          size="compact"
+          iconId="cloud"
+          onClick={() => selectTab("cloud")}
+        >
+          {t(uiLang, "filesAreaTabCloud")}
+        </GmailButton>
+        <Spacer />
+        <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
+      </Row>
+      {active === "cloud" ? <CloudImportScreen /> : <FilesRootScreen />}
+    </Stack>
+  );
+}
+
+
 function FilesRootScreen() {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
@@ -60842,9 +67591,112 @@ function FilesRootScreen() {
     "",
   );
   const [flash, setFlash] = useCanvasState("crmFilesRootFlash.v1", "");
+  const [wizardRaw, setWizardRaw] = useCanvasState<FilesImportWizardState>(
+    FILES_IMPORT_WIZARD_KEY,
+    DEFAULT_FILES_IMPORT_WIZARD,
+  );
+  const [workDrivesRaw, setWorkDrives] = useCanvasState<WorkDrive[]>(
+    CRM_WORK_DRIVES_KEY,
+    seedWorkDrives(),
+  );
+  const wizard = normalizeFilesImportWizard(wizardRaw);
+  const stages = filesImportVisibleStages(wizard.method, wizard.targets);
+  const stageIdx = Math.max(0, stages.indexOf(wizard.stageId));
+  const isFirst = stageIdx <= 0;
+  const isLast = stageIdx >= stages.length - 1;
 
   const patchSettings = (partial: Partial<FilesRootSettings>) => {
     setSettings((prev) => ({ ...prev, ...partial }));
+  };
+
+  const patchWizard = (partial: Partial<FilesImportWizardState>) => {
+    setWizardRaw((prev) =>
+      normalizeFilesImportWizard({
+        ...normalizeFilesImportWizard(prev),
+        ...partial,
+      }),
+    );
+  };
+
+  const toggleTarget = (id: FilesImportWizardTarget) => {
+    const cur = wizard.targets;
+    const next = cur.includes(id)
+      ? cur.filter((x) => x !== id)
+      : FILES_IMPORT_WIZARD_TARGET_ORDER.filter(
+          (tId) => tId === id || cur.includes(tId),
+        );
+    patchWizard({ targets: next });
+  };
+
+  const everythingSelected = filesImportWizardEverythingSelected(
+    wizard.targets,
+  );
+
+  const toggleEverything = () => {
+    patchWizard({
+      targets: everythingSelected
+        ? []
+        : [...FILES_IMPORT_WIZARD_TARGET_ORDER],
+    });
+  };
+
+  const goNext = () => {
+    if (wizard.stageId === "targets" && wizard.targets.length === 0) {
+      setFlash(t(uiLang, "filesImportNeedTarget"));
+      return;
+    }
+    if (
+      wizard.stageId === "upload-excel" &&
+      wizard.excelUploads.length === 0
+    ) {
+      setFlash(t(uiLang, "filesImportNeedUpload"));
+      return;
+    }
+    if (
+      wizard.stageId === "pick-folders" &&
+      !wizard.pickedFolders.some((f) => f.selected)
+    ) {
+      setFlash(t(uiLang, "filesImportNeedUpload"));
+      return;
+    }
+    if (isLast) {
+      setWizardRaw((prev) =>
+        normalizeFilesImportWizard({
+          ...normalizeFilesImportWizard(prev),
+          initialSort: false,
+        }),
+      );
+      setFlash(t(uiLang, "filesImportFinished"));
+      return;
+    }
+    const nextId = stages[stageIdx + 1];
+    if (!nextId) return;
+    setFlash(
+      wizard.method === "folders-only" && nextId === "unc"
+        ? t(uiLang, "filesImportSkippedMatch")
+        : "",
+    );
+    if (wizard.stageId === "upload-excel") {
+      const assigned = FILES_IMPORT_WIZARD_TARGET_ORDER.filter((id) =>
+        wizard.excelUploads.some((r) => r.category === id),
+      );
+      const mergedTargets = assigned.length
+        ? FILES_IMPORT_WIZARD_TARGET_ORDER.filter(
+            (id) => wizard.targets.includes(id) || assigned.includes(id),
+          )
+        : wizard.targets;
+      patchWizard({ stageId: nextId, targets: mergedTargets });
+    } else {
+      patchWizard({ stageId: nextId });
+    }
+  };
+
+  const goBack = () => {
+    if (isFirst) return;
+    const prevId = stages[stageIdx - 1];
+    if (!prevId) return;
+    setFlash("");
+    patchWizard({ stageId: prevId });
   };
 
   const crumbs = filesBreadcrumb(entries, folderId);
@@ -60940,44 +67792,763 @@ function FilesRootScreen() {
     );
   };
 
-  const pathPrefix =
-    settings.rootPath.replace(/[\\/]+$/, "") +
-    (settings.stage === "cloud" ? "  →  cloud:" : "");
+  const pathPrefix = settings.rootPath.replace(/[\\/]+$/, "");
   const crumbPath =
     crumbs.length === 0
       ? pathPrefix
       : `${pathPrefix}\\${crumbs.map((c) => c.name).join("\\")}`;
 
-  return (
-    <Stack gap={16} style={{ direction: uiLang === "he" ? "rtl" : "ltr" }}>
-      <Row align="center" gap={12} wrap>
-        <Spacer />
-        <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
-      </Row>
+  const rtl = uiLang === "he" ? "rtl" : "ltr";
 
+  let stageBody = null as ReturnType<typeof Stack> | null;
+  if (wizard.stageId === "method") {
+    stageBody = (
+      <Stack gap={12}>
+        <H2>{t(uiLang, "filesImportMethodTitle")}</H2>
+        <Row gap={8} wrap>
+          <Button
+            variant={wizard.method === "excel" ? "primary" : "secondary"}
+            onClick={() => patchWizard({ method: "excel" })}
+          >
+            {t(uiLang, "filesImportMethodExcel")}
+          </Button>
+          <Button
+            variant={
+              wizard.method === "folders-only" ? "primary" : "secondary"
+            }
+            onClick={() => patchWizard({ method: "folders-only" })}
+          >
+            {t(uiLang, "filesImportMethodFolders")}
+          </Button>
+        </Row>
+        <ChromeText tone="secondary">
+          {wizard.method === "excel"
+            ? t(uiLang, "filesImportMethodExcelHint")
+            : t(uiLang, "filesImportMethodFoldersHint")}
+        </ChromeText>
+      </Stack>
+    );
+  } else if (wizard.stageId === "upload-excel") {
+    const demoWorkbookNames = [
+      "Clients-Companies-2026.xlsx",
+      "Trusts-Other-2026.xlsx",
+      "Billing-Masav-Wave.xlsx",
+    ];
+    const categoryOptions = [
+      { value: "", label: t(uiLang, "filesImportUploadExcelCategoryUnset") },
+      ...FILES_IMPORT_WIZARD_TARGET_ORDER.map((id) => ({
+        value: id,
+        label: filesImportWizardTargetLabel(uiLang, id),
+      })),
+    ];
+    const addDemoExcel = () => {
+      const stamp = Date.now();
+      const workbookCount = new Set(wizard.excelUploads.map((x) => x.name)).size;
+      const name =
+        demoWorkbookNames[workbookCount % demoWorkbookNames.length]!;
+      const sheets =
+        name.startsWith("Billing")
+          ? ["Billing", "Masav", "Wave"]
+          : name.startsWith("Trusts")
+            ? ["Trusts", "Other"]
+            : ["Clients", "Companies", "Bookkeeping"];
+      const rows: FilesImportExcelUpload[] = sheets.map((tableName, i) => ({
+        id: `xlsx-${stamp}-${i}`,
+        name,
+        tableName,
+        category: filesImportGuessCategoryFromSheet(tableName),
+      }));
+      const excelUploads = [...wizard.excelUploads, ...rows];
+      const assigned = FILES_IMPORT_WIZARD_TARGET_ORDER.filter((id) =>
+        excelUploads.some((r) => r.category === id),
+      );
+      const mergedTargets = FILES_IMPORT_WIZARD_TARGET_ORDER.filter(
+        (id) => wizard.targets.includes(id) || assigned.includes(id),
+      );
+      patchWizard({
+        excelUploads,
+        targets: mergedTargets.length ? mergedTargets : wizard.targets,
+      });
+      setFlash(
+        t(uiLang, "filesImportUploadFlashExcel")
+          .replace("{name}", name)
+          .replace("{sheets}", sheets.join(", ")),
+      );
+    };
+    const setTableCategory = (
+      id: string,
+      category: FilesImportWizardTarget | "",
+    ) => {
+      const excelUploads = wizard.excelUploads.map((row) =>
+        row.id === id ? { ...row, category } : row,
+      );
+      const assigned = FILES_IMPORT_WIZARD_TARGET_ORDER.filter((cid) =>
+        excelUploads.some((r) => r.category === cid),
+      );
+      const mergedTargets = FILES_IMPORT_WIZARD_TARGET_ORDER.filter(
+        (cid) => wizard.targets.includes(cid) || assigned.includes(cid),
+      );
+      patchWizard({
+        excelUploads,
+        targets: mergedTargets.length ? mergedTargets : wizard.targets,
+      });
+    };
+    stageBody = (
+      <Stack gap={14}>
+        <Stack gap={4}>
+          <H2>{t(uiLang, "filesImportUploadExcelTitle")}</H2>
+          <ChromeText tone="secondary">
+            {t(uiLang, "filesImportUploadExcelHint")}
+          </ChromeText>
+        </Stack>
+        <Stack
+          gap={10}
+          style={{
+            padding: 16,
+            borderRadius: 10,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: chromeSoftFill(theme),
+          }}
+        >
+          <Button
+            variant="primary"
+            onClick={addDemoExcel}
+            style={{
+              minHeight: 44,
+              paddingInline: 20,
+              fontSize: 15,
+              fontWeight: 600,
+            }}
+          >
+            {t(uiLang, "filesImportUploadExcelPick")}
+          </Button>
+          <Row gap={8} wrap>
+            <Button variant="secondary" onClick={addDemoExcel}>
+              {t(uiLang, "filesImportUploadExcelDemoAdd")}
+            </Button>
+          </Row>
+        </Stack>
+        <Stack gap={8}>
+          <ChromeText size="small" weight="semibold">
+            {t(uiLang, "filesImportUploadExcelSheets")}
+          </ChromeText>
+          {wizard.excelUploads.length === 0 ? (
+            <ChromeText tone="secondary">
+              {t(uiLang, "filesImportUploadExcelEmpty")}
+            </ChromeText>
+          ) : (
+            wizard.excelUploads.map((file) => (
+              <Row
+                key={file.id}
+                gap={8}
+                align="center"
+                wrap
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                  background: chromeSoftFill(theme),
+                }}
+              >
+                <Stack gap={2} style={{ flex: "1 1 180px", minWidth: 140 }}>
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "filesImportUploadExcelFileCol")}
+                  </ChromeText>
+                  <ChromeText weight="semibold">{file.name}</ChromeText>
+                  <ChromeText size="small">
+                    {t(uiLang, "filesImportUploadExcelTableCol")}:{" "}
+                    {file.tableName}
+                  </ChromeText>
+                </Stack>
+                <Stack gap={2} style={{ flex: "0 1 200px", minWidth: 160 }}>
+                  <ChromeText size="small" tone="secondary">
+                    {t(uiLang, "filesImportUploadExcelCategory")}
+                  </ChromeText>
+                  <Select
+                    value={file.category}
+                    onChange={(v) =>
+                      setTableCategory(
+                        file.id,
+                        (v || "") as FilesImportWizardTarget | "",
+                      )
+                    }
+                    options={categoryOptions}
+                    placeholder={t(
+                      uiLang,
+                      "filesImportUploadExcelCategoryUnset",
+                    )}
+                  />
+                </Stack>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    patchWizard({
+                      excelUploads: wizard.excelUploads.filter(
+                        (x) => x.id !== file.id,
+                      ),
+                    })
+                  }
+                >
+                  {t(uiLang, "remove")}
+                </Button>
+              </Row>
+            ))
+          )}
+        </Stack>
+      </Stack>
+    );
+  } else if (wizard.stageId === "pick-folders") {
+    const workDrives = normalizeWorkDrives(workDrivesRaw);
+    const filesRootPath = (settings.rootPath || "").trim();
+    const sourceSelectOptions = [
+      {
+        value: "",
+        label: t(uiLang, "filesImportUploadFoldersSourceUnset"),
+      },
+      ...(filesRootPath
+        ? [
+            {
+              value: "files-root",
+              label: `${t(uiLang, "filesImportUploadFoldersSourceFilesRoot")}: ${filesRootPath}`,
+            },
+          ]
+        : []),
+      ...workDrives.map((d) => ({
+        value: `work-drive:${d.id}`,
+        label: t(uiLang, "filesImportUploadFoldersSourceWorkDrive").replace(
+          "{name}",
+          d.rootPathOrUrl ? `${d.name} (${d.rootPathOrUrl})` : d.name,
+        ),
+      })),
+      {
+        value: "custom",
+        label: t(uiLang, "filesImportUploadFoldersSourceBrowse"),
+      },
+    ];
+    const sourceSelectValue =
+      wizard.folderSourceKind === "files-root"
+        ? "files-root"
+        : wizard.folderSourceKind === "work-drive" &&
+            wizard.folderSourceWorkDriveId
+          ? `work-drive:${wizard.folderSourceWorkDriveId}`
+          : wizard.folderSourceKind === "custom" || wizard.folderSourcePath
+            ? "custom"
+            : "";
+    const onSourceSelect = (value: string) => {
+      if (!value) {
+        patchWizard({
+          folderSourceKind: "",
+          folderSourceWorkDriveId: "",
+        });
+        return;
+      }
+      if (value === "files-root") {
+        patchWizard({
+          folderSourceKind: "files-root",
+          folderSourceWorkDriveId: "",
+          folderSourcePath: filesRootPath || wizard.folderSourcePath,
+        });
+        return;
+      }
+      if (value === "custom") {
+        patchWizard({
+          folderSourceKind: "custom",
+          folderSourceWorkDriveId: "",
+        });
+        return;
+      }
+      if (value.startsWith("work-drive:")) {
+        const driveId = value.slice("work-drive:".length);
+        const drive = workDrives.find((d) => d.id === driveId);
+        patchWizard({
+          folderSourceKind: "work-drive",
+          folderSourceWorkDriveId: driveId,
+          folderSourcePath:
+            (drive?.rootPathOrUrl || "").trim() ||
+            drive?.name ||
+            wizard.folderSourcePath,
+        });
+      }
+    };
+    const saveDriveLink = () => {
+      const path = (wizard.folderSourcePath || filesRootPath).trim();
+      if (!path) {
+        setFlash(t(uiLang, "filesImportUploadFoldersNeedSource"));
+        return;
+      }
+      /** Keep work-drive selection; otherwise treat saved path as Files root. */
+      const kind: FilesImportFolderSourceKind =
+        wizard.folderSourceKind === "work-drive" ? "work-drive" : "files-root";
+      /** Feed Files / Work Drive browse (crmFilesRootSettings.v1.rootPath). */
+      patchSettings({ rootPath: path, stage: "share" });
+      if (
+        kind === "work-drive" &&
+        wizard.folderSourceWorkDriveId
+      ) {
+        setWorkDrives((prev) =>
+          normalizeWorkDrives(prev).map((d) =>
+            d.id === wizard.folderSourceWorkDriveId
+              ? { ...d, rootPathOrUrl: path }
+              : d,
+          ),
+        );
+      }
+      patchWizard({
+        folderSourcePath: path,
+        folderSourceKind: kind,
+        folderSourceWorkDriveId:
+          kind === "work-drive" ? wizard.folderSourceWorkDriveId : "",
+      });
+      setFlash(
+        t(uiLang, "filesImportUploadFoldersSourceSaved").replace(
+          "{path}",
+          path,
+        ),
+      );
+    };
+    const demoFolderRows = (): FilesImportPickedFolder[] => {
+      const stamp = Date.now();
+      return [
+      {
+        id: `pf-clients-${stamp}`,
+        path: "Clients",
+        pathHe: "לקוחות",
+        selected: true,
+      },
+      {
+        id: `pf-companies-${stamp}`,
+        path: "Clients\\Companies",
+        pathHe: "לקוחות\\חברות",
+        selected: true,
+      },
+      {
+        id: `pf-bk-${stamp}`,
+        path: "Clients\\Bookkeeping",
+        pathHe: "לקוחות\\הנהלת חשבונות",
+        selected: true,
+      },
+      {
+        id: `pf-workers-${stamp}`,
+        path: "Workers",
+        pathHe: "עובדים",
+        selected: false,
+      },
+      {
+        id: `pf-billing-${stamp}`,
+        path: "Billing",
+        pathHe: "חיוב",
+        selected: false,
+      },
+    ];
+    };
+
+const scanFolders = (forceDemo: boolean) => {
+      const path = wizard.folderSourcePath.trim();
+      if (!path && !forceDemo) {
+        setFlash(t(uiLang, "filesImportUploadFoldersNeedSource"));
+        return;
+      }
+      const scanned = demoFolderRows();
+      const label = path || (uiLang === "he" ? "שיתוף דמו" : "demo share");
+      patchWizard({
+        pickedFolders: scanned,
+        folderSourceKind:
+          wizard.folderSourceKind || (path ? "custom" : wizard.folderSourceKind),
+        folderSourcePath: path || wizard.folderSourcePath,
+      });
+      setFlash(
+        t(uiLang, "filesImportUploadFlashFolders")
+          .replace("{path}", label)
+          .replace("{n}", String(scanned.length)),
+      );
+    };
+    const toggleFolder = (id: string) => {
+      patchWizard({
+        pickedFolders: wizard.pickedFolders.map((f) =>
+          f.id === id ? { ...f, selected: !f.selected } : f,
+        ),
+      });
+    };
+    const setFolderPath = (id: string, path: string) => {
+      patchWizard({
+        pickedFolders: wizard.pickedFolders.map((f) =>
+          f.id === id
+            ? {
+                ...f,
+                path,
+                pathHe: path,
+              }
+            : f,
+        ),
+      });
+    };
+    const removeFolder = (id: string) => {
+      patchWizard({
+        pickedFolders: wizard.pickedFolders.filter((f) => f.id !== id),
+      });
+    };
+    const addFolder = () => {
+      const stamp = Date.now();
+      patchWizard({
+        pickedFolders: [
+          ...wizard.pickedFolders,
+          {
+            id: `pf-custom-${stamp}`,
+            path: "",
+            pathHe: "",
+            selected: true,
+          },
+        ],
+      });
+    };
+    stageBody = (
+      <Stack gap={14}>
+        <Stack gap={4}>
+          <H2>{t(uiLang, "filesImportUploadFoldersTitle")}</H2>
+          <ChromeText tone="secondary">
+            {t(uiLang, "filesImportUploadFoldersHint")}
+          </ChromeText>
+        </Stack>
+        <Stack
+          gap={10}
+          style={{
+            padding: 16,
+            borderRadius: 10,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: chromeSoftFill(theme),
+          }}
+        >
+          <Stack gap={4}>
+            <ChromeText weight="semibold">
+              {t(uiLang, "filesImportUploadFoldersDriveLink")}
+            </ChromeText>
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "filesImportUploadFoldersDriveLinkHint")}
+            </ChromeText>
+            <ChromeTextInput
+              value={wizard.folderSourcePath || filesRootPath}
+              onChange={(v) =>
+                patchWizard({
+                  folderSourcePath: v,
+                  folderSourceKind:
+                    wizard.folderSourceKind === "files-root" ||
+                    wizard.folderSourceKind === "work-drive"
+                      ? wizard.folderSourceKind
+                      : "custom",
+                })
+              }
+              placeholder={t(
+                uiLang,
+                "filesImportUploadFoldersDriveLinkPlaceholder",
+              )}
+            />
+          </Stack>
+          <Stack gap={4}>
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "filesImportUploadFoldersSourcePick")}
+            </ChromeText>
+            <Select
+              value={sourceSelectValue}
+              onChange={onSourceSelect}
+              options={sourceSelectOptions}
+              placeholder={t(uiLang, "filesImportUploadFoldersSourceUnset")}
+            />
+          </Stack>
+          <Row gap={8} wrap>
+            <Button
+              variant="primary"
+              onClick={saveDriveLink}
+              style={{ minHeight: 40, paddingInline: 16, fontWeight: 600 }}
+            >
+              {t(uiLang, "filesImportUploadFoldersSaveSource")}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => scanFolders(false)}
+              style={{ minHeight: 40, paddingInline: 16, fontWeight: 600 }}
+            >
+              {t(uiLang, "filesImportUploadFoldersScan")}
+            </Button>
+            <Button variant="secondary" onClick={() => scanFolders(true)}>
+              {t(uiLang, "filesImportUploadFoldersScanDemo")}
+            </Button>
+          </Row>
+        </Stack>
+        <Stack gap={8}>
+          <ChromeText size="small" weight="semibold">
+            {t(uiLang, "filesImportUploadFoldersList")}
+          </ChromeText>
+          {wizard.pickedFolders.length === 0 ? (
+            <ChromeText tone="secondary">
+              {t(uiLang, "filesImportUploadFoldersEmpty")}
+            </ChromeText>
+          ) : (
+            wizard.pickedFolders.map((folder) => (
+              <Row
+                key={folder.id}
+                gap={8}
+                align="center"
+                wrap
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                  background: chromeSoftFill(theme),
+                }}
+              >
+                <Checkbox
+                  checked={folder.selected}
+                  onChange={() => toggleFolder(folder.id)}
+                />
+                <ChromeTextInput
+                  value={uiLang === "he" ? folder.pathHe : folder.path}
+                  onChange={(v) => setFolderPath(folder.id, v)}
+                  placeholder={t(
+                    uiLang,
+                    "filesImportUploadFoldersPathPlaceholder",
+                  )}
+                  style={{ flex: "1 1 220px", minWidth: 160 }}
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() => removeFolder(folder.id)}
+                >
+                  {t(uiLang, "remove")}
+                </Button>
+              </Row>
+            ))
+          )}
+          <Row gap={8} wrap>
+            <Button variant="secondary" onClick={addFolder}>
+              {t(uiLang, "filesImportUploadFoldersAdd")}
+            </Button>
+          </Row>
+        </Stack>
+      </Stack>
+    );
+  } else if (wizard.stageId === "targets") {
+    stageBody = (
+      <Stack gap={12}>
+        <Stack gap={4}>
+          <H2>{t(uiLang, "filesImportTargetsTitle")}</H2>
+          <ChromeText tone="secondary">
+            {t(uiLang, "filesImportTargetsHint")}
+          </ChromeText>
+        </Stack>
+        <Stack gap={8}>
+          <Checkbox
+            checked={everythingSelected}
+            onChange={toggleEverything}
+            label={t(uiLang, "filesImportTargetEverything")}
+          />
+          {FILES_IMPORT_WIZARD_TARGET_ORDER.map((id) => (
+            <Checkbox
+              key={id}
+              checked={wizard.targets.includes(id)}
+              onChange={() => toggleTarget(id)}
+              label={filesImportWizardTargetLabel(uiLang, id)}
+            />
+          ))}
+          {wizard.targets.includes("other") ? (
+            <Stack gap={6} style={{ paddingInlineStart: 8 }}>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "filesImportOtherTypesHint")}
+              </ChromeText>
+              <ChromeTextInput
+                value={wizard.otherTypesText}
+                onChange={(v) => patchWizard({ otherTypesText: v })}
+                placeholder={t(uiLang, "filesImportOtherTypesPlaceholder")}
+              />
+            </Stack>
+          ) : null}
+        </Stack>
+      </Stack>
+    );
+  } else if (wizard.stageId === "match") {
+    /* WIZARD_MOUNT:FilesImportMatchPanel — sibling owns full Sumit UI */
+    stageBody = (
+      <FilesImportMatchPanel
+        rootPath={settings.rootPath}
+        allowedTargets={wizard.targets}
+        otherTypeNames={
+          wizard.targets.includes("other")
+            ? filesImportParseOtherTypeNames(wizard.otherTypesText)
+            : undefined
+        }
+      />
+    );
+  } else if (wizard.stageId === "bk-pair") {
+    /* WIZARD_MOUNT:ClientBookkeepingPairPanel — sibling owns pairing UI */
+    stageBody = <ClientBookkeepingPairPanel embedded />;
+  } else if (wizard.stageId === "unc") {
+    stageBody = (
+      <Stack gap={16}>
+        <Stack gap={4}>
+          <H2>{t(uiLang, "filesImportUncTitle")}</H2>
+          <ChromeText tone="secondary">
+            {t(uiLang, "filesImportUncHint")}
+          </ChromeText>
+        </Stack>
+        <Callout tone="info" title={t(uiLang, "filesRootPolicyTitle")}>
+          {t(uiLang, "filesRootPolicyBody")}
+        </Callout>
+        <FormSection
+          title={t(uiLang, "filesRootPathSection")}
+          hint={t(uiLang, "filesRootPathHint")}
+        >
+          <Stack gap={4}>
+            <FieldLabel>{t(uiLang, "filesRootPathLabel")}</FieldLabel>
+            <ChromeTextInput
+              value={settings.rootPath}
+              onChange={(v) => patchSettings({ rootPath: v, stage: "share" })}
+            />
+          </Stack>
+          <Row gap={8} wrap>
+            <Button variant="primary" onClick={onSaveSettings}>
+              {t(uiLang, "save")}
+            </Button>
+          </Row>
+        </FormSection>
+        <FormSection
+          title={t(uiLang, "filesRootBrowserTitle")}
+          hint={t(uiLang, "filesRootBrowserHint")}
+        >
+          <Stack
+            gap={10}
+            style={{
+              padding: 12,
+              borderRadius: 10,
+              background: chromeSoftFill(theme),
+              border: `1px solid ${chromeBorder(theme)}`,
+            }}
+          >
+            <ChromeText size="small" weight="semibold">
+              {crumbPath}
+            </ChromeText>
+            <Row gap={6} wrap align="center">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setFolderId(null);
+                  setSelectedId("");
+                }}
+              >
+                {settings.rootPath.split(/[\\/]/).filter(Boolean).pop() ||
+                  "Intertax"}
+              </Button>
+              {crumbs.map((c) => (
+                <Button
+                  key={c.id}
+                  variant={c.id === folderId ? "primary" : "secondary"}
+                  onClick={() => openFolder(c.id)}
+                >
+                  {filesEntryLabel(uiLang, c)}
+                </Button>
+              ))}
+            </Row>
+            <Row gap={8} wrap>
+              <Button
+                variant="secondary"
+                onClick={goUp}
+                disabled={folderId == null}
+              >
+                {t(uiLang, "filesRootUp")}
+              </Button>
+              <Button variant="secondary" onClick={demoNewFolder}>
+                {t(uiLang, "filesRootNewFolder")}
+              </Button>
+              <Button variant="primary" onClick={demoUpload}>
+                {t(uiLang, "upload")}
+              </Button>
+              <Button variant="secondary" onClick={demoDownload}>
+                {t(uiLang, "filesRootDownload")}
+              </Button>
+              <Button variant="secondary" onClick={demoPreview}>
+                {t(uiLang, "filesRootPreview")}
+              </Button>
+            </Row>
+          </Stack>
+          <FirmDataTable
+            headers={[
+              t(uiLang, "filesRootColName"),
+              t(uiLang, "filesRootColSize"),
+              t(uiLang, "filesRootColModified"),
+              t(uiLang, "filesRootColHint"),
+              "",
+            ]}
+            rows={currentRows.map((row) => {
+              const selectedRow = selectedId === row.id;
+              const entryLabel = filesEntryLabel(uiLang, row);
+              return [
+                <button
+                  key={`${row.id}-name`}
+                  type="button"
+                  onClick={() => {
+                    if (row.kind === "folder") openFolder(row.id);
+                    else setSelectedId(row.id);
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    cursor: "pointer",
+                    color: selectedRow ? theme.accent.primary : CHROME_INK,
+                    fontWeight:
+                      selectedRow || row.kind === "folder" ? 700 : 500,
+                    fontSize: 13,
+                    textAlign: uiLang === "he" ? "right" : "left",
+                  }}
+                >
+                  {entryLabel}
+                </button>,
+                row.kind === "folder" ? "—" : row.size || "—",
+                row.modified,
+                filesEntryHint(uiLang, row),
+                row.kind === "folder" ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => openFolder(row.id)}
+                  >
+                    {t(uiLang, "filesRootOpenFolder")}
+                  </Button>
+                ) : (
+                  <Button
+                    variant={selectedRow ? "primary" : "ghost"}
+                    onClick={() => setSelectedId(row.id)}
+                  >
+                    {t(uiLang, "open")}
+                  </Button>
+                ),
+              ];
+            })}
+            emptyMessage={t(uiLang, "filesRootEmptyFolder")}
+          />
+        </FormSection>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap={16} style={{ direction: rtl }}>
       <Stack gap={4}>
-        <H1>{t(uiLang, "filesRootTitle")}</H1>
-        <ChromeText tone="secondary">{t(uiLang, "filesRootHint")}</ChromeText>
+        <H1>
+          {wizard.initialSort
+            ? t(uiLang, "filesImportInitialSortTitle")
+            : t(uiLang, "filesImportWizardTitle")}
+        </H1>
+        <ChromeText tone="secondary">
+          {wizard.initialSort
+            ? t(uiLang, "filesImportInitialSortHint")
+            : t(uiLang, "filesImportWizardHint")}
+        </ChromeText>
       </Stack>
 
-      <Row gap={8} wrap>
-        <Button
-          variant={settings.stage === "share" ? "primary" : "secondary"}
-          onClick={() => patchSettings({ stage: "share" })}
-        >
-          {t(uiLang, "filesRootStageShare")}
-        </Button>
-        <Button
-          variant={settings.stage === "cloud" ? "primary" : "secondary"}
-          onClick={() => patchSettings({ stage: "cloud" })}
-        >
-          {t(uiLang, "filesRootStageCloud")}
-        </Button>
-      </Row>
-
-      <Callout tone="info" title={t(uiLang, "filesRootPolicyTitle")}>
-        {t(uiLang, "filesRootPolicyBody")}
-      </Callout>
+      <FilesImportWizardProgressBar
+        lang={uiLang}
+        stages={stages}
+        stageId={wizard.stageId}
+      />
 
       {flash ? (
         <Callout tone="success" title={t(uiLang, "save")}>
@@ -60985,211 +68556,19 @@ function FilesRootScreen() {
         </Callout>
       ) : null}
 
-      <FormSection
-        title={t(uiLang, "filesRootPathSection")}
-        hint={t(uiLang, "filesRootPathHint")}
-      >
-        <Grid columns={2} gap={12}>
-          <Stack gap={4}>
-            <FieldLabel>{t(uiLang, "filesRootPathLabel")}</FieldLabel>
-            <ChromeTextInput
-              value={settings.rootPath}
-              onChange={(v) => patchSettings({ rootPath: v })}
-            />
-          </Stack>
-          <Stack gap={4}>
-            <FieldLabel>{t(uiLang, "filesRootCloudVendor")}</FieldLabel>
-            <Select
-              value={settings.cloudVendor}
-              onChange={(v) =>
-                patchSettings({ cloudVendor: v as FilesRootCloudVendor })
-              }
-              options={[
-                {
-                  value: "unset",
-                  label: t(uiLang, "filesRootVendorUnset"),
-                },
-                {
-                  value: "onedrive",
-                  label: t(uiLang, "filesRootVendorOneDrive"),
-                },
-                {
-                  value: "sharepoint",
-                  label: t(uiLang, "filesRootVendorSharePoint"),
-                },
-                {
-                  value: "gdrive",
-                  label: t(uiLang, "filesRootVendorGDrive"),
-                },
-              ]}
-            />
-          </Stack>
-        </Grid>
-        <Row gap={8} wrap>
-          <Button variant="primary" onClick={onSaveSettings}>
-            {t(uiLang, "save")}
-          </Button>
-        </Row>
-      </FormSection>
+      {stageBody}
 
-      <FormSection
-        title={t(uiLang, "filesRootBrowserTitle")}
-        hint={t(uiLang, "filesRootBrowserHint")}
-      >
-        <Stack
-          gap={10}
-          style={{
-            padding: 12,
-            borderRadius: 10,
-            background: chromeSoftFill(theme),
-            border: `1px solid ${chromeBorder(theme)}`,
-          }}
-        >
-          <ChromeText size="small" weight="semibold">
-            {crumbPath}
-          </ChromeText>
-          <Row gap={6} wrap align="center">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setFolderId(null);
-                setSelectedId("");
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <ExplorerFileIcon
-                  label={
-                    settings.rootPath.split(/[\\/]/).filter(Boolean).pop() ||
-                    "Intertax"
-                  }
-                  kind="folder"
-                  size="sm"
-                  variant="root"
-                />
-                {settings.rootPath.split(/[\\/]/).filter(Boolean).pop() ||
-                  "Intertax"}
-              </span>
-            </Button>
-            {crumbs.map((c) => (
-              <Button
-                key={c.id}
-                variant={c.id === folderId ? "primary" : "secondary"}
-                onClick={() => openFolder(c.id)}
-              >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <ExplorerFileIcon
-                    label={filesEntryLabel(uiLang, c)}
-                    kind="folder"
-                    size="sm"
-                  />
-                  {filesEntryLabel(uiLang, c)}
-                </span>
-              </Button>
-            ))}
-          </Row>
-          <Row gap={8} wrap>
-            <Button
-              variant="secondary"
-              onClick={goUp}
-              disabled={folderId == null}
-            >
-              {t(uiLang, "filesRootUp")}
-            </Button>
-            <Button variant="secondary" onClick={demoNewFolder}>
-              {t(uiLang, "filesRootNewFolder")}
-            </Button>
-            <Button variant="primary" onClick={demoUpload}>
-              {t(uiLang, "upload")}
-            </Button>
-            <Button variant="secondary" onClick={demoDownload}>
-              {t(uiLang, "filesRootDownload")}
-            </Button>
-            <Button variant="secondary" onClick={demoPreview}>
-              {t(uiLang, "filesRootPreview")}
-            </Button>
-          </Row>
-        </Stack>
-
-        <FirmDataTable
-          headers={[
-            t(uiLang, "filesRootColName"),
-            t(uiLang, "filesRootColSize"),
-            t(uiLang, "filesRootColModified"),
-            t(uiLang, "filesRootColHint"),
-            "",
-          ]}
-          rows={currentRows.map((row) => {
-            const selectedRow = selectedId === row.id;
-            const entryLabel = filesEntryLabel(uiLang, row);
-            const iconLabel =
-              row.kind === "file" && row.ext
-                ? `${entryLabel}${entryLabel.includes(".") ? "" : `.${row.ext.toLowerCase()}`}`
-                : entryLabel;
-            return [
-              <button
-                key={`${row.id}-name`}
-                type="button"
-                onClick={() => {
-                  if (row.kind === "folder") openFolder(row.id);
-                  else setSelectedId(row.id);
-                }}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                  margin: 0,
-                  cursor: "pointer",
-                  color: selectedRow ? theme.accent.primary : CHROME_INK,
-                  fontWeight: selectedRow || row.kind === "folder" ? 700 : 500,
-                  fontSize: 13,
-                  textAlign: uiLang === "he" ? "right" : "left",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <ExplorerFileIcon
-                  label={iconLabel}
-                  kind={row.kind}
-                  size="sm"
-                />
-                <span>{entryLabel}</span>
-              </button>,
-              row.kind === "folder" ? "—" : row.size || "—",
-              row.modified,
-              filesEntryHint(uiLang, row),
-              row.kind === "folder" ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => openFolder(row.id)}
-                >
-                  {t(uiLang, "filesRootOpenFolder")}
-                </Button>
-              ) : (
-                <Button
-                  variant={selectedRow ? "primary" : "ghost"}
-                  onClick={() => setSelectedId(row.id)}
-                >
-                  {t(uiLang, "open")}
-                </Button>
-              ),
-            ];
-          })}
-          emptyMessage={t(uiLang, "filesRootEmptyFolder")}
-        />
-      </FormSection>
+      <Row gap={8} wrap align="center">
+        <Button variant="secondary" onClick={goBack} disabled={isFirst}>
+          {t(uiLang, "filesImportBack")}
+        </Button>
+        <Spacer />
+        <Button variant="primary" onClick={goNext}>
+          {isLast
+            ? t(uiLang, "filesImportFinish")
+            : t(uiLang, "filesImportNext")}
+        </Button>
+      </Row>
 
       <Callout tone="info" title={t(uiLang, "whoCanOpen")}>
         {t(uiLang, "filesRootWho")}
@@ -61280,8 +68659,8 @@ function DriveScreen() {
       {!isArchive && (activeDrive.kind === "google" || activeDrive.kind === "link") ? (
         <Callout tone="info" title={workDriveKindLabel(uiLang, activeDrive.kind)}>
           {activeDrive.rootPathOrUrl
-            ? `${activeDrive.rootPathOrUrl} — ${t(uiLang, "workDriveUrlHint")}`
-            : t(uiLang, "workDriveUrlHint")}
+            ? `${activeDrive.rootPathOrUrl} — ${workDriveUrlFieldCopy(uiLang, activeDrive.kind).hint}`
+            : workDriveUrlFieldCopy(uiLang, activeDrive.kind).hint}
         </Callout>
       ) : null}
       <TaxReturnFolderBrowser
@@ -61345,6 +68724,7 @@ function WorkDrivesScreen() {
   const [draftName, setDraftName] = useState("");
   const [draftKind, setDraftKind] = useState<WorkDriveKind>("local");
   const [draftUrl, setDraftUrl] = useState("");
+  const [draftFolderPath, setDraftFolderPath] = useState("");
 
   const persist = (next: WorkDrive[]) => {
     const normalized = normalizeWorkDrives(next);
@@ -61379,19 +68759,19 @@ function WorkDrivesScreen() {
   const addDrive = () => {
     const name = draftName.trim() || t(uiLang, "drive");
     const id = `wd-${Date.now().toString(36)}`;
+    const location =
+      draftKind === "local" ? draftFolderPath.trim() : draftUrl.trim();
     const next: WorkDrive = {
       id,
       name,
       kind: draftKind,
-      rootPathOrUrl:
-        draftKind === "local"
-          ? draftUrl.trim() || undefined
-          : draftUrl.trim() || undefined,
+      rootPathOrUrl: location || undefined,
       folderTreeId: undefined,
     };
     persist([...drives, next]);
     setDraftName("");
     setDraftUrl("");
+    setDraftFolderPath("");
     setDraftKind("local");
     setFlash(t(uiLang, "workDriveSaved"));
   };
@@ -61427,16 +68807,32 @@ function WorkDrivesScreen() {
                 background: chromeSoftFill(theme),
               }}
             >
-              <Row gap={8} wrap align="center">
-                <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+              <Grid columns={2} gap={12}>
+                <Stack gap={4} style={{ minWidth: 0 }}>
                   <FieldLabel>{t(uiLang, "workDriveNameLabel")}</FieldLabel>
+                  <ChromeText size="small" tone="tertiary">
+                    {t(uiLang, "workDriveNameHint")}
+                  </ChromeText>
                   <ChromeTextInput
                     value={drive.name}
                     onChange={(v) => renameDrive(drive.id, v)}
                   />
                 </Stack>
-                <Stack gap={4} style={{ minWidth: 160 }}>
+                <Stack gap={4} style={{ minWidth: 0 }}>
                   <FieldLabel>{t(uiLang, "workDriveTypeLabel")}</FieldLabel>
+                  {/* Match Drive-name hint line so Select shares the TextInput baseline. */}
+                  <span
+                    aria-hidden
+                    style={{
+                      visibility: "hidden",
+                      userSelect: "none",
+                      fontSize: 12,
+                      lineHeight: 1.35,
+                      display: "block",
+                    }}
+                  >
+                    {t(uiLang, "workDriveNameHint")}
+                  </span>
                   <Select
                     value={drive.kind}
                     onChange={(v) =>
@@ -61458,21 +68854,34 @@ function WorkDrivesScreen() {
                         label: t(uiLang, "workDriveKindLink"),
                       },
                     ]}
+                    style={WORK_DRIVE_TYPE_SELECT_STYLE}
                   />
                 </Stack>
-              </Row>
+              </Grid>
+              {drive.kind === "local" && !isCompanyArchiveDrive(drive) ? (
+                <WorkDriveFolderChooser
+                  pathValue={drive.rootPathOrUrl ?? ""}
+                  onPathChange={(v) =>
+                    patchDrive(drive.id, { rootPathOrUrl: v })
+                  }
+                />
+              ) : null}
               {drive.kind === "google" || drive.kind === "link" ? (
                 <Stack gap={4}>
-                  <FieldLabel>{t(uiLang, "workDriveUrlLabel")}</FieldLabel>
+                  <FieldLabel>
+                    {workDriveUrlFieldCopy(uiLang, drive.kind).label}
+                  </FieldLabel>
                   <ChromeText size="small" tone="tertiary">
-                    {t(uiLang, "workDriveUrlHint")}
+                    {workDriveUrlFieldCopy(uiLang, drive.kind).hint}
                   </ChromeText>
                   <ChromeTextInput
                     value={drive.rootPathOrUrl ?? ""}
                     onChange={(v) =>
                       patchDrive(drive.id, { rootPathOrUrl: v })
                     }
-                    placeholder="https://drive.google.com/…"
+                    placeholder={
+                      workDriveUrlFieldCopy(uiLang, drive.kind).placeholder
+                    }
                   />
                 </Stack>
               ) : null}
@@ -61497,35 +68906,68 @@ function WorkDrivesScreen() {
 
       <FormSection title={t(uiLang, "workDriveAdd")}>
         <Grid columns={2} gap={12}>
-          <Stack gap={4}>
+          <Stack gap={4} style={{ minWidth: 0 }}>
             <FieldLabel>{t(uiLang, "workDriveNameLabel")}</FieldLabel>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "workDriveNameHint")}
+            </ChromeText>
             <ChromeTextInput
               value={draftName}
               onChange={setDraftName}
               placeholder={t(uiLang, "drive")}
             />
           </Stack>
-          <Stack gap={4}>
+          <Stack gap={4} style={{ minWidth: 0 }}>
             <FieldLabel>{t(uiLang, "workDriveTypeLabel")}</FieldLabel>
+            {/* Match Drive-name hint line so Select shares the TextInput baseline. */}
+            <span
+              aria-hidden
+              style={{
+                visibility: "hidden",
+                userSelect: "none",
+                fontSize: 12,
+                lineHeight: 1.35,
+                display: "block",
+              }}
+            >
+              {t(uiLang, "workDriveNameHint")}
+            </span>
             <Select
               value={draftKind}
-              onChange={(v) =>
-                setDraftKind(((v as WorkDriveKind) || "local") as WorkDriveKind)
-              }
+              onChange={(v) => {
+                const next = ((v as WorkDriveKind) || "local") as WorkDriveKind;
+                setDraftKind(next);
+                if (next === "local") setDraftUrl("");
+                else setDraftFolderPath("");
+              }}
               options={[
                 { value: "local", label: t(uiLang, "workDriveKindLocal") },
                 { value: "google", label: t(uiLang, "workDriveKindGoogle") },
                 { value: "link", label: t(uiLang, "workDriveKindLink") },
               ]}
+              style={WORK_DRIVE_TYPE_SELECT_STYLE}
             />
           </Stack>
+          {draftKind === "local" ? (
+            <WorkDriveFolderChooser
+              pathValue={draftFolderPath}
+              onPathChange={setDraftFolderPath}
+            />
+          ) : null}
           {draftKind === "google" || draftKind === "link" ? (
             <Stack gap={4} style={{ gridColumn: "1 / -1" }}>
-              <FieldLabel>{t(uiLang, "workDriveUrlLabel")}</FieldLabel>
+              <FieldLabel>
+                {workDriveUrlFieldCopy(uiLang, draftKind).label}
+              </FieldLabel>
+              <ChromeText size="small" tone="tertiary">
+                {workDriveUrlFieldCopy(uiLang, draftKind).hint}
+              </ChromeText>
               <ChromeTextInput
                 value={draftUrl}
                 onChange={setDraftUrl}
-                placeholder="https://drive.google.com/…"
+                placeholder={
+                  workDriveUrlFieldCopy(uiLang, draftKind).placeholder
+                }
               />
             </Stack>
           ) : null}
@@ -65580,7 +73022,7 @@ function CompactHomePunchButton({
   const punchPad = Math.max(dense ? 3 : 5, Math.round(10 * scale));
   /** WHITE: status In/Out/Break only (Clock in/out use success green). */
   const punchFaceWhite = CHROME_WHITE;
-  /** DARK: Today’s elapsed row + digits + session tiny + Start/End break. */
+  /** DARK: Today's elapsed row + digits + session tiny + Start/End break. */
   const punchFaceInk = CHROME_INK;
 
   const appendPunches = (kinds: PunchKind[]) => {
@@ -65629,7 +73071,7 @@ function CompactHomePunchButton({
   return (
     <button
       type="button"
-      data-chrome={`compact-home-punch-${GMAIL_DUAL_NAV_BUILD}`}
+      data-chrome="compact-home-punch-v867-2026-10-14-punch-blue-light-green-cta"
       data-punch-day={elapsed}
       data-punch-session={sessionTiny}
       data-punch-ot={dayOtSec > 0 ? formatElapsedClock(dayOtSec) : undefined}
@@ -65802,10 +73244,10 @@ function CompactHomePunchButton({
       <span
         style={{
           fontSize: statusActionSize,
-          fontWeight: 800,
+          fontWeight: 700,
           lineHeight: 1.1,
           letterSpacing: "-0.01em",
-          // Clock in + Clock out: light mint on accent blue (status In/Out stays white).
+          // Clock in + Clock out: bold light green on accent blue (status In/Out stays white).
           color: "#7DFFB3",
           WebkitTextFillColor: "#7DFFB3",
           maxWidth: labelMaxWidth,
@@ -80660,6 +88102,14 @@ function BillingScreen({
     "billingWontPayFlash.v1",
     "",
   );
+  const [holdReason, setHoldReason] = useCanvasState(
+    "billingHoldReason.v1",
+    "",
+  );
+  const [holdReasonError, setHoldReasonError] = useCanvasState(
+    "billingHoldReasonError.v1",
+    "",
+  );
   const [formStatus, setFormStatus] = useCanvasState<FirmInvoiceStatus>(
     "billingFormStatus.v1",
     "draft",
@@ -81140,6 +88590,7 @@ function BillingScreen({
     setPanelInvoiceId("");
     setPayError("");
     setInstError("");
+    setHoldReasonError("");
   };
 
   /**
@@ -81706,7 +89157,25 @@ function BillingScreen({
     setPaidSubTab("wont_pay");
   };
 
-  const markInvoiceOnHold = (inv: FirmInvoice) => {
+  const openOnHoldReasonPanel = (inv: FirmInvoice) => {
+    setInvoicePanel("on_hold");
+    setPanelInvoiceId(inv.id);
+    setHoldReason("");
+    setHoldReasonError("");
+  };
+
+  const openViewHoldComment = (invoiceId: string) => {
+    setInvoicePanel("view_hold");
+    setPanelInvoiceId(invoiceId);
+    setHoldReasonError("");
+  };
+
+  const markInvoiceOnHold = (inv: FirmInvoice, reason: string) => {
+    const note = reason.trim();
+    if (!note) {
+      setHoldReasonError(t(uiLang, "onHoldReasonRequired"));
+      return;
+    }
     const record: BillingOnHoldRecord = {
       id: `oh-${Date.now()}`,
       invoiceId: inv.id,
@@ -81715,6 +89184,7 @@ function BillingScreen({
       clientName: inv.clientName,
       amountIls: inv.amountIls,
       markedAt: "2026-09-17",
+      note,
     };
     setOnHoldRecords((prev) => [
       record,
@@ -81725,8 +89195,16 @@ function BillingScreen({
         row.id === inv.id ? { ...row, status: "on_hold" as const } : row,
       ),
     );
+    setHoldReason("");
+    setHoldReasonError("");
+    clearInvoicePanel();
     setWontPayFlash(t(uiLang, "onHoldMarkedFlash"));
     setBillingNav("on_hold");
+  };
+
+  const confirmMarkInvoiceOnHold = () => {
+    if (!panelInvoice) return;
+    markInvoiceOnHold(panelInvoice, holdReason);
   };
 
   const resumeInvoiceFromOnHold = (invoiceId: string) => {
@@ -82527,7 +90005,7 @@ function BillingScreen({
                         } else if (action === "installments") {
                           openInstallmentsPanel(inv);
                         } else if (action === "on_hold") {
-                          markInvoiceOnHold(inv);
+                          openOnHoldReasonPanel(inv);
                         } else if (action === "wont_pay") {
                           markInvoiceWontPay(inv);
                         } else if (action === "resume") {
@@ -86403,7 +93881,133 @@ function BillingScreen({
                 </div>
               ) : null}
 
-              {invoicePanel === "edit" || invoicePanel === "installments"
+              {invoicePanel === "on_hold" && panelInvoice ? (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={t(uiLang, "onHoldReasonTitle")}
+                >
+                  <Stack
+                    gap={14}
+                    style={{
+                      padding: 16,
+                      borderRadius: 10,
+                      border: `1px solid ${CHROME_BORDER_BLUE}`,
+                      background: CHROME_WHITE,
+                      maxWidth: "min(520px, 100%)",
+                      width: "100%",
+                      minWidth: 0,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <Stack gap={4}>
+                      <H2>{t(uiLang, "onHoldReasonTitle")}</H2>
+                      <ChromeText size="small" tone="secondary">
+                        {t(uiLang, "onHoldReasonHint")}
+                      </ChromeText>
+                      <ChromeText size="small" weight="semibold">
+                        {panelInvoice.number} · {panelInvoice.clientName} ·{" "}
+                        {formatIls(panelInvoice.amountIls)}
+                      </ChromeText>
+                    </Stack>
+                    <Stack gap={4}>
+                      <FieldLabel required>
+                        {t(uiLang, "onHoldColReason")}
+                      </FieldLabel>
+                      <ChromeTextArea
+                        value={holdReason}
+                        onChange={(v) => {
+                          setHoldReason(v);
+                          if (holdReasonError) setHoldReasonError("");
+                        }}
+                        placeholder={t(uiLang, "onHoldReasonPlaceholder")}
+                        rows={4}
+                      />
+                    </Stack>
+                    {holdReasonError ? (
+                      <ChromeText
+                        size="small"
+                        tone="secondary"
+                        style={{ color: theme.category.red }}
+                      >
+                        {holdReasonError}
+                      </ChromeText>
+                    ) : null}
+                    <Row gap={8} wrap>
+                      <GmailButton
+                        variant="primary"
+                        onClick={confirmMarkInvoiceOnHold}
+                      >
+                        {t(uiLang, "onHoldReasonConfirm")}
+                      </GmailButton>
+                      <GmailButton
+                        variant="secondary"
+                        onClick={clearInvoicePanel}
+                      >
+                        {t(uiLang, "cancel")}
+                      </GmailButton>
+                    </Row>
+                  </Stack>
+                </div>
+              ) : null}
+
+              {invoicePanel === "view_hold" ? (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={t(uiLang, "onHoldViewCommentTitle")}
+                >
+                  <Stack
+                    gap={12}
+                    style={{
+                      padding: 16,
+                      borderRadius: 10,
+                      border: `1px solid ${CHROME_BORDER_BLUE}`,
+                      background: CHROME_WHITE,
+                      maxWidth: "min(480px, 100%)",
+                      width: "100%",
+                      minWidth: 0,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <Stack gap={4}>
+                      <H2>{t(uiLang, "onHoldViewCommentTitle")}</H2>
+                      {(() => {
+                        const rec = onHoldRecords.find(
+                          (r) => r.invoiceId === panelInvoiceId,
+                        );
+                        return (
+                          <>
+                            <ChromeText size="small" weight="semibold">
+                              {rec
+                                ? `${rec.invoiceNumber} · ${rec.clientName}`
+                                : panelInvoiceId}
+                            </ChromeText>
+                            <ChromeText size="small" tone="secondary">
+                              {rec?.note?.trim()
+                                ? rec.note
+                                : t(uiLang, "onHoldViewCommentEmpty")}
+                            </ChromeText>
+                          </>
+                        );
+                      })()}
+                    </Stack>
+                    <Row gap={8} wrap>
+                      <GmailButton
+                        variant="secondary"
+                        onClick={clearInvoicePanel}
+                      >
+                        {t(uiLang, "cancel")}
+                      </GmailButton>
+                    </Row>
+                  </Stack>
+                </div>
+              ) : null}
+
+              {invoicePanel === "edit" ||
+              invoicePanel === "installments" ||
+              invoicePanel === "on_hold" ||
+              invoicePanel === "view_hold"
                 ? null
                 : billingNav === "paid" ? (
                 <Stack gap={12}>
@@ -86516,6 +94120,7 @@ function BillingScreen({
                       t(uiLang, "installmentsColClient"),
                       t(uiLang, "colAmount"),
                       t(uiLang, "onHoldColMarked"),
+                      t(uiLang, "onHoldColReason"),
                       t(uiLang, "colStatus"),
                       t(uiLang, "invoiceColActions"),
                     ]}
@@ -86524,6 +94129,12 @@ function BillingScreen({
                       rec.clientName,
                       formatIls(rec.amountIls),
                       formatInvoiceDate(rec.markedAt),
+                      <DocRequestEyeViewButton
+                        key={`oh-eye-${rec.id}`}
+                        label={t(uiLang, "onHoldViewComment")}
+                        onClick={() => openViewHoldComment(rec.invoiceId)}
+                        color={theme.accent.primary}
+                      />,
                       firmInvoiceStatusLabel(uiLang, "on_hold"),
                       <Select
                         key={`oh-acts-${rec.id}`}
@@ -90930,6 +98541,7 @@ export default function CrmModulesHome() {
   const [canvasSurface, setCanvasSurface] = useCanvasState<
     "firm" | "client-wa" | "client-email" | "client-portal"
   >("crmCanvasSurface.v1", "firm");
+  const dispatchCanvasAction = useCanvasAction();
   /** Where Client email (demo) returns on toggle-off / Firm CRM. */
   const [clientEmailDemoReturn, setClientEmailDemoReturn] = useCanvasState<
     "firm" | "client-wa"
@@ -91583,9 +99195,10 @@ export default function CrmModulesHome() {
       "form-fields",
     );
 
+  /** v2: flush stacks built when each System Admin screen had its own identity. */
   const [secondaryTrail, setSecondaryTrail] = useCanvasState<
     SecondaryTrailEntry[]
-  >("secondaryTrail.v1", []);
+  >("secondaryTrail.v2", []);
   const trailModeRef = useRef<"push" | "skip" | "clear">("push");
   const prevTrailSnapRef = useRef<SecondaryTrailEntry | null>(null);
 
@@ -91629,10 +99242,24 @@ export default function CrmModulesHome() {
   ]);
 
   const goSecondaryBack = () => {
-    const prev = secondaryTrail[secondaryTrail.length - 1];
-    if (!prev) return;
+    if (secondaryTrail.length === 0) return;
+    const currentId = secondaryIdentity(screen, selectedCategory);
+    /** Skip stale same-identity tips left from older trail builds. */
+    let nextTrail = secondaryTrail;
+    let prev: SecondaryTrailEntry | undefined;
+    while (nextTrail.length > 0) {
+      const tip = nextTrail[nextTrail.length - 1]!;
+      nextTrail = nextTrail.slice(0, -1);
+      if (
+        secondaryIdentity(tip.screen, tip.selectedCategory) !== currentId
+      ) {
+        prev = tip;
+        break;
+      }
+    }
     trailModeRef.current = "skip";
-    setSecondaryTrail((t) => t.slice(0, -1));
+    setSecondaryTrail(nextTrail);
+    if (!prev) return;
     setSelectedCategory(prev.selectedCategory);
     setFilter(prev.filter);
     selectBillingNavShell(prev.billingNav);
@@ -91644,7 +99271,11 @@ export default function CrmModulesHome() {
     setScreen(prev.screen);
   };
 
-  const canSecondaryBack = secondaryTrail.length > 0;
+  const canSecondaryBack = secondaryTrail.some(
+    (entry) =>
+      secondaryIdentity(entry.screen, entry.selectedCategory) !==
+      secondaryIdentity(screen, selectedCategory),
+  );
   const onSecondaryBack = canSecondaryBack ? goSecondaryBack : null;
 
   useEffect(() => {
@@ -91754,26 +99385,13 @@ export default function CrmModulesHome() {
     setScreen("client-card");
   };
 
-  /** Header: Client portal (demo); second click restores Firm CRM. */
+  /** Header: Client portal (demo) — open sibling client-portal.canvas.tsx in the IDE. */
   const openClientPortalDemo = () => {
-    if (canvasSurface === "client-portal" && !androidPreview) {
-      goFirmCrmSurface();
-      return;
-    }
     setAndroidPreview(false);
-    setClientPortalDemoReturn("firm");
-    setCanvasSurface("client-portal");
-    const preferredId =
-      selectedClientId && demoRows.some((r) => r.id === selectedClientId)
-        ? selectedClientId
-        : "c-cohen";
-    setSelectedClientId(preferredId);
-    setClientCardEntryIntent("");
-    setClientCardPanel("portal-chat");
-    setClientPanelDraft("");
-    setSelectedCategory("client");
-    setNavSecondaryOpen(true);
-    setScreen("client-card");
+    dispatchCanvasAction({
+      type: "openFile",
+      path: CLIENT_PORTAL_CANVAS_PATH,
+    });
   };
 
   const openServices = (from: "home" | "clients" = "home") => {
@@ -91843,7 +99461,8 @@ export default function CrmModulesHome() {
     if (tile.opens === "company-docs-folders") {
       setSelectedCategory("systemadmin");
       setNavSecondaryOpen(true);
-      setScreen("company-docs-folders");
+      setFolderTemplateActiveKind("client");
+      setScreen("folder-templates");
       return;
     }
     if (tile.opens === "whatsapp-settings") {
@@ -91889,6 +99508,12 @@ export default function CrmModulesHome() {
       setSelectedCategory("systemadmin");
       setNavSecondaryOpen(true);
       setScreen("files-root");
+      return;
+    }
+    if (tile.opens === "folder-templates") {
+      setSelectedCategory("systemadmin");
+      setNavSecondaryOpen(true);
+      setScreen("folder-templates");
       return;
     }
     if (tile.opens === "work-drives") {
@@ -92312,7 +99937,7 @@ export default function CrmModulesHome() {
                                 : screen === "company-settings"
                                   ? t(uiLang, "companySettings")
                                   : screen === "company-docs-folders"
-                                    ? t(uiLang, "companyDocsFoldersTile")
+                                    ? t(uiLang, "folderTemplatesTile")
                                     : screen === "template-settings"
                                       ? t(uiLang, "templateSettingsTitle")
                                       : screen === "template-merge-fields"
@@ -92327,6 +99952,8 @@ export default function CrmModulesHome() {
                                               ? t(uiLang, "usersRights")
                                               : screen === "files-root"
                                                 ? t(uiLang, "filesRoot")
+                                                : screen === "folder-templates"
+                                                  ? t(uiLang, "folderTemplatesTile")
                                                 : screen === "work-drives"
                                                   ? t(uiLang, "workDrives")
                                                   : screen === "client-folders"
@@ -92418,9 +100045,7 @@ export default function CrmModulesHome() {
                 {t(uiLang, "clientEmailSurface")}
               </Button>
               <Button
-                variant={
-                  canvasSurface === "client-portal" ? "primary" : "secondary"
-                }
+                variant="secondary"
                 onClick={openClientPortalDemo}
               >
                 {t(uiLang, "clientPortalSurface")}
@@ -92704,7 +100329,8 @@ export default function CrmModulesHome() {
   const selectPrimaryCategory = (id: string) => {
     clearHoverLeaveTimer();
     setHoverKey(null);
-    trailModeRef.current = "clear";
+    /** Push so ← can return to the previous secondary (not wipe history). */
+    trailModeRef.current = "push";
     setAndroidSectionMenu(null);
     setAndroidDrawerOpen(false);
     setSelectedCategory(id);
@@ -93907,7 +101533,16 @@ export default function CrmModulesHome() {
             pill={t(uiLang, "filesRoot")}
             onSecondaryBack={onSecondaryBack}
           />
-          <FilesRootScreen />
+          <FilesAreaScreen />
+        </Stack>
+      )}
+      {screen === "folder-templates" && (
+        <Stack gap={12} style={{ ...SHELL_SCROLL }}>
+          <ModuleChromeBar
+            pill={t(uiLang, "folderTemplatesTile")}
+            onSecondaryBack={onSecondaryBack}
+          />
+          <FolderStructuresAreaScreen />
         </Stack>
       )}
       {screen === "work-drives" && (
@@ -93952,11 +101587,7 @@ export default function CrmModulesHome() {
           <UserSettingsScreen />
         </Stack>
       )}
-      {screen === "company-docs-folders" && (
-        <Stack gap={0} style={{ ...SHELL_SCROLL }}>
-          <CompanyDocsFolderTemplateScreen />
-        </Stack>
-      )}
+      {screen === "company-docs-folders" && <CompanyDocsFoldersLegacyRedirect />}
       {screen === "template-settings" && (
         <Stack gap={0} style={{ ...SHELL_SCROLL }}>
           <TemplateSettingsScreen />
