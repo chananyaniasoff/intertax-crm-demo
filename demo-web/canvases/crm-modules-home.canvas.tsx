@@ -33,8 +33,8 @@ import {
   type TableProps,
   type TextProps,
 } from "cursor/canvas";
-/** Bust stale canvas preview — Trust Forms 1327/1322/1324 open LiveFile on select. */
-const GMAIL_DUAL_NAV_BUILD = "v984-2026-10-16-module-tile-icon-clients-size";
+/** Bust stale canvas preview — Add-target doc kinds + GI Any/all accounts Select. */
+const GMAIL_DUAL_NAV_BUILD = "v1028-2026-10-16-add-target-accounts";
 /** Sibling canvas opened by header "Client portal (demo)". */
 const CLIENT_PORTAL_CANVAS_PATH = 'C:\\Users\\chana\\.cursor\\projects\\c-Users-chana-OneDrive-Desktop-Intertax-Programs-Accounting-CRM-Client-Portal\\canvases\\client-portal.canvas.tsx';
 /** Shared folder explorer tree/detail split width (% of row). */
@@ -64,6 +64,9 @@ const CRM_EXPLORER_SPLIT_MAX = 78;
  * renameWorkerQuickAccessPin.
  */
 const CRM_QUICK_ACCESS_BY_WORKER_KEY = "crmQuickAccessByWorker.v1";
+
+/** Per-client default ClientCardScreen tab (pin on RaisedTabBar). */
+const CRM_CLIENT_DEFAULT_TAB_KEY = "crmClientDefaultTabByClient.v1";
 
 /**
  * Firm-wide custom document types (Tax Return + Bookkeeping request Selects).
@@ -120,7 +123,7 @@ function crmProductBrandDisplayName(brand: CrmProductBrand): string {
 
 type QuickAccessSidebar = "work" | "billing" | "clients";
 
-type QuickAccessPinKind = "folder" | "client" | "file";
+type QuickAccessPinKind = "folder" | "client" | "file" | "clientTab";
 
 /** sidebar = App secondary rail; quickAccess = explorer left-rail Quick access. */
 type QuickAccessPinSurface = "sidebar" | "quickAccess";
@@ -133,6 +136,9 @@ type SidebarQuickAccessPin = {
   kind?: QuickAccessPinKind;
   /** Defaults to "sidebar" when omitted (legacy pins). */
   surface?: QuickAccessPinSurface;
+  /** When kind is clientTab — open this client on this card tab. */
+  clientId?: string;
+  tabId?: string;
 };
 
 type QuickAccessByWorker = Record<string, SidebarQuickAccessPin[]>;
@@ -5447,9 +5453,54 @@ const CRM_UI = {
     en: "Document name",
     he: "שם המסמך",
   },
+  docRowSideLabel: {
+    en: "doc {n}",
+    he: "מס׳ {n}",
+  },
   taxReturnDocNamePh: {
     en: "e.g. Form 106 — employer X",
     he: "לדוגמה: טופס 106 — מעסיק X",
+  },
+
+  trustDocNamePhBank: {
+    en: "e.g. Bank of Israel — Dec 2025",
+    he: "לדוגמה: בנק ישראל — דצמבר 2025",
+  },
+  trustDocNamePhPortfolio: {
+    en: "e.g. Brokerage holdings — Q4",
+    he: "לדוגמה: אחזקות ברוקר — רבעון 4",
+  },
+  trustDocNamePhVouchers: {
+    en: "e.g. Withholding certificate — bank X",
+    he: "לדוגמה: אישור ניכוי — בנק X",
+  },
+  trustDocNamePhBanana: {
+    en: "e.g. Banana income summary 2025",
+    he: "לדוגמה: סיכום הכנסות Banana 2025",
+  },
+  trustDocNamePhFx: {
+    en: "e.g. Bank of Israel rates — 2025",
+    he: "לדוגמה: שערי בנק ישראל — 2025",
+  },
+  trustDocNamePhCgt: {
+    en: "e.g. Realized lots — broker Y",
+    he: "לדוגמה: מימושים — ברוקר Y",
+  },
+  trustDocNamePhDist: {
+    en: "e.g. Beneficiary distributions 2025",
+    he: "לדוגמה: חלוקות לנהנים 2025",
+  },
+  trustDocNamePhContrib: {
+    en: "e.g. Settlor contributions since creation",
+    he: "לדוגמה: הפקדות יוצר מיום היצירה",
+  },
+  trustDocNamePhGeneral: {
+    en: "e.g. Supporting note — topic",
+    he: "לדוגמה: הערה תומכת — נושא",
+  },
+  trustDocNamePhOther: {
+    en: "e.g. Other supporting doc — description",
+    he: "לדוגמה: מסמך תומך אחר — תיאור",
   },
   taxReturnDocType: {
     en: "Document type",
@@ -6105,6 +6156,86 @@ const CRM_UI = {
     en: "Choose Email, Portal, or WhatsApp to open a message popout. Send sets the row to Requested.",
     he: "בחרו אימייל, פורטל או וואטסאפ לפתיחת חלון הודעה. שליחה מסמנת את השורה כהתבקש.",
   },
+  addGeneralRequest: {
+    en: "Add general request",
+    he: "הוסף בקשה כללית",
+  },
+  addGeneralRequestHide: {
+    en: "Hide compose",
+    he: "הסתר טופס",
+  },
+  trustGeneralDocuments: {
+    en: "General information",
+    he: "מידע כללי",
+  },
+  trustSendTargets: {
+    en: "Sending for",
+    he: "שולחים עבור",
+  },
+  trustSendTargetsHint: {
+    en: "Pick one or more checklist docs from the dropdown, then choose channels and View message.",
+    he: "בחרו מסמך אחד או יותר מהרשימה הנפתחת, בחרו ערוצים ולחצו הצג הודעה.",
+  },
+  trustSendTargetsAdd: {
+    en: "Add target…",
+    he: "הוסף יעד…",
+  },
+  trustRowUpload: {
+    en: "Upload manually",
+    he: "העלאה ידנית",
+  },
+  trustRowManualRequests: {
+    en: "Manual requests",
+    he: "בקשות ידניות",
+  },
+  trustRowManualRequestsHide: {
+    en: "Hide manual requests",
+    he: "הסתר בקשות ידניות",
+  },
+  trustUploadPopupTitle: {
+    en: "Upload documents — {label}",
+    he: "העלאת מסמכים — {label}",
+  },
+  trustUploadPopupProgress: {
+    en: "{ok} of {need} uploaded",
+    he: "{ok} מתוך {need} הועלו",
+  },
+  trustUploadPopupStep: {
+    en: "Upload {n}: {name}",
+    he: "העלאה {n}: {name}",
+  },
+  trustUploadPopupDone: {
+    en: "Uploaded",
+    he: "הועלה",
+  },
+  trustUploadPopupDelete: {
+    en: "Delete upload",
+    he: "מחק העלאה",
+  },
+  trustUploadPopupReupload: {
+    en: "Upload again",
+    he: "העלה שוב",
+  },
+  trustUploadPopupEditName: {
+    en: "Edit name",
+    he: "ערוך שם",
+  },
+  trustUploadPopupClose: {
+    en: "Close — continue later",
+    he: "סגור — המשך אחר כך",
+  },
+  trustUploadPopupAllDone: {
+    en: "All requested documents uploaded.",
+    he: "כל המסמכים המבוקשים הועלו.",
+  },
+  trustRowUploadDoneFlash: {
+    en: "Uploaded for “{label}” — {progress}.",
+    he: "הועלה עבור \"{label}\" — {progress}.",
+  },
+  trustRowViewEmptyFlash: {
+    en: "No uploaded file for this request yet.",
+    he: "אין עדיין קובץ שהועלה לבקשה זו.",
+  },
   trustDocChannelSentFlash: {
     en: "Request sent via {channel} (demo log). Status set to Requested.",
     he: "הבקשה נשלחה ב{channel} (יומן הדגמה). הסטטוס עודכן להתבקש.",
@@ -6147,8 +6278,8 @@ const CRM_UI = {
     he: "למה מיועד המסמך?",
   },
   trustDocsPurposePlaceholder: {
-    en: "Choose purpose…",
-    he: "בחרו מטרה…",
+    en: "Override default…",
+    he: "דריסת ברירת מחדל…",
   },
   trustDocsReviewOk: {
     en: "OK",
@@ -6302,10 +6433,43 @@ const CRM_UI = {
     en: "Request documents from the client via portal, email, or WhatsApp — or upload files manually for this bookkeeping year.",
     he: "בקשו מסמכים מהלקוח דרך פורטל, אימייל או וואטסאפ — או העלו קבצים ידנית לשנת הנה״ח.",
   },
-  bkSeeMessage: {
-    en: "See message",
+  bkViewMessage: {
+    en: "View message",
     he: "הצג הודעה",
   },
+  bkResendMessage: {
+    en: "Resend message",
+    he: "שליחה מחדש",
+  },
+  reqResendConfirmTitle: {
+    en: "Are you sure you want to resend?",
+    he: "האם לשלוח את ההודעה מחדש?",
+  },
+  reqResendViewOrSendTitle: {
+    en: "Do you want to view the message, or send without viewing?",
+    he: "האם להציג את ההודעה, או לשלוח בלי לצפות?",
+  },
+  reqResendViewYes: {
+    en: "Yes — view",
+    he: "כן — הצג",
+  },
+  reqResendSendNoView: {
+    en: "No — send now",
+    he: "לא — שלח עכשיו",
+  },
+  reqMessageSent: {
+    en: "message sent",
+    he: "הודעה נשלחה",
+  },
+  reqMessageResent: {
+    en: "message resent ({n})",
+    he: "הודעה נשלחה מחדש ({n})",
+  },
+  reqChannelShortEmail: { en: "email", he: "אימייל" },
+  reqChannelShortPortal: { en: "portal", he: "פורטל" },
+  reqChannelShortWhatsApp: { en: "WhatsApp", he: "וואטסאפ" },
+  reqChannelShortWorkerChat: { en: "worker chat", he: "צ׳אט עובד" },
+  reqChannelShortAll: { en: "all", he: "הכל" },
   bkRequestPreviewTitle: {
     en: "Request message preview",
     he: "תצוגת הודעת בקשה",
@@ -7060,6 +7224,22 @@ const CRM_UI = {
   processUnmarkImportant: {
     en: "Remove important",
     he: "הסר סימון חשוב",
+  },
+  clientTabPinDefault: {
+    en: "Pin as default tab",
+    he: "הצמד כלשונית ברירת מחדל",
+  },
+  clientTabUnpinDefault: {
+    en: "Unpin default tab",
+    he: "בטל לשונית ברירת מחדל",
+  },
+  clientTabPinHere: {
+    en: "Pin here",
+    he: "הצמד כאן",
+  },
+  clientTabUnpinHere: {
+    en: "Unpin here",
+    he: "בטל הצמדה כאן",
   },
   popOutTab: {
     en: "Pop out",
@@ -10819,7 +10999,7 @@ const CRM_UI = {
     he: "בקשת רשימת מסמכים מהמנהל",
   },
   workerFilesRequestHint: {
-    en: "Admin requests documents from this worker (channels → See message → send). Worker sees pending items and uploads into the folders above.",
+    en: "Admin requests documents from this worker (channels → View message → send). Worker sees pending items and uploads into the folders above.",
     he: "המנהל מבקש מסמכים מהעובד (ערוצים → הצג הודעה → שליחה). העובד רואה פריטים ממתינים ומעלה לתיקיות למעלה.",
   },
   workerFilesRequestHintWorker: {
@@ -10827,7 +11007,7 @@ const CRM_UI = {
     he: "מסמכים שהמנהל ביקש שתעלו. השתמשו בהעלאה למעלה, ואז המנהל מסמן שבוצע.",
   },
   workerFilesAdminComposeHint: {
-    en: "Describe the document, tick channel(s), then See message to preview and send.",
+    en: "Describe the document, tick channel(s), then View message to preview and send.",
     he: "תארו את המסמך, סמנו ערוץ/ים, ואז הצג הודעה לתצוגה ושליחה.",
   },
   workerFilesDocPlaceholder: {
@@ -13635,7 +13815,8 @@ type PortalDocRequest = {
   docName: string;
   docType: string;
   note: string;
-  status: "pending" | "uploaded";
+  /** pending=Requested, uploaded=Received, missing=Not received */
+  status: "pending" | "uploaded" | "missing";
   createdAt: string;
   sendPortal: boolean;
   sendEmail: boolean;
@@ -13647,6 +13828,15 @@ type PortalDocRequest = {
   workerChatLog?: string;
   uploadedFileName?: string;
   previewText?: string;
+  /** How many received+OK files satisfy this request (default 1). */
+  expectedCount?: number;
+  /**
+   * Named docs under this request (Manual requests / n-of-m slots).
+   * Same shape as TrustDocRequestItem — length drives expectedCount when set.
+   */
+  requestItems?: { id: string; name: string; type: string }[];
+  /** Times resent via Resend message flow (0 = only original send). */
+  resendCount?: number;
 };
 
 /** Draft row in bookkeeping multi-document request composer. */
@@ -13788,17 +13978,23 @@ function DocRequestEyeViewButton({
   label,
   onClick,
   color,
+  disabled = false,
 }: {
   label: string;
   onClick: () => void;
   color: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       title={label}
       aria-label={label}
-      onClick={onClick}
+      disabled={disabled}
+      onClick={() => {
+        if (disabled) return;
+        onClick();
+      }}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -13809,9 +14005,10 @@ function DocRequestEyeViewButton({
         borderRadius: 6,
         border: `1px solid ${color}`,
         background: "transparent",
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
         color,
         flexShrink: 0,
+        opacity: disabled ? 0.4 : 1,
       }}
     >
       <svg
@@ -15809,6 +16006,8 @@ type ReceivedClientDoc = {
   purposeId?: string;
   /** Optional link back to the outbound request row. */
   linkedRequestId?: string;
+  /** Optional link to a named requestItems row under that request. */
+  linkedRequestItemId?: string;
   /** Staff review: OK accepts; Not OK opens same-channel resend. */
   reviewVerdict?: "" | "ok" | "not-ok";
   /** Demo log of resend timestamps / channels. */
@@ -15937,7 +16136,7 @@ function seedTrustReceivedClientDocs(
       receivedAt: `${year}-02-18`,
       docType: "Bank statements",
       linkedRequestId: "bank",
-      purposeId: "bank",
+      purposeId: "",
       status: "received",
       reviewVerdict: "",
       resendLog: [],
@@ -16072,8 +16271,18 @@ function seedModuleReceivedClientDocs(
     resendLog: [],
   });
   if (module === "tax") {
+    const form106ReqId = `${client.id}-tax-req-106-${year}`;
     return [
-      mk("email-106", `Form_106_${short}_${year}.pdf`, "email", `${year}-03-08`, "Form 106"),
+      {
+        ...mk("email-106a", `Form_106_${short}_${year}_a.pdf`, "email", `${year}-03-08`, "Form 106"),
+        linkedRequestId: form106ReqId,
+        purposeId: "",
+      },
+      {
+        ...mk("email-106b", `Form_106_${short}_${year}_b.pdf`, "email", `${year}-03-09`, "Form 106"),
+        linkedRequestId: form106ReqId,
+        purposeId: "",
+      },
       mk("portal-bank", `Bank_statements_${year}.pdf`, "portal", `${year}-02-22`, "Bank"),
       mk("wa-pension", `Pension_slip_${short}_${year}.jpg`, "whatsapp", `${year}-04-01`, "Slip"),
     ];
@@ -16170,6 +16379,116 @@ function countReceivedDocsNeedingReview(files: ReceivedClientDoc[]): number {
   }).length;
 }
 
+function requestExpectedCount(expected?: number): number {
+  const n = Math.floor(Number(expected));
+  return n > 0 ? n : 1;
+}
+
+function countOkReceivedForRequest(
+  files: ReceivedClientDoc[],
+  requestId: string,
+): number {
+  const rid = (requestId || "").trim();
+  if (!rid) return 0;
+  return files.filter((f) => {
+    const link = (f.purposeId || f.linkedRequestId || "").trim();
+    return link === rid && f.reviewVerdict === "ok";
+  }).length;
+}
+
+function isRequestFullySatisfied(
+  files: ReceivedClientDoc[],
+  requestId: string,
+  expected?: number,
+): boolean {
+  return (
+    countOkReceivedForRequest(files, requestId) >=
+    requestExpectedCount(expected)
+  );
+}
+
+/**
+ * ModuleSectionTabs stage mark for document-request stages.
+ * Green ✓ only when every request is fully satisfied (n-of-m OK) OR the user
+ * pressed Completed for that stage. Empty / incomplete → not-started (red ✗).
+ */
+function docRequestsStageTabStatus(
+  requests: { id: string; expectedCount?: number }[],
+  received: ReceivedClientDoc[],
+  stageCompletedByUser: boolean,
+): WorkFlowStatus {
+  if (stageCompletedByUser) return "finished";
+  if (requests.length === 0) return "not-started";
+  const allRuledOut = requests.every((r) =>
+    isRequestFullySatisfied(received, r.id, r.expectedCount),
+  );
+  return allRuledOut ? "finished" : "not-started";
+}
+
+/**
+ * Trust process ModuleSectionTabs ✓/✗.
+ * Green ✓ ONLY when:
+ *  1) user pressed Completed for that stage, OR
+ *  2) every item in the stage list is ruled out (docs = isRequestFullySatisfied;
+ *     other stages = every checklist row done).
+ * Never green just because the tab exists, has activity, or pending count is 0
+ * while not-requested rows remain.
+ */
+function trustProcessStageTabStatus(args: {
+  stage: string;
+  rows: { done?: boolean }[];
+  docs: {
+    id: string;
+    expectedCount?: number;
+    requestItems?: { id?: string }[] | null;
+  }[];
+  received: ReceivedClientDoc[];
+  completedByUser: boolean;
+}): WorkFlowStatus {
+  if (args.completedByUser) return "finished";
+  if (args.stage === "documents") {
+    if (args.docs.length === 0) return "not-started";
+    /** Same m as slim list / badges — requestItems length (else 1). */
+    const allRuledOut = args.docs.every((d) =>
+      isRequestFullySatisfied(
+        args.received,
+        d.id,
+        trustDocExpectedCount(d),
+      ),
+    );
+    return allRuledOut ? "finished" : "not-started";
+  }
+  if (args.rows.length === 0) return "not-started";
+  return args.rows.every((r) => !!r.done) ? "finished" : "not-started";
+}
+
+function requestNOfMLabel(
+  uiLang: UiLang,
+  okCount: number,
+  expected?: number,
+): string {
+  const need = requestExpectedCount(expected);
+  if (need <= 1) return "";
+  return uiLang === "he"
+    ? `${okCount} מתוך ${need} הושלמו`
+    : `${okCount} of ${need} done`;
+}
+
+function reopenPortalDocRequest(r: PortalDocRequest): PortalDocRequest {
+  return {
+    ...r,
+    status: "pending",
+    uploadedFileName: undefined,
+    previewText: undefined,
+  };
+}
+
+function portalRequestExpectedForDocType(docType: string): number {
+  const s = (docType || "").toLowerCase();
+  if (s.includes("106") || s.includes("form-106")) return 2;
+  return 1;
+}
+
 function receivedDocWasResent(file: ReceivedClientDoc): boolean {
   return Array.isArray(file.resendLog) && file.resendLog.length > 0;
 }
@@ -16182,6 +16501,7 @@ function DocsReceivedListPanel({
   onOk,
   onNotOk,
   linkedLabel,
+  progressLabel,
   folderPathPrefix,
 }: {
   uiLang: UiLang;
@@ -16191,6 +16511,7 @@ function DocsReceivedListPanel({
   onOk: (file: ReceivedClientDoc) => void;
   onNotOk: (file: ReceivedClientDoc) => void;
   linkedLabel?: (file: ReceivedClientDoc) => string | null | undefined;
+  progressLabel?: (file: ReceivedClientDoc) => string | null | undefined;
   /** Optional breadcrumb prefix for LiveFileWorkspace header. */
   folderPathPrefix?: string;
 }) {
@@ -16209,8 +16530,14 @@ function DocsReceivedListPanel({
     y: number;
     file: ReceivedClientDoc;
   } | null>(null);
+  /** Defer single-click preview so dblclick can cancel it (TFB detail 280ms). */
+  const docsClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openOsDocsFile = (file: ReceivedClientDoc) => {
+    if (docsClickTimerRef.current) {
+      clearTimeout(docsClickTimerRef.current);
+      docsClickTimerRef.current = null;
+    }
     setDocsOsFlash(
       openWithOsDefault(
         { id: file.id, name: file.name },
@@ -16317,7 +16644,8 @@ function DocsReceivedListPanel({
           }}
         >
           {files.map((file, idx) => {
-            const purposeId = file.purposeId ?? "";
+            // purposeId = explicit override only; linkedRequestId stays the incoming default.
+            const purposeId = (file.purposeId ?? "").trim();
             const verdict = file.reviewVerdict ?? "";
             const linked = linkedLabel?.(file);
             return (
@@ -16325,13 +16653,26 @@ function DocsReceivedListPanel({
                 key={file.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => openLiveDocsFile(file)}
+                onClick={(e: { detail?: number }) => {
+                  if ((e.detail ?? 1) > 1) return;
+                  if (docsClickTimerRef.current) {
+                    clearTimeout(docsClickTimerRef.current);
+                  }
+                  docsClickTimerRef.current = setTimeout(() => {
+                    docsClickTimerRef.current = null;
+                    openLiveDocsFile(file);
+                  }, 280);
+                }}
                 onDoubleClick={(e: {
                   preventDefault?: () => void;
                   stopPropagation?: () => void;
                 }) => {
                   e.preventDefault?.();
                   e.stopPropagation?.();
+                  if (docsClickTimerRef.current) {
+                    clearTimeout(docsClickTimerRef.current);
+                    docsClickTimerRef.current = null;
+                  }
                   openOsDocsFile(file);
                 }}
                 onContextMenu={(e) => {
@@ -16389,6 +16730,14 @@ function DocsReceivedListPanel({
                           {linked}
                         </Pill>
                       ) : null}
+                      {(() => {
+                        const prog = progressLabel?.(file);
+                        return prog ? (
+                          <Pill size="sm" tone="info">
+                            {prog}
+                          </Pill>
+                        ) : null;
+                      })()}
                     </Row>
                   </Row>
                   {/* Native div — canvas Row drops onClick, so stopPropagation
@@ -20849,7 +21198,7 @@ function ModuleSectionStatusMark({
   size?: number;
 }) {
   const theme = useHostTheme();
-  /** finished → green check; anything else → red X (same size/weight). */
+  /** finished → green check; not-started / in-process → red X (never green). */
   const finished = status === "finished";
   const color = finished ? theme.category.green : theme.category.red;
   const common = {
@@ -21088,7 +21437,7 @@ function ModuleSectionTabs({
   const sectionItemsKey = items
     .map(
       (it) =>
-        `${it.id}:${it.label}:${it.badge ?? ""}:${it.badgeCount ?? ""}:${it.badgeTone ?? ""}:${(it.flowGlyphs ?? []).join(",")}`,
+        `${it.id}:${it.label}:${it.badge ?? ""}:${it.badgeCount ?? ""}:${it.badgeTone ?? ""}:${it.status ?? ""}:${(it.flowGlyphs ?? []).join(",")}`,
     )
     .join("|");
 
@@ -21271,7 +21620,7 @@ function ModuleSectionTabs({
                   >
                     {item.label}
                   </span>
-                  {item.status ? (
+                  {item.status != null ? (
                     <ModuleSectionStatusMark status={item.status} size={11} />
                   ) : null}
                   {(item.flowGlyphs ?? []).map((kind) => (
@@ -21459,7 +21808,7 @@ function ModuleSectionTabs({
                 >
                   {item.label}
                 </span>
-                {item.status ? (
+                {item.status != null ? (
                   <ModuleSectionStatusMark status={item.status} size={12} />
                 ) : null}
                 {(item.flowGlyphs ?? []).map((kind) => (
@@ -21607,6 +21956,147 @@ function ModuleSectionFrame({
 
 /**
 /** Brief fixed success popout — GmailButton chrome / TempTabPopup z-index. */
+
+/** Channel flags used by request ticks (Trust / Tax / BK / Audit / worker). */
+type ReqChannelFlags = {
+  sendEmail?: boolean;
+  sendPortal?: boolean;
+  sendWhatsApp?: boolean;
+  sendWorkerChat?: boolean;
+};
+
+/** Short left-side channel label: one name, "a / b", or "all" when every offered channel is on. */
+function reqChannelShortLabel(
+  lang: UiLang,
+  flags: ReqChannelFlags,
+  opts?: { includeWorkerChat?: boolean; includePortal?: boolean },
+): string {
+  const includePortal = opts?.includePortal !== false;
+  const bits: string[] = [];
+  if (flags.sendEmail) bits.push(t(lang, "reqChannelShortEmail"));
+  if (includePortal && flags.sendPortal) {
+    bits.push(t(lang, "reqChannelShortPortal"));
+  }
+  if (flags.sendWhatsApp) bits.push(t(lang, "reqChannelShortWhatsApp"));
+  if (opts?.includeWorkerChat && flags.sendWorkerChat) {
+    bits.push(t(lang, "reqChannelShortWorkerChat"));
+  }
+  if (bits.length === 0) return "";
+  const maxChannels =
+    (includePortal ? 1 : 0) +
+    2 + // email + WhatsApp always in the offered set for these UIs
+    (opts?.includeWorkerChat ? 1 : 0);
+  const used =
+    (flags.sendEmail ? 1 : 0) +
+    (includePortal && flags.sendPortal ? 1 : 0) +
+    (flags.sendWhatsApp ? 1 : 0) +
+    (opts?.includeWorkerChat && flags.sendWorkerChat ? 1 : 0);
+  if (used >= maxChannels && used > 1) return t(lang, "reqChannelShortAll");
+  if (bits.length > 1) return bits.join(" / ");
+  return bits[0] ?? "";
+}
+
+function reqSentOrResentLabel(lang: UiLang, resendCount: number | undefined): string {
+  const n = resendCount ?? 0;
+  if (n > 0) {
+    return t(lang, "reqMessageResent").replace("{n}", String(n));
+  }
+  return t(lang, "reqMessageSent");
+}
+
+/** Fixed Yes/No confirm — StageComplete / RequestMessagePopout chrome. */
+function ConfirmYesNoPopout({
+  title,
+  body,
+  yesLabel,
+  noLabel,
+  onYes,
+  onNo,
+  onDismiss,
+}: {
+  title: string;
+  body?: string;
+  yesLabel: string;
+  noLabel: string;
+  onYes: () => void;
+  onNo: () => void;
+  /** Scrim / × cancel (defaults to onNo). */
+  onDismiss?: () => void;
+}) {
+  const theme = useHostTheme();
+  const dismiss = onDismiss ?? onNo;
+  return (
+    <div
+      data-chrome="confirm-yes-no-popout-scrim"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 10000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        boxSizing: "border-box",
+        background: "rgba(15, 23, 42, 0.28)",
+      }}
+      onClick={dismiss}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        data-chrome="confirm-yes-no-popout"
+        onClick={(e: { stopPropagation?: () => void }) => {
+          e.stopPropagation?.();
+        }}
+        style={{
+          maxWidth: "min(420px, calc(100vw - 32px))",
+          width: "100%",
+          boxSizing: "border-box",
+          padding: 14,
+          borderRadius: 10,
+          border: `1px solid ${CHROME_BORDER_BLUE}`,
+          background: CHROME_WHITE,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <Row align="center" gap={8}>
+          <span
+            aria-hidden
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              flexShrink: 0,
+              background: theme.accent.primary,
+            }}
+          />
+          <ChromeText weight="semibold" style={{ flex: 1, minWidth: 0 }}>
+            {title}
+          </ChromeText>
+          <GmailButton variant="text" onClick={dismiss}>
+            ×
+          </GmailButton>
+        </Row>
+        {body ? (
+          <ChromeText size="small" tone="secondary">
+            {body}
+          </ChromeText>
+        ) : null}
+        <Row gap={8} wrap>
+          <Button variant="primary" onClick={onYes}>
+            {yesLabel}
+          </Button>
+          <Button variant="secondary" onClick={onNo}>
+            {noLabel}
+          </Button>
+        </Row>
+      </div>
+    </div>
+  );
+}
+
 function StageCompleteSuccessPopout({
   title,
   body,
@@ -21749,7 +22239,7 @@ type RequestMessageAnchorRect = {
   height: number;
 };
 
-/** Place request-message popout below See message; horizontally center/clamp on-screen. */
+/** Place request-message popout below View message; horizontally center/clamp on-screen. */
 /** Viewport-center request-message popout (ignore anchor). Taller → higher. */
 function computeRequestMessagePopoutBase(
   _anchorRect?: RequestMessageAnchorRect | null,
@@ -21940,32 +22430,151 @@ function RequestRichBodyEditor({
     saveSelection();
   };
 
-  const wrapSelectionFallback = (tag: "b" | "i" | "span", color?: string) => {
+  const expandCollapsedToWord = (range: Range, sel: Selection): Range => {
+    if (!range.collapsed) return range;
+    const node = range.startContainer;
+    if (node.nodeType === Node.TEXT_NODE && node.textContent) {
+      const text = node.textContent;
+      let start = range.startOffset;
+      let end = range.startOffset;
+      while (start > 0 && /\S/.test(text[start - 1]!)) start -= 1;
+      while (end < text.length && /\S/.test(text[end]!)) end += 1;
+      if (end > start) {
+        const next = document.createRange();
+        next.setStart(node, start);
+        next.setEnd(node, end);
+        sel.removeAllRanges();
+        sel.addRange(next);
+        return next;
+      }
+    }
+    return range;
+  };
+
+  const nearestFormatAncestor = (
+    node: Node | null,
+    tags: string[],
+    root: HTMLElement,
+  ): HTMLElement | null => {
+    let cur: Node | null = node;
+    while (cur && cur !== root) {
+      if (cur.nodeType === Node.ELEMENT_NODE) {
+        const elN = cur as HTMLElement;
+        const tag = elN.tagName.toLowerCase();
+        if (tags.includes(tag)) return elN;
+        // CSS-styled bold/italic from execCommand(styleWithCSS)
+        if (
+          tags.includes("b") &&
+          (elN.style.fontWeight === "bold" ||
+            elN.style.fontWeight === "700" ||
+            Number(elN.style.fontWeight) >= 600)
+        ) {
+          return elN;
+        }
+        if (tags.includes("i") && elN.style.fontStyle === "italic") {
+          return elN;
+        }
+        if (tags.includes("u") && /underline/i.test(elN.style.textDecoration || "")) {
+          return elN;
+        }
+      }
+      cur = cur.parentNode;
+    }
+    return null;
+  };
+
+  const unwrapSelectionFormat = (tags: string[]) => {
     const el = editorRef.current;
     if (!el || typeof window === "undefined" || !window.getSelection) return false;
     restoreSelection();
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return false;
-    let range = sel.getRangeAt(0);
+    let range = expandCollapsedToWord(sel.getRangeAt(0), sel);
     if (!el.contains(range.commonAncestorContainer)) return false;
-    // Collapsed caret: apply to the current word so a click still shows a change.
-    if (range.collapsed) {
-      const node = range.startContainer;
-      if (node.nodeType === Node.TEXT_NODE && node.textContent) {
-        const text = node.textContent;
-        let start = range.startOffset;
-        let end = range.startOffset;
-        while (start > 0 && /\S/.test(text[start - 1]!)) start -= 1;
-        while (end < text.length && /\S/.test(text[end]!)) end += 1;
-        if (end > start) {
-          range = document.createRange();
-          range.setStart(node, start);
-          range.setEnd(node, end);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
+
+    const startWrap = nearestFormatAncestor(range.startContainer, tags, el);
+    const endWrap = nearestFormatAncestor(range.endContainer, tags, el);
+    const wrapper =
+      startWrap && startWrap === endWrap
+        ? startWrap
+        : startWrap || endWrap;
+    if (!wrapper) return false;
+
+    const tag = wrapper.tagName.toLowerCase();
+    if (tag === "span") {
+      if (tags.includes("b")) wrapper.style.fontWeight = "";
+      if (tags.includes("i")) wrapper.style.fontStyle = "";
+      if (tags.includes("u")) {
+        wrapper.style.textDecoration = (wrapper.style.textDecoration || "")
+          .replace(/underline/gi, "")
+          .trim();
       }
+      const styleEmpty =
+        !wrapper.getAttribute("style") || wrapper.style.cssText.trim() === "";
+      if (styleEmpty && !wrapper.className) {
+        const parent = wrapper.parentNode;
+        if (!parent) return false;
+        const frag = document.createDocumentFragment();
+        while (wrapper.firstChild) frag.appendChild(wrapper.firstChild);
+        parent.insertBefore(frag, wrapper);
+        parent.removeChild(wrapper);
+        parent.normalize?.();
+      }
+      saveSelection();
+      return true;
     }
+
+    const parent = wrapper.parentNode;
+    if (!parent) return false;
+    const reselect = document.createRange();
+    const first = wrapper.firstChild;
+    const last = wrapper.lastChild;
+    while (wrapper.firstChild) {
+      parent.insertBefore(wrapper.firstChild, wrapper);
+    }
+    parent.removeChild(wrapper);
+    try {
+      parent.normalize?.();
+    } catch {
+      /* ignore */
+    }
+    if (first && last) {
+      try {
+        reselect.setStartBefore(first);
+        reselect.setEndAfter(last);
+        sel.removeAllRanges();
+        sel.addRange(reselect);
+        savedRangeRef.current = reselect.cloneRange();
+      } catch {
+        saveSelection();
+      }
+    } else {
+      saveSelection();
+    }
+    return true;
+  };
+
+  const selectionHasFormat = (tags: string[]): boolean => {
+    const el = editorRef.current;
+    if (!el || typeof window === "undefined" || !window.getSelection) return false;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return false;
+    if (nearestFormatAncestor(range.commonAncestorContainer, tags, el)) return true;
+    if (nearestFormatAncestor(range.startContainer, tags, el)) return true;
+    if (nearestFormatAncestor(range.endContainer, tags, el)) return true;
+    return false;
+  };
+
+  const wrapSelectionFallback = (tag: "b" | "i" | "u" | "span", color?: string) => {
+    const el = editorRef.current;
+    if (!el || typeof window === "undefined" || !window.getSelection) return false;
+    restoreSelection();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    let range = expandCollapsedToWord(sel.getRangeAt(0), sel);
+    if (!el.contains(range.commonAncestorContainer)) return false;
     if (range.collapsed) return false;
     const wrapper = document.createElement(tag);
     if (tag === "span" && color) wrapper.style.color = color;
@@ -21984,17 +22593,78 @@ function RequestRichBodyEditor({
     return true;
   };
 
-  const runCmd = (cmd: string, arg?: string) => {
+  const toggleInlineFormat = (
+    cmd: "bold" | "italic" | "underline",
+    tag: "b" | "i" | "u",
+    tags: string[],
+  ) => {
     const el = editorRef.current;
     if (!el) return;
     el.focus();
     restoreSelection();
     const before = el.innerHTML;
-    // Canvas host often reports execCommand success with no DOM change — wrap first.
+
+    // Detect active format via DOM (queryCommandState is unreliable in canvas host).
+    let active = selectionHasFormat(tags);
+    try {
+      if (!active && document.queryCommandState?.(cmd)) active = true;
+    } catch {
+      /* ignore */
+    }
+
+    if (active) {
+      const unwrapped = unwrapSelectionFormat(tags);
+      if (unwrapped && el.innerHTML !== before) {
+        saveSelection();
+        emitHtml();
+        return;
+      }
+    }
+
     let applied = false;
-    if (cmd === "bold") applied = wrapSelectionFallback("b");
-    else if (cmd === "italic") applied = wrapSelectionFallback("i");
-    else if (cmd === "foreColor" && arg) applied = wrapSelectionFallback("span", arg);
+    if (!active) {
+      applied = wrapSelectionFallback(tag);
+    }
+
+    if (!applied || el.innerHTML === before) {
+      try {
+        document.execCommand(cmd, false);
+      } catch {
+        /* ignore */
+      }
+      if (el.innerHTML === before) {
+        if (active) {
+          unwrapSelectionFormat(tags);
+        } else {
+          wrapSelectionFallback(tag);
+        }
+      }
+    }
+    saveSelection();
+    emitHtml();
+  };
+
+  const runCmd = (cmd: string, arg?: string) => {
+    if (cmd === "bold") {
+      toggleInlineFormat("bold", "b", ["b", "strong"]);
+      return;
+    }
+    if (cmd === "italic") {
+      toggleInlineFormat("italic", "i", ["i", "em"]);
+      return;
+    }
+    if (cmd === "underline") {
+      toggleInlineFormat("underline", "u", ["u"]);
+      return;
+    }
+
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    restoreSelection();
+    const before = el.innerHTML;
+    let applied = false;
+    if (cmd === "foreColor" && arg) applied = wrapSelectionFallback("span", arg);
 
     if (!applied || el.innerHTML === before) {
       try {
@@ -22009,11 +22679,8 @@ function RequestRichBodyEditor({
       } catch {
         /* ignore */
       }
-      // If still unchanged, last-ditch wrap again after execCommand focus quirks.
-      if (el.innerHTML === before) {
-        if (cmd === "bold") wrapSelectionFallback("b");
-        else if (cmd === "italic") wrapSelectionFallback("i");
-        else if (cmd === "foreColor" && arg) wrapSelectionFallback("span", arg);
+      if (el.innerHTML === before && cmd === "foreColor" && arg) {
+        wrapSelectionFallback("span", arg);
       }
     }
     saveSelection();
@@ -22763,6 +23430,60 @@ type GmailTabItem = RaisedTabItem & {
   id: ClientCardPanel;
 };
 
+/** Compact pushpin for client-card default-tab control. */
+function ClientTabDefaultPinIcon({
+  filled,
+  size = 12,
+}: {
+  filled: boolean;
+  size?: number;
+}) {
+  /** Windows-style upright pushpin / thumbtack (taskbar pin look). */
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      aria-hidden
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      {/* Round head */}
+      <circle
+        cx="8"
+        cy="3.1"
+        r="2.15"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      {/* Flared collar */}
+      <path
+        d="M4.35 5.85h7.3L10.2 8.85H5.8L4.35 5.85z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinejoin="round"
+      />
+      {/* Needle */}
+      <path
+        d="M8 8.85v5.35"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+      />
+      {/* Tip */}
+      <path
+        d="M8 14.55 6.85 13.1h2.3L8 14.55z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /**
  * Shared horizontal tab bar (client card, leave admin, billing, time clock).
  * `variant="raised"` = classic folder tabs; `variant="gmail"` = underline.
@@ -22778,6 +23499,10 @@ function RaisedTabBar({
   compact = false,
   trailingAction,
   enablePopOutTabDrag = false,
+  defaultPinTabId = null,
+  onToggleDefaultPin,
+  isTabPinnedToSidebar,
+  onToggleSidebarPin,
 }: {
   tabs: RaisedTabItem[];
   activeId: string;
@@ -22794,12 +23519,24 @@ function RaisedTabBar({
   } | null;
   /** Client-card: drag a tab toward the second pane to pop it out. */
   enablePopOutTabDrag?: boolean;
+  /** When set with onToggleDefaultPin, show per-tab default pin icons. */
+  defaultPinTabId?: string | null;
+  onToggleDefaultPin?: (id: string) => void;
+  /** Client-card: right-click Pin to sidebar. */
+  isTabPinnedToSidebar?: (id: string) => boolean;
+  onToggleSidebarPin?: (id: string) => void;
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const accent = theme.accent.primary;
   const raised = variant === "raised";
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [tabCtxMenu, setTabCtxMenu] = useState<{
+    tabId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const tabCtxEnabled = Boolean(onToggleDefaultPin || onToggleSidebarPin);
   /**
    * Keep DOM order (Overview first). With dir=rtl + flex, the first tab
    * paints on the RIGHT; wrap still starts each new row from the right.
@@ -22858,6 +23595,16 @@ function RaisedTabBar({
               type="button"
               role="tab"
               aria-selected={selected}
+              onContextMenu={(e: any) => {
+                if (!tabCtxEnabled) return;
+                e.preventDefault();
+                e.stopPropagation();
+                setTabCtxMenu({
+                  tabId: tab.id,
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+              }}
               title={
                 enablePopOutTabDrag
                   ? `${
@@ -22972,6 +23719,62 @@ function RaisedTabBar({
                   {tab.badgeCount}
                 </span>
               ) : null}
+              {onToggleDefaultPin ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title={t(
+                    uiLang,
+                    defaultPinTabId === tab.id
+                      ? "clientTabUnpinDefault"
+                      : "clientTabPinDefault",
+                  )}
+                  aria-label={t(
+                    uiLang,
+                    defaultPinTabId === tab.id
+                      ? "clientTabUnpinDefault"
+                      : "clientTabPinDefault",
+                  )}
+                  aria-pressed={defaultPinTabId === tab.id}
+                  onClick={(e: any) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onToggleDefaultPin(tab.id);
+                  }}
+                  onKeyDown={(e: any) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onToggleDefaultPin(tab.id);
+                    }
+                  }}
+                  onMouseDown={(e: any) => {
+                    e.stopPropagation();
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: compact ? 16 : 18,
+                    height: compact ? 16 : 18,
+                    marginInlineStart: 2,
+                    borderRadius: 4,
+                    flexShrink: 0,
+                    cursor: "pointer",
+                    color:
+                      defaultPinTabId === tab.id
+                        ? accent
+                        : chromeReadableIdle(theme),
+                    opacity: defaultPinTabId === tab.id ? 1 : selected ? 0.85 : 0.55,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <ClientTabDefaultPinIcon
+                    filled={defaultPinTabId === tab.id}
+                    size={compact ? 11 : 13}
+                  />
+                </span>
+              ) : null}
               {raised && selected ? (
                 <span
                   aria-hidden
@@ -23026,6 +23829,107 @@ function RaisedTabBar({
           {trailingAction.label}
         </button>
       ) : null}
+      {tabCtxMenu && tabCtxEnabled
+        ? (() => {
+            const ctxTab = tabs.find((x) => x.id === tabCtxMenu.tabId);
+            if (!ctxTab) return null;
+            const pinnedHere = defaultPinTabId === ctxTab.id;
+            const pinnedSide = isTabPinnedToSidebar
+              ? !!isTabPinnedToSidebar(ctxTab.id)
+              : false;
+            const menuPos = clampFolderExplorerCtxMenuPos(
+              tabCtxMenu.x,
+              tabCtxMenu.y,
+              { estW: 220, estH: 96 },
+            );
+            const itemBtn = (
+              key: string,
+              label: string,
+              onClick: () => void,
+            ) => (
+              <button
+                key={key}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setTabCtxMenu(null);
+                  onClick();
+                }}
+                style={{
+                  all: "unset",
+                  cursor: "pointer",
+                  display: "block",
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "7px 10px",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  color: theme.text.primary,
+                  userSelect: "none",
+                }}
+              >
+                {label}
+              </button>
+            );
+            return (
+              <>
+                <div
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    zIndex: 79,
+                  }}
+                  onClick={() => setTabCtxMenu(null)}
+                  onContextMenu={(e: any) => {
+                    e.preventDefault();
+                    setTabCtxMenu(null);
+                  }}
+                />
+                <div
+                  role="menu"
+                  onClick={(e: any) => e.stopPropagation()}
+                  style={{
+                    position: "fixed",
+                    left: menuPos.x,
+                    top: menuPos.y,
+                    zIndex: 80,
+                    minWidth: 200,
+                    padding: 4,
+                    borderRadius: 8,
+                    background: CHROME_WHITE,
+                    border: `1px solid ${CHROME_BORDER_BLUE}`,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  {onToggleSidebarPin
+                    ? itemBtn(
+                        pinnedSide ? "unpin-sidebar" : "pin-sidebar",
+                        t(
+                          uiLang,
+                          pinnedSide
+                            ? "taxReturnFolderCtxUnpinSidebar"
+                            : "taxReturnFolderCtxPinSidebar",
+                        ),
+                        () => onToggleSidebarPin(ctxTab.id),
+                      )
+                    : null}
+                  {onToggleDefaultPin
+                    ? itemBtn(
+                        pinnedHere ? "unpin-here" : "pin-here",
+                        t(
+                          uiLang,
+                          pinnedHere
+                            ? "clientTabUnpinHere"
+                            : "clientTabPinHere",
+                        ),
+                        () => onToggleDefaultPin(ctxTab.id),
+                      )
+                    : null}
+                </div>
+              </>
+            );
+          })()
+        : null}
     </div>
   );
 }
@@ -23041,6 +23945,10 @@ function GmailTabBar({
   onSelect,
   popOutActive,
   onTogglePopOut,
+  defaultPinTabId = null,
+  onToggleDefaultPin,
+  isTabPinnedToSidebar,
+  onToggleSidebarPin,
 }: {
   tabs: GmailTabItem[];
   activeId: ClientCardPanel;
@@ -23048,6 +23956,11 @@ function GmailTabBar({
   /** Dual-pane is showing — button label becomes Put back. */
   popOutActive?: boolean;
   onTogglePopOut?: () => void;
+  /** Per-client default tab pin (opens this tab next time). */
+  defaultPinTabId?: ClientCardPanel | null;
+  onToggleDefaultPin?: (id: ClientCardPanel) => void;
+  isTabPinnedToSidebar?: (id: ClientCardPanel) => boolean;
+  onToggleSidebarPin?: (id: ClientCardPanel) => void;
 }) {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const tabDir = uiDir(uiLang);
@@ -23068,6 +23981,22 @@ function GmailTabBar({
         ariaLabel={t(uiLang, "clientCard")}
         variant="raised"
         enablePopOutTabDrag={!!onTogglePopOut}
+        defaultPinTabId={defaultPinTabId}
+        onToggleDefaultPin={
+          onToggleDefaultPin
+            ? (id) => onToggleDefaultPin(id as ClientCardPanel)
+            : undefined
+        }
+        isTabPinnedToSidebar={
+          isTabPinnedToSidebar
+            ? (id) => isTabPinnedToSidebar(id as ClientCardPanel)
+            : undefined
+        }
+        onToggleSidebarPin={
+          onToggleSidebarPin
+            ? (id) => onToggleSidebarPin(id as ClientCardPanel)
+            : undefined
+        }
       />
       {onTogglePopOut ? (
         <div
@@ -36250,6 +37179,81 @@ type ClientCardEntryContext = ClientFilter | "overview";
  * Map list/module entry context → default Gmail process tab.
  * Falls back to Overview when the preferred stream is not on this client.
  */
+type ClientDefaultTabByClient = Record<string, ClientCardPanel>;
+
+/** Always-on client-card tabs (not service streams). */
+const CLIENT_CARD_ALWAYS_ON_PANELS: ClientCardPanel[] = [
+  "overview",
+  "prospect-checklist",
+  "docs",
+  "invoices",
+  "client-whatsapp",
+  "portal-chat",
+  "client-email",
+];
+
+/**
+ * Resolve a per-client pinned default tab if it still exists for this client.
+ * VAT is never top-level — normalize to Bookkeeping.
+ */
+
+/** Stable id for a client-card module tab pinned to the Clients sidebar. */
+function clientCardTabPinId(clientId: string, tabId: string): string {
+  return `ctab:${clientId}:${tabId}`;
+}
+
+function parseClientCardTabPinId(
+  id: string,
+): { clientId: string; tabId: string } | null {
+  const raw = (id || "").trim();
+  if (!raw.startsWith("ctab:")) return null;
+  const rest = raw.slice("ctab:".length);
+  const sep = rest.indexOf(":");
+  if (sep <= 0) return null;
+  const clientId = rest.slice(0, sep).trim();
+  const tabId = rest.slice(sep + 1).trim();
+  if (!clientId || !tabId) return null;
+  return { clientId, tabId };
+}
+
+/** Sidebar label for a pinned client module tab: "{tab} — {client}". */
+function formatClientCardTabPinLabel(tabLabel: string, clientName: string): string {
+  const tab = (tabLabel || "").trim();
+  const client = (clientName || "").trim();
+  if (tab && client) return `${tab} — ${client}`;
+  return tab || client;
+}
+
+
+function resolveClientDefaultTab(
+  pinned: ClientCardPanel | "" | null | undefined,
+  clientServices: string,
+  firmServices: string[],
+  client?: Pick<DemoRow, "kind" | "isPotential"> | null,
+  extraServices?: string[],
+): ClientCardPanel | null {
+  if (!pinned) return null;
+  let panel: ClientCardPanel = pinned;
+  if (panel === "stream-vat") panel = "stream-bookkeeping";
+  if (panel === "prospect-checklist") {
+    const isProspect = !!client?.isPotential || client?.kind === "potential";
+    return isProspect ? panel : null;
+  }
+  if (CLIENT_CARD_ALWAYS_ON_PANELS.includes(panel)) return panel;
+  if (typeof panel === "string" && panel.startsWith("stream-")) {
+    const streams = streamsForClient(
+      clientServices,
+      firmServices,
+      client?.kind,
+      extraServices,
+    );
+    return streams.some((s) => s.id === panel && s.id !== "stream-vat")
+      ? panel
+      : null;
+  }
+  return null;
+}
+
 function defaultPanelForEntryContext(
   entry: ClientCardEntryContext | "" | null | undefined,
   clientServices: string,
@@ -46470,6 +47474,13 @@ type TrustDocStatus =
 
 type TrustDocChannel = "" | "email" | "portal" | "whatsapp";
 
+type TrustDocRequestItem = {
+  id: string;
+  name: string;
+  /** Kind / document-type value (Select), or free label. */
+  type: string;
+};
+
 type TrustDoc = {
   id: string;
   label: string;
@@ -46478,11 +47489,25 @@ type TrustDoc = {
   followUp: string;
   contact: string;
   period: string;
+  /**
+   * Kind / subtype of this request (e.g. bank: checking / tax-return).
+   * Empty = any / unspecified. Persisted on the request model.
+   */
+  kind: string;
   /** Request message body — shown after a channel request. */
   message: string;
   sendEmail: boolean;
   sendPortal: boolean;
   sendWhatsApp: boolean;
+  /**
+   * How many received+OK files satisfy this request.
+   * Source of truth when set: length of requestItems (Tax-style Add document rows).
+   */
+  expectedCount?: number;
+  /** Named docs requested under this checklist row (drives n-of-m). */
+  requestItems?: TrustDocRequestItem[];
+  /** Times resent via Resend message flow (0 = only original send). */
+  resendCount?: number;
 };
 
 type TrustFiler =
@@ -46654,6 +47679,398 @@ function trustMoney(n: number): string {
   });
 }
 
+
+/** Per-request kind options (Trust Documents → Requests rows). */
+type TrustDocKindOption = { value: string; en: string; he: string };
+
+const TRUST_DOC_KIND_OPTIONS: Record<string, TrustDocKindOption[]> = {
+  bank: [
+    { value: "", en: "Any / all accounts", he: "הכל / כל החשבונות" },
+    { value: "checking", en: "Checking", he: "חשבון עובר ושב" },
+    { value: "savings", en: "Savings", he: "חסכון" },
+    { value: "credit", en: "Credit card", he: "כרטיס אשראי" },
+    { value: "tax-return", en: "Tax-return related", he: "קשור לדוח מס" },
+    { value: "annual", en: "Annual statements", he: "דפים שנתיים" },
+    { value: "monthly", en: "Monthly statements", he: "דפים חודשיים" },
+  ],
+  portfolio: [
+    { value: "", en: "Any portfolio report", he: "כל דוח תיק" },
+    { value: "holdings", en: "Holdings summary", he: "סיכום אחזקות" },
+    { value: "brokerage", en: "Brokerage statements", he: "דפי ברוקר" },
+    { value: "dividends", en: "Dividend / income report", he: "דיבידנד / הכנסה" },
+    { value: "year-end", en: "Year-end portfolio", he: "תיק סוף שנה" },
+  ],
+  vouchers: [
+    { value: "", en: "Any voucher / certificate", he: "כל שובר / אישור" },
+    { value: "withholding", en: "Withholding certificates", he: "אישורי ניכוי במקור" },
+    { value: "foreign-tax", en: "Foreign tax certificates", he: "אישורי מס חוץ" },
+    { value: "donations", en: "Donation receipts", he: "קבלות תרומה" },
+    { value: "other-cert", en: "Other tax certificates", he: "אישורי מס אחרים" },
+  ],
+  banana: [
+    { value: "", en: "Any Banana figures", he: "כל נתוני Banana" },
+    { value: "income-summary", en: "Income summary", he: "סיכום הכנסות" },
+    { value: "pl-export", en: "P&L export", he: "ייצוא רווח והפסד" },
+    { value: "trial-balance", en: "Trial balance", he: "מאזן בוחן" },
+  ],
+  fx: [
+    { value: "", en: "Any FX sheet", he: "כל גיליון שער חליפין" },
+    { value: "boi", en: "Bank of Israel rates", he: "שערי בנק ישראל" },
+    { value: "monthly-avg", en: "Monthly averages", he: "ממוצעים חודשיים" },
+    { value: "custom", en: "Custom rate sheet", he: "גיליון שער מותאם" },
+  ],
+  cgt: [
+    { value: "", en: "Any capital-gains lots", he: "כל לוטות רווח הון" },
+    { value: "realized", en: "Realized lots", he: "מימושים" },
+    { value: "unrealized", en: "Unrealized positions", he: "פוזיציות פתוחות" },
+    { value: "867", en: "Form 867 / broker CGT", he: "טופס 867 / ברוקר" },
+  ],
+  dist: [
+    { value: "", en: "Any distributions", he: "כל חלוקות" },
+    { value: "beneficiary", en: "Beneficiary distributions", he: "חלוקות לנהנים" },
+    { value: "schedule", en: "Schedule of distributions", he: "לוח חלוקות" },
+    { value: "year-list", en: "Year distribution list", he: "רשימת חלוקות לשנה" },
+  ],
+  contrib: [
+    { value: "", en: "Any contributions", he: "כל הפקדות" },
+    { value: "settlor", en: "Settlor contributions", he: "הפקדות יוצר" },
+    { value: "since-creation", en: "Since-creation schedule", he: "לוח ממועד יצירה" },
+    { value: "year", en: "This-year contributions", he: "הפקדות לשנה זו" },
+  ],
+};
+
+const TRUST_DOC_KIND_FALLBACK: TrustDocKindOption[] = [
+  { value: "", en: "Any / all accounts", he: "הכל / כל החשבונות" },
+  { value: "standard", en: "Standard", he: "רגיל" },
+  { value: "year-end", en: "Year-end", he: "סוף שנה" },
+  { value: "supporting", en: "Supporting detail", he: "פירוט תומך" },
+];
+
+
+function trustDocNamePlaceholderKey(docId: string): string {
+  switch ((docId || "").trim()) {
+    case "bank":
+      return "trustDocNamePhBank";
+    case "portfolio":
+      return "trustDocNamePhPortfolio";
+    case "vouchers":
+      return "trustDocNamePhVouchers";
+    case "banana":
+      return "trustDocNamePhBanana";
+    case "fx":
+      return "trustDocNamePhFx";
+    case "cgt":
+      return "trustDocNamePhCgt";
+    case "dist":
+      return "trustDocNamePhDist";
+    case "contrib":
+      return "trustDocNamePhContrib";
+    case "other":
+      return "trustDocNamePhOther";
+    default:
+      return "trustDocNamePhGeneral";
+  }
+}
+
+function trustDocNamePlaceholder(lang: UiLang, docId: string): string {
+  return t(lang, trustDocNamePlaceholderKey(docId));
+}
+
+function trustDocKindOptionList(docId: string): TrustDocKindOption[] {
+  return TRUST_DOC_KIND_OPTIONS[docId] ?? TRUST_DOC_KIND_FALLBACK;
+}
+
+function trustDocKindOptions(
+  docId: string,
+  lang: UiLang,
+): { value: string; label: string }[] {
+  return trustDocKindOptionList(docId).map((o) => ({
+    value: o.value,
+    label: trustTr(lang, o.en, o.he),
+  }));
+}
+
+function trustDocKindLabel(
+  lang: UiLang,
+  docId: string,
+  kind: string,
+): string {
+  const k = (kind || "").trim();
+  if (!k) return "";
+  const hit = trustDocKindOptionList(docId).find((o) => o.value === k);
+  if (hit) return trustTr(lang, hit.en, hit.he);
+  return k;
+}
+
+function newTrustDocRequestItem(
+  name = "",
+  type = "",
+): TrustDocRequestItem {
+  return {
+    id: `trust-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    type,
+  };
+}
+
+type TrustSendTargetRow = {
+  key: string;
+  docId: string;
+  name: string;
+  type: string;
+};
+
+function newTrustSendTargetRow(
+  docId: string,
+  name = "",
+  type = "",
+): TrustSendTargetRow {
+  return {
+    key: `trust-send-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    docId,
+    name,
+    type,
+  };
+}
+
+/** Primary Add-document row when a checklist card has no requestItems yet. */
+function trustDocPrimaryRequestItem(doc: {
+  id: string;
+  label?: string;
+  kind?: string;
+}): TrustDocRequestItem {
+  return {
+    id: `${doc.id}-item-0`,
+    name: String(doc.label ?? ""),
+    type: String(doc.kind ?? ""),
+  };
+}
+
+/** Rows shown in per-card Document name + Document type compose (always ≥1). */
+function trustDocComposeItems(doc: {
+  id: string;
+  label?: string;
+  kind?: string;
+  requestItems?: TrustDocRequestItem[] | null;
+}): TrustDocRequestItem[] {
+  const items = doc.requestItems ?? [];
+  if (items.length > 0) return items;
+  return [trustDocPrimaryRequestItem(doc)];
+}
+
+function newCustomTrustDoc(label: string, type = ""): TrustDoc {
+  const name = label.trim() || "Document";
+  return {
+    id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    label: name,
+    status: "not-requested",
+    requestDate: "",
+    followUp: "",
+    contact: "",
+    period: "",
+    kind: type,
+    message: "",
+    sendEmail: false,
+    sendPortal: false,
+    sendWhatsApp: false,
+    expectedCount: 1,
+    requestItems: [newTrustDocRequestItem(name, type)],
+    resendCount: 0,
+  };
+}
+
+
+/** Pair OK received files to named requestItems (explicit item id, else order). */
+function trustDocItemUploadSlots(
+  doc: {
+    id: string;
+    label?: string;
+    kind?: string;
+    requestItems?: TrustDocRequestItem[] | null;
+  },
+  files: ReceivedClientDoc[],
+): { item: TrustDocRequestItem; file: ReceivedClientDoc | null }[] {
+  const items = trustDocComposeItems(doc);
+  const rid = (doc.id || "").trim();
+  const okFiles = files.filter((f) => {
+    const link = (f.purposeId || f.linkedRequestId || "").trim();
+    return link === rid && f.reviewVerdict === "ok";
+  });
+  const used = new Set<string>();
+  const slots: { item: TrustDocRequestItem; file: ReceivedClientDoc | null }[] =
+    items.map((item) => {
+      const hit =
+        okFiles.find(
+          (f) =>
+            !used.has(f.id) &&
+            (f.linkedRequestItemId || "").trim() === item.id,
+        ) ?? null;
+      if (hit) used.add(hit.id);
+      return { item, file: hit };
+    });
+  let ord = 0;
+  for (const slot of slots) {
+    if (slot.file) continue;
+    while (ord < okFiles.length && used.has(okFiles[ord].id)) ord += 1;
+    if (ord >= okFiles.length) break;
+    const f = okFiles[ord];
+    used.add(f.id);
+    slot.file = f;
+    ord += 1;
+  }
+  return slots;
+}
+
+/** expectedCount = requestItems length when items exist; else 1 (no hard-coded bank×2). */
+function trustDocExpectedCount(doc: {
+  expectedCount?: number;
+  requestItems?: TrustDocRequestItem[] | null;
+}): number {
+  const items = doc.requestItems ?? [];
+  // m = how many docs admin asked for via Add document rows.
+  // Empty list → 1 (ignore legacy hard-coded bank×2 / demo seeds).
+  if (items.length > 0) return items.length;
+  return 1;
+}
+
+
+/** Portal/Tax/BK/Audit: prefer requestItems length, else expectedCount (form-106×2). */
+function portalDocExpectedCount(doc: {
+  expectedCount?: number;
+  requestItems?: { id?: string }[] | null;
+}): number {
+  const items = doc.requestItems ?? [];
+  if (items.length > 0) return items.length;
+  return requestExpectedCount(doc.expectedCount);
+}
+
+function portalDocAsComposeDoc(r: PortalDocRequest): {
+  id: string;
+  label?: string;
+  kind?: string;
+  requestItems?: TrustDocRequestItem[] | null;
+  expectedCount?: number;
+} {
+  return {
+    id: r.id,
+    label: r.docName,
+    kind: r.docType,
+    requestItems: (r.requestItems as TrustDocRequestItem[] | undefined) ?? null,
+    expectedCount: r.expectedCount,
+  };
+}
+
+/** Seed Manual-request slots from expectedCount so n-of-m is not wiped. */
+function seedPortalRequestItems(r: PortalDocRequest): TrustDocRequestItem[] {
+  if (r.requestItems && r.requestItems.length > 0) {
+    return r.requestItems as TrustDocRequestItem[];
+  }
+  const n = portalDocExpectedCount(r);
+  const out: TrustDocRequestItem[] = [];
+  for (let i = 0; i < Math.max(1, n); i += 1) {
+    out.push(
+      newTrustDocRequestItem(
+        i === 0 ? r.docName || "" : "",
+        r.docType || "",
+      ),
+    );
+  }
+  return out;
+}
+
+function portalDocStatusLabel(
+  lang: UiLang,
+  status: PortalDocRequest["status"],
+): string {
+  if (status === "uploaded") return trustTr(lang, "Received", "התקבל");
+  if (status === "missing") return trustTr(lang, "Not received", "לא התקבל");
+  return trustTr(lang, "Requested", "התבקש");
+}
+
+const PORTAL_SLIM_STATUSES: PortalDocRequest["status"][] = [
+  "pending",
+  "uploaded",
+  "missing",
+];
+
+function latestReceivedForRequest(
+  files: ReceivedClientDoc[],
+  requestId: string,
+): ReceivedClientDoc | null {
+  const rid = (requestId || "").trim();
+  if (!rid) return null;
+  const linked = files.filter((f) => {
+    const link = (f.purposeId || f.linkedRequestId || "").trim();
+    return link === rid;
+  });
+  if (!linked.length) return null;
+  const ok = linked.filter((f) => f.reviewVerdict === "ok");
+  const pool = ok.length ? ok : linked;
+  return (
+    pool
+      .slice()
+      .sort((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || ""))[0] ??
+    null
+  );
+}
+
+function withPortalRequestItems(
+  r: PortalDocRequest,
+  items: TrustDocRequestItem[],
+): PortalDocRequest {
+  return {
+    ...r,
+    requestItems: items,
+    expectedCount: items.length > 0 ? items.length : 1,
+  };
+}
+
+
+/** Top-of-Requests Document type options (fixed checklist + create-new). */
+function trustComposeDocTypeOptions(
+  lang: UiLang,
+  customTypes: string[],
+): { value: string; label: string }[] {
+  const fixed = [
+    ["bank", "Bank statements", "דפי בנק"],
+    ["portfolio", "Portfolio / investment reports", "דוחות תיק / השקעות"],
+    ["vouchers", "Tax vouchers and certificates", "שוברים ואישורי מס"],
+    ["banana", "Banana income figures", "נתוני הכנסה Banana"],
+    ["fx", "Exchange-rate sheet", "גיליון שער חליפין"],
+    ["cgt", "Capital-gains lots", "לוטות רווח הון"],
+    ["dist", "Distributions", "חלוקות"],
+    ["contrib", "Contributions since creation", "הפקדות מיום היצירה"],
+    ["other", "Other supporting doc", "מסמך תומך אחר"],
+  ] as const;
+  return [
+    ...fixed.map(([value, en, he]) => ({
+      value,
+      label: trustTr(lang, en, he),
+    })),
+    ...customTypes.map((label) => ({ value: label, label })),
+    {
+      value: CRM_DOC_TYPE_CREATE_VALUE,
+      label: t(lang, "taxReturnDocTypeCreate"),
+    },
+  ];
+}
+
+/** Fixed Trust Documents checklist ids — send targets never include ad-hoc custom-* rows. */
+const TRUST_CHECKLIST_DOC_IDS = [
+  "bank",
+  "portfolio",
+  "vouchers",
+  "banana",
+  "fx",
+  "cgt",
+  "dist",
+  "contrib",
+] as const;
+
+function isTrustChecklistDocId(id: string): boolean {
+  return (TRUST_CHECKLIST_DOC_IDS as readonly string[]).includes(id);
+}
+
 function trustDefaultDocs(): TrustDoc[] {
   const labels = [
     ["bank", "Bank statements"],
@@ -46673,27 +48090,70 @@ function trustDefaultDocs(): TrustDoc[] {
     followUp: "",
     contact: "",
     period: "",
+    kind: "",
     message: "",
     sendEmail: false,
     sendPortal: false,
     sendWhatsApp: false,
+    expectedCount: id === "bank" ? 2 : 1,
+    requestItems:
+      id === "bank"
+        ? [
+            trustDocPrimaryRequestItem({ id, label, kind: "" }),
+            {
+              id: `${id}-item-1`,
+              name: `${label} (2)`,
+              type: "",
+            },
+          ]
+        : [trustDocPrimaryRequestItem({ id, label, kind: "" })],
+    resendCount: 0,
   }));
 }
 
 /** Normalize persisted trust docs (older cases may lack channel/message fields). */
 function normalizeTrustDoc(raw: TrustDoc): TrustDoc {
+  const id = String(raw?.id ?? "");
+  const rawItems = Array.isArray(
+    (raw as { requestItems?: unknown })?.requestItems,
+  )
+    ? ((raw as { requestItems: TrustDocRequestItem[] }).requestItems ?? [])
+        .map((it) => ({
+          id: String(
+            it?.id ??
+              `trust-item-${Math.random().toString(36).slice(2, 7)}`,
+          ),
+          name: String(it?.name ?? ""),
+          type: String(it?.type ?? ""),
+        }))
+        .filter((it) => it.id)
+    : [];
+  const rawExpected = Math.floor(
+    Number((raw as { expectedCount?: unknown })?.expectedCount),
+  );
+  const expectedCount = trustDocExpectedCount({
+    expectedCount: rawExpected > 0 ? rawExpected : 1,
+    requestItems: rawItems,
+  });
+  const rawResend = Math.floor(
+    Number((raw as { resendCount?: unknown })?.resendCount),
+  );
   return {
-    id: String(raw?.id ?? ""),
+    id,
     label: String(raw?.label ?? ""),
     status: (raw?.status as TrustDocStatus) || "not-requested",
     requestDate: String(raw?.requestDate ?? ""),
     followUp: String(raw?.followUp ?? ""),
     contact: String(raw?.contact ?? ""),
     period: String(raw?.period ?? ""),
+    kind: String((raw as { kind?: unknown })?.kind ?? ""),
     message: String(raw?.message ?? ""),
     sendEmail: !!raw?.sendEmail,
     sendPortal: !!raw?.sendPortal,
     sendWhatsApp: !!raw?.sendWhatsApp,
+    expectedCount,
+    requestItems: rawItems,
+    resendCount: rawResend > 0 ? rawResend : 0,
   };
 }
 
@@ -46703,9 +48163,13 @@ function normalizeTrustCase(
 ): TrustCaseState {
   const base = trustDefaultCase(year);
   if (!raw || typeof raw !== "object") return base;
-  const docs = Array.isArray(raw.docs)
+  const docsRaw = Array.isArray(raw.docs)
     ? raw.docs.map((d) => normalizeTrustDoc(d as TrustDoc))
     : base.docs;
+  /** Drop ad-hoc custom-* checklist junk (e.g. freeform "jjj" from old general send). */
+  const docs = docsRaw.filter(
+    (d) => isTrustChecklistDocId(d.id) || !String(d.id).startsWith("custom-"),
+  );
   return {
     ...base,
     ...raw,
@@ -46845,7 +48309,7 @@ function trustDocStatusLabel(lang: UiLang, status: TrustDocStatus): string {
   if (status === "requested") return trustTr(lang, "Requested", "התבקש");
   if (status === "received") return trustTr(lang, "Received", "התקבל");
   if (status === "reviewed") return trustTr(lang, "Reviewed", "נבדק");
-  return trustTr(lang, "Missing", "חסר");
+  return trustTr(lang, "Not received", "לא התקבל");
 }
 
 function trustFilerLabel(lang: UiLang, filer: TrustFiler): string {
@@ -47641,10 +49105,7 @@ function TrustReportingWorkspace({
     trustDefaultCase(year),
   );
   const trustCase = normalizeTrustCase(trustCaseRaw, year);
-  /** Docs already requested (pending outbound) — sent corner badge on Documents tab. */
-  const trustRequestedCount = trustCase.docs.filter(
-    (d) => d.status === "requested",
-  ).length;
+
   const [, setPortalNotice] = useCanvasState(
     `trustPortalNotice.v1:${client.id}`,
     false,
@@ -47672,16 +49133,93 @@ function TrustReportingWorkspace({
     `trustDocsTopTab.v1:${yearScope}`,
     "requests",
   );
+  const [trustReqDrafts, setTrustReqDrafts] = useCanvasState<
+    TrustDocRequestItem[]
+  >(`trustReqDrafts.v1:${yearScope}`, [newTrustDocRequestItem()]);
+  const [trustGeneralComposeOpen, setTrustGeneralComposeOpen] = useCanvasState(
+    `trustGeneralComposeOpen.v1:${yearScope}`,
+    false,
+  );
+  const [trustComposePortal, setTrustComposePortal] = useCanvasState(
+    `trustComposePortal.v1:${yearScope}`,
+    false,
+  );
+  const [trustComposeEmail, setTrustComposeEmail] = useCanvasState(
+    `trustComposeEmail.v1:${yearScope}`,
+    false,
+  );
+  const [trustComposeWhatsApp, setTrustComposeWhatsApp] = useCanvasState(
+    `trustComposeWhatsApp.v1:${yearScope}`,
+    false,
+  );
+  const [trustSendTargetRows, setTrustSendTargetRows] = useCanvasState<
+    TrustSendTargetRow[]
+  >(`trustSendTargetRows.v2:${yearScope}`, []);
+  const [trustCustomDocTypes, setTrustCustomDocTypes] = useCanvasState<string[]>(
+    `trustCustomDocTypes.v1`,
+    [],
+  );
+  const [trustCreatingDocTypeForDraftId, setTrustCreatingDocTypeForDraftId] =
+    useCanvasState<string | null>(
+      `trustCreatingDocTypeForDraftId.v1:${yearScope}`,
+      null,
+    );
+  const [trustNewDocTypeDraft, setTrustNewDocTypeDraft] = useCanvasState(
+    `trustNewDocTypeDraft.v1:${yearScope}`,
+    "",
+  );
   const [trustReceivedDocs, setTrustReceivedDocs] = useCanvasState<
     ReceivedClientDoc[]
   >(
     `trustReceivedDocs.v1:${yearScope}`,
     seedTrustReceivedClientDocs(client, year),
   );
+  /** Stages marked via Completed — forces green ✓ even if docs are not all OK. */
+  const [trustStagesCompleted, setTrustStagesCompleted] = useCanvasState<
+    Partial<Record<TrustProcessStage, boolean>>
+  >(`trustStagesCompleted.v2:${yearScope}`, {});
+  /**
+   * One-shot migration: sticky demo state had painted Intake/Documents/Banana all ✓
+   * (Completed flags + checklist toggles). Clear so ticks match the strict predicate.
+   */
+  const [trustStageTickMig, setTrustStageTickMig] = useCanvasState<string>(
+    `trustStageTickMig.v1:${yearScope}`,
+    "",
+  );
+  if (trustStageTickMig !== "v1005-stage-tick-strict") {
+    setTrustStageTickMig("v1005-stage-tick-strict");
+    setTrustStagesCompleted({});
+    setTrustCase((prev) => {
+      const n = normalizeTrustCase(prev, year);
+      return {
+        ...n,
+        intakeConfirmed: false,
+        bananaImported: false,
+        bananaApproved: false,
+      };
+    });
+  }
   const trustReceivedList =
     trustReceivedDocs && trustReceivedDocs.length > 0
       ? trustReceivedDocs
       : seedTrustReceivedClientDocs(client, year);
+  /** Docs still pending outbound / incomplete — sent corner badge on Documents tab.
+   * Uses trustDocExpectedCount (requestItems n-of-m). Fully OK drops even if status
+   * still says requested; Manual expand must not change this predicate alone. */
+  const trustRequestedCount = trustCase.docs.filter((d) => {
+    if (
+      d.status !== "requested" &&
+      d.status !== "received" &&
+      d.status !== "reviewed"
+    ) {
+      return false;
+    }
+    return !isRequestFullySatisfied(
+      trustReceivedList,
+      d.id,
+      trustDocExpectedCount(d),
+    );
+  }).length;
   const { showStageCompletedPopout, stageCompletePopout } =
     useStageCompleteSuccessPopout(uiLang);
   type TrustChannelPopoutState = {
@@ -47696,12 +49234,36 @@ function TrustReportingWorkspace({
     bodyHtml: string;
     /** Optional period shown/edited in the request popout (not on the list row). */
     period: string;
-    mode?: "request" | "resend";
+    mode?: "request" | "resend" | "req-resend" | "compose";
     receivedDocId?: string;
   };
   const [trustChannelPopout, setTrustChannelPopout] =
     useState<TrustChannelPopoutState | null>(null);
   const [trustChannelFlash, setTrustChannelFlash] = useState("");
+  const trustRowUploadInputRef = useRef<HTMLInputElement | null>(null);
+  /** Sync pending row id for file input onChange (state can still be stale). */
+  const trustRowUploadDocIdRef = useRef<string | null>(null);
+  const trustRowUploadItemIdRef = useRef<string | null>(null);
+  const [trustSlimRowFlash, setTrustSlimRowFlash] = useState("");
+  /** Slim-row Manual requests expand (per request id). */
+  const [trustManualOpenDocIds, setTrustManualOpenDocIds] = useCanvasState<
+    string[]
+  >(`trustManualOpenDocIds.v1:${yearScope}`, []);
+  /**
+   * Multi-doc Upload manually popup — persist which request is open so Close
+   * + reopen continues from remaining slots (uploads live in trustReceivedDocs).
+   */
+  const [trustUploadPopupDocId, setTrustUploadPopupDocId] = useCanvasState<
+    string | null
+  >(`trustUploadPopupDocId.v1:${yearScope}`, null);
+  const [trustUploadPopupEditItemId, setTrustUploadPopupEditItemId] = useState<
+    string | null
+  >(null);
+  /** Resend message confirm: step 1 = sure?, step 2 = view or send now. */
+  const [trustReqResendConfirm, setTrustReqResendConfirm] = useState<{
+    docId: string;
+    step: 1 | 2;
+  } | null>(null);
   type TrustSection =
     | "overview"
     | "checklist"
@@ -47804,9 +49366,10 @@ function TrustReportingWorkspace({
 
   const footerStageDone =
     !!completeFooterStage &&
-    checklist
-      .filter((item) => item.stageId === completeFooterStage)
-      .every((item) => item.done);
+    (!!trustStagesCompleted[completeFooterStage] ||
+      checklist
+        .filter((item) => item.stageId === completeFooterStage)
+        .every((item) => item.done));
 
   const markCurrentStageCompleted = () => {
     if (!completeFooterStage) return;
@@ -47818,6 +49381,10 @@ function TrustReportingWorkspace({
       uiLang,
       year,
     );
+    setTrustStagesCompleted((prev) => ({
+      ...prev,
+      [completedStage]: true,
+    }));
     const stageLabel = trustProcessLabel(uiLang, completedStage);
     showStageCompletedPopout({
       module: "trust",
@@ -47832,7 +49399,14 @@ function TrustReportingWorkspace({
 
   const undoCurrentStageCompleted = () => {
     if (!completeFooterStage) return;
-    unmarkTrustStageChecklistDone(completeFooterStage, trustCase, patch);
+    const undone = completeFooterStage;
+    unmarkTrustStageChecklistDone(undone, trustCase, patch);
+    setTrustStagesCompleted((prev) => {
+      if (!prev[undone]) return prev;
+      const next = { ...prev };
+      delete next[undone];
+      return next;
+    });
   };
 
   const patchTrustDoc = (docId: string, partial: Partial<TrustDoc>) => {
@@ -47843,6 +49417,211 @@ function TrustReportingWorkspace({
     });
   };
 
+  const updateTrustReqDraft = (
+    draftId: string,
+    partial: Partial<TrustDocRequestItem>,
+  ) => {
+    setTrustReqDrafts((prev) =>
+      prev.map((d) => (d.id === draftId ? { ...d, ...partial } : d)),
+    );
+  };
+  const addTrustReqDraft = () => {
+    setTrustReqDrafts((prev) => [...prev, newTrustDocRequestItem()]);
+  };
+  const removeTrustReqDraft = (draftId: string) => {
+    setTrustReqDrafts((prev) => prev.filter((d) => d.id !== draftId));
+    if (trustCreatingDocTypeForDraftId === draftId) {
+      setTrustCreatingDocTypeForDraftId(null);
+    }
+  };
+  const commitTrustNewDocTypeForDraft = (draftId: string) => {
+    const label = trustNewDocTypeDraft.trim();
+    if (!label) return;
+    if (!trustCustomDocTypes.includes(label)) {
+      setTrustCustomDocTypes((prev) => [...prev, label]);
+    }
+    updateTrustReqDraft(draftId, { type: label });
+    setTrustCreatingDocTypeForDraftId(null);
+    setTrustNewDocTypeDraft("");
+  };
+  const buildTrustComposeDocs = (opts?: {
+    sendPortal?: boolean;
+    sendEmail?: boolean;
+    sendWhatsApp?: boolean;
+  }): { focusDocId: string; focusDoc: TrustDoc; docs: TrustDoc[] } | null => {
+    const ready = trustReqDrafts
+      .map((d) => ({
+        ...d,
+        name: d.name.trim(),
+        type: (d.type || "").trim(),
+      }))
+      .filter((d) => d.name);
+    const channelPartial = {
+      sendPortal: !!opts?.sendPortal,
+      sendEmail: !!opts?.sendEmail,
+      sendWhatsApp: !!opts?.sendWhatsApp,
+    };
+    let focusDocId = "";
+    let focusDoc: TrustDoc | null = null;
+    let docs = trustCase.docs.map((d) => normalizeTrustDoc(d));
+    const targetRows = (trustSendTargetRows || []).filter(
+      (r) =>
+        r &&
+        isTrustChecklistDocId(r.docId) &&
+        docs.some((row) => row.id === r.docId),
+    );
+    /** Compose items for this send only — never merge seed / already-sent checklist rows. */
+    const composeAddedByDoc = new Map<string, TrustDocRequestItem[]>();
+    const pushComposeItem = (docId: string, item: TrustDocRequestItem) => {
+      const list = composeAddedByDoc.get(docId) || [];
+      list.push(item);
+      composeAddedByDoc.set(docId, list);
+    };
+    for (const inst of targetRows) {
+      const row = docs.find((d) => d.id === inst.docId);
+      if (!row) continue;
+      pushComposeItem(
+        row.id,
+        newTrustDocRequestItem(
+          (inst.name || "").trim() || row.label || "",
+          (inst.type || "").trim() || row.kind || "",
+        ),
+      );
+    }
+    // General drafts: name + optional account subtype in draft.type (not a doc-kind picker).
+    // Attach onto first send-for target when present; else first checklist doc (GI-only compose).
+    if (ready.length > 0) {
+      let attachDocId = targetRows[0]?.docId || "";
+      if (!attachDocId) {
+        // Legacy: draft.type may still be a checklist id from pre-v1026 type Select.
+        const legacy = ready.find((d) => isTrustChecklistDocId(d.type || ""));
+        if (legacy) attachDocId = legacy.type;
+      }
+      if (!attachDocId) {
+        const firstChecklist = docs.find((row) => isTrustChecklistDocId(row.id));
+        attachDocId = firstChecklist?.id || "";
+      }
+      if (attachDocId && docs.some((row) => row.id === attachDocId)) {
+        for (const d of ready) {
+          const row = docs.find((r) => r.id === attachDocId)!;
+          // If this draft still uses a checklist id as type, attach to that doc instead.
+          const perDraftId = isTrustChecklistDocId(d.type || "")
+            ? d.type
+            : attachDocId;
+          const perRow = docs.find((r) => r.id === perDraftId) || row;
+          pushComposeItem(
+            perRow.id,
+            newTrustDocRequestItem(
+              d.name,
+              isTrustChecklistDocId(d.type || "")
+                ? perRow.kind || ""
+                : (d.type || "").trim() || perRow.kind || "",
+            ),
+          );
+        }
+      }
+    }
+    if (composeAddedByDoc.size === 0) return null;
+    docs = docs.map((row) => {
+      const added = composeAddedByDoc.get(row.id);
+      if (!added || added.length === 0) return row;
+      const next = normalizeTrustDoc({
+        ...row,
+        ...channelPartial,
+        requestItems: added,
+        expectedCount: added.length > 0 ? added.length : 1,
+      });
+      focusDocId = next.id;
+      focusDoc = next;
+      return next;
+    });
+    if (!focusDoc) return null;
+    return { focusDocId, focusDoc, docs };
+  };
+
+  /** Persist compose into checklist docs and clear Sending-for / drafts (after confirmed send). */
+  const commitTrustComposeDocs = (opts?: {
+    sendPortal?: boolean;
+    sendEmail?: boolean;
+    sendWhatsApp?: boolean;
+  }): { focusDocId: string; focusDoc: TrustDoc } | null => {
+    const built = buildTrustComposeDocs(opts);
+    if (!built) return null;
+    setTrustCase({ ...trustCase, docs: built.docs });
+    setTrustReqDrafts([]);
+    setTrustSendTargetRows([]);
+    setTrustCreatingDocTypeForDraftId(null);
+    setTrustNewDocTypeDraft("");
+    return { focusDocId: built.focusDocId, focusDoc: built.focusDoc };
+  };
+  const addTrustDocRequestItem = (docId: string) => {
+    setTrustCase((prev) => ({
+      ...prev,
+      docs: prev.docs.map((row) => {
+        if (row.id !== docId) return row;
+        const base = trustDocComposeItems(row);
+        const items = [
+          ...base,
+          newTrustDocRequestItem("", row.kind || ""),
+        ];
+        return normalizeTrustDoc({
+          ...row,
+          requestItems: items,
+          expectedCount: items.length,
+        });
+      }),
+    }));
+  };
+  const updateTrustDocRequestItem = (
+    docId: string,
+    itemId: string,
+    partial: Partial<TrustDocRequestItem>,
+  ) => {
+    setTrustCase((prev) => ({
+      ...prev,
+      docs: prev.docs.map((row) => {
+        if (row.id !== docId) return row;
+        let items = trustDocComposeItems(row).map((it) =>
+          it.id === itemId ? { ...it, ...partial } : it,
+        );
+        // Append missing id — never replace a multi-item list with one row.
+        if (!items.some((it) => it.id === itemId)) {
+          items = [
+            ...items,
+            {
+              id: itemId,
+              name: row.label || "",
+              type: row.kind || "",
+              ...partial,
+            },
+          ];
+        }
+        return normalizeTrustDoc({
+          ...row,
+          requestItems: items,
+          expectedCount: items.length > 0 ? items.length : 1,
+        });
+      }),
+    }));
+  };
+  const removeTrustDocRequestItem = (docId: string, itemId: string) => {
+    setTrustCase((prev) => ({
+      ...prev,
+      docs: prev.docs.map((row) => {
+        if (row.id !== docId) return row;
+        const base = trustDocComposeItems(row);
+        let items = base.filter((it) => it.id !== itemId);
+        if (items.length === 0) {
+          items = [newTrustDocRequestItem("", row.kind || "")];
+        }
+        return normalizeTrustDoc({
+          ...row,
+          requestItems: items,
+          expectedCount: items.length,
+        });
+      }),
+    }));
+  };
   const composeTrustChannelMessage = (
     doc: TrustDoc,
     channel: Exclude<TrustDocChannel, "">,
@@ -47857,7 +49636,31 @@ function TrustReportingWorkspace({
         : "Hello";
     const docLabel = doc.label;
     const period = doc.period.trim();
-    const docLine = period ? `${docLabel} (${period})` : docLabel;
+    const kindLabel = trustDocKindLabel(uiLang, doc.id, doc.kind);
+    const titled = kindLabel ? `${docLabel} — ${kindLabel}` : docLabel;
+    const composeItems =
+      (doc.requestItems ?? []).length > 0
+        ? doc.requestItems ?? []
+        : [trustDocPrimaryRequestItem(doc)];
+    // Tax-style Name (Type): Type is checklist label (Bank statements), not account subtype.
+    const typeLabel =
+      (docLabel || "").trim() ||
+      kindLabel ||
+      trustDocKindLabel(uiLang, doc.id, doc.kind) ||
+      doc.id;
+    const itemLines = composeItems
+      .map((it) => {
+        const n = (it.name || "").trim() || typeLabel;
+        if (!n) return "";
+        const line = typeLabel ? `${n} (${typeLabel})` : n;
+        return period ? `${line} (${period})` : line;
+      })
+      .filter(Boolean);
+    const docLine = period ? `${titled} (${period})` : titled;
+    const bulletBlock =
+      itemLines.length > 0
+        ? itemLines.map((line) => `• ${line}`).join("\n")
+        : `• ${docLine}`
     if (channel === "email") {
       const subject =
         uiLang === "he"
@@ -47865,8 +49668,8 @@ function TrustReportingWorkspace({
           : `Document request — ${docLabel} (${year})`;
       const message =
         uiLang === "he"
-          ? `${hello},\n\nנא לשלוח / להעלות את המסמך הבא לדיווח הנאמנות ${year}:\n• ${docLine}\n\nתודה.`
-          : `${hello},\n\nPlease send or upload the following document for trust reporting ${year}:\n• ${docLine}\n\nThank you.`;
+          ? `${hello},\n\nנא לשלוח / להעלות את המסמך הבא לדיווח הנאמנות ${year}:\n${bulletBlock}\n\nתודה.`
+          : `${hello},\n\nPlease send or upload the following document for trust reporting ${year}:\n${bulletBlock}\n\nThank you.`;
       return { subject, message };
     }
     if (channel === "portal") {
@@ -47874,8 +49677,8 @@ function TrustReportingWorkspace({
         uiLang === "he" ? "התראת פורטל" : "Portal notification";
       const message =
         uiLang === "he"
-          ? `${hello},\n\nנוספה בקשה בפורטל הלקוח:\n• ${docLine}\nשנת נאמנות ${year}.\n\nאנא העלו את הקובץ בפורטל.`
-          : `${hello},\n\nA new request was added in the client portal:\n• ${docLine}\nTrust year ${year}.\n\nPlease upload the file in the portal.`;
+          ? `${hello},\n\nנוספה בקשה בפורטל הלקוח:\n${bulletBlock}\nשנת נאמנות ${year}.\n\nאנא העלו את הקובץ בפורטל.`
+          : `${hello},\n\nA new request was added in the client portal:\n${bulletBlock}\nTrust year ${year}.\n\nPlease upload the file in the portal.`;
       return { subject, message };
     }
     const subject = "WhatsApp";
@@ -47889,6 +49692,7 @@ function TrustReportingWorkspace({
   const openTrustDocChannelPopout = (
     docId: string,
     channel: TrustDocChannel,
+    opts?: { mode?: TrustChannelPopoutState["mode"] },
   ) => {
     if (!channel) return;
     const doc = trustCase.docs.find((row) => row.id === docId);
@@ -47927,6 +49731,7 @@ function TrustReportingWorkspace({
         .map((line) => line || " ")
         .join("<br/>"),
       period: doc.period,
+      ...(opts?.mode ? { mode: opts.mode } : {}),
     });
   };
 
@@ -47957,12 +49762,52 @@ function TrustReportingWorkspace({
         ? `Subject: ${subject.trim()}\n\n${message}`
         : message;
     const isResend = mode === "resend";
-    if (docId) {
+    const isReqResend = mode === "req-resend";
+    if (mode === "compose") {
+      const built = buildTrustComposeDocs({
+        sendPortal: channel === "portal" || trustComposePortal,
+        sendEmail: channel === "email" || trustComposeEmail,
+        sendWhatsApp: channel === "whatsapp" || trustComposeWhatsApp,
+      });
+      if (built) {
+        const docs = built.docs.map((row) => {
+          if (row.id !== docId) return row;
+          return normalizeTrustDoc({
+            ...row,
+            status: "requested",
+            requestDate: today,
+            sendEmail: channel === "email" || !!row.sendEmail,
+            sendPortal: channel === "portal" || !!row.sendPortal,
+            sendWhatsApp: channel === "whatsapp" || !!row.sendWhatsApp,
+            contact: primaryContact,
+            message: finalMessage,
+            period: period ?? row.period ?? "",
+          });
+        });
+        setTrustCase({ ...trustCase, docs });
+        setTrustReqDrafts([]);
+        setTrustSendTargetRows([]);
+        setTrustCreatingDocTypeForDraftId(null);
+        setTrustNewDocTypeDraft("");
+      } else if (docId) {
+        const existing = trustCase.docs.find((row) => row.id === docId);
+        patchTrustDoc(docId, {
+          status: "requested",
+          requestDate: today,
+          sendEmail: channel === "email" || !!existing?.sendEmail,
+          sendPortal: channel === "portal" || !!existing?.sendPortal,
+          sendWhatsApp: channel === "whatsapp" || !!existing?.sendWhatsApp,
+          contact: primaryContact,
+          message: finalMessage,
+          period: period ?? "",
+        });
+      }
+    } else if (docId) {
       const existing = trustCase.docs.find((row) => row.id === docId);
       patchTrustDoc(docId, {
-        // Reminder / not-OK resend: stay Received so sent message glyph clears.
-        // Fresh channel send: Requested (pending outbound).
-        status: isResend ? "received" : "requested",
+        // Not OK / reminder: Requested so sent glyph returns.
+        // Rule-out only when all expected docs are received+OK.
+        status: "requested",
         requestDate: today,
         sendEmail: channel === "email" || !!existing?.sendEmail,
         sendPortal: channel === "portal" || !!existing?.sendPortal,
@@ -47970,6 +49815,9 @@ function TrustReportingWorkspace({
         contact: primaryContact,
         message: finalMessage,
         period: period ?? "",
+        ...(isReqResend
+          ? { resendCount: (existing?.resendCount ?? 0) + 1 }
+          : {}),
       });
     }
     if (isResend && receivedDocId) {
@@ -48087,6 +49935,253 @@ function TrustReportingWorkspace({
     return { subject, message };
   };
 
+  const clearTrustRequestOkProgress = (docId: string) => {
+    const rid = (docId || "").trim();
+    if (!rid) return;
+    setTrustReceivedDocs((prev) => {
+      const base =
+        prev && prev.length > 0
+          ? prev
+          : seedTrustReceivedClientDocs(client, year);
+      return base.map((f) => {
+        const link = (f.purposeId || f.linkedRequestId || "").trim();
+        if (link !== rid) return f;
+        if (f.reviewVerdict !== "ok") return f;
+        return {
+          ...f,
+          reviewVerdict: "" as const,
+          status: "received" as const,
+        };
+      });
+    });
+  };
+
+  const applyTrustSlimStatus = (docId: string, value: string) => {
+    const status = value as TrustDocStatus;
+    if (status === "not-requested") {
+      // Undo ruled-out / Received: clear OK progress so row is open again.
+      clearTrustRequestOkProgress(docId);
+      patchTrustDoc(docId, { status: "not-requested" });
+      return;
+    }
+    patchTrustDoc(docId, { status });
+  };
+
+  const addTrustUploadedFileForRequest = (
+    docId: string,
+    pickedName?: string,
+    itemId?: string | null,
+  ) => {
+    const doc = trustCase.docs.find((row) => row.id === docId);
+    if (!doc) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const items = trustDocComposeItems(doc);
+    const targetItem =
+      (itemId
+        ? items.find((it) => it.id === itemId)
+        : null) ??
+      trustDocItemUploadSlots(doc, trustReceivedList).find((s) => !s.file)
+        ?.item ??
+      items[0] ??
+      null;
+    const targetItemId = targetItem?.id ?? itemId ?? null;
+    let nextFiles: ReceivedClientDoc[] = [];
+    setTrustReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0
+          ? prev
+          : seedTrustReceivedClientDocs(client, year);
+      // Replace prior OK upload for this item when re-uploading.
+      const withoutPrior =
+        targetItemId
+          ? baseList.filter((f) => {
+              const link = (f.purposeId || f.linkedRequestId || "").trim();
+              if (link !== docId) return true;
+              if ((f.linkedRequestItemId || "").trim() !== targetItemId)
+                return true;
+              return f.reviewVerdict !== "ok";
+            })
+          : baseList;
+      const seq = countOkReceivedForRequest(withoutPrior, docId) + 1;
+      const itemName = (targetItem?.name || "").trim();
+      const safeLabel = (itemName || doc.label || docId).replace(/\s+/g, "_");
+      const fileName = (pickedName || "").trim()
+        ? pickedName!.trim()
+        : `${safeLabel}_${seq}_${year}.pdf`;
+      const newFile: ReceivedClientDoc = {
+        id: `${client.id}-trust-upl-${docId}-${Date.now()}`,
+        clientId: client.id,
+        taxYear: year,
+        name: fileName,
+        channel: "portal",
+        receivedAt: today,
+        docType: itemName || doc.label || doc.kind || "",
+        linkedRequestId: docId,
+        purposeId: docId,
+        linkedRequestItemId: targetItemId || undefined,
+        status: "reviewed",
+        reviewVerdict: "ok",
+        resendLog: [],
+      };
+      nextFiles = [...withoutPrior, newFile];
+      return nextFiles;
+    });
+    const needCount = trustDocExpectedCount(doc);
+    const shownOk = nextFiles.length
+      ? countOkReceivedForRequest(nextFiles, docId)
+      : countOkReceivedForRequest(trustReceivedList, docId) + 1;
+    const progress =
+      requestNOfMLabel(uiLang, shownOk, needCount) ||
+      `${shownOk}/${needCount}`;
+    const flash = t(uiLang, "trustRowUploadDoneFlash")
+      .replace("{label}", doc.label || docId)
+      .replace("{progress}", progress);
+    setTrustSlimRowFlash(flash);
+    setTrustChannelFlash(flash);
+    window.setTimeout(() => setTrustSlimRowFlash(""), 2200);
+    if (doc.status === "not-requested" || doc.status === "missing") {
+      patchTrustDoc(docId, { status: "requested" });
+    }
+    if (shownOk >= requestExpectedCount(needCount)) {
+      patchTrustDoc(docId, { status: "received" });
+    }
+  };
+
+  const pickTrustUploadFileForItem = (
+    docId: string,
+    itemId?: string | null,
+  ) => {
+    const input = trustRowUploadInputRef.current;
+    if (!input) {
+      addTrustUploadedFileForRequest(docId, undefined, itemId);
+      return;
+    }
+    trustRowUploadDocIdRef.current = docId;
+    trustRowUploadItemIdRef.current = itemId ?? null;
+    try {
+      input.value = "";
+    } catch {
+      /* ignore */
+    }
+    const finishDemoIfPending = () => {
+      if (trustRowUploadDocIdRef.current !== docId) return;
+      const pendingItem = trustRowUploadItemIdRef.current;
+      trustRowUploadDocIdRef.current = null;
+      trustRowUploadItemIdRef.current = null;
+      addTrustUploadedFileForRequest(docId, undefined, pendingItem);
+    };
+    const onWinFocus = () => {
+      window.setTimeout(finishDemoIfPending, 200);
+      window.removeEventListener("focus", onWinFocus);
+    };
+    window.addEventListener("focus", onWinFocus);
+    window.setTimeout(finishDemoIfPending, 2500);
+    try {
+      input.click();
+    } catch {
+      window.removeEventListener("focus", onWinFocus);
+      trustRowUploadDocIdRef.current = null;
+      trustRowUploadItemIdRef.current = null;
+      addTrustUploadedFileForRequest(docId, undefined, itemId);
+    }
+  };
+
+  const openTrustUploadManually = (docId: string) => {
+    const doc = trustCase.docs.find((row) => row.id === docId);
+    if (!doc) return;
+    const needCount = trustDocExpectedCount(doc);
+    if (needCount > 1) {
+      setTrustUploadPopupDocId(docId);
+      setTrustUploadPopupEditItemId(null);
+      return;
+    }
+    const slots = trustDocItemUploadSlots(doc, trustReceivedList);
+    const pending = slots.find((s) => !s.file)?.item;
+    pickTrustUploadFileForItem(docId, pending?.id ?? null);
+  };
+
+  const deleteTrustUploadForItem = (docId: string, itemId: string) => {
+    setTrustReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0
+          ? prev
+          : seedTrustReceivedClientDocs(client, year);
+      const slots = trustDocItemUploadSlots(
+        trustCase.docs.find((d) => d.id === docId) || {
+          id: docId,
+          requestItems: [],
+        },
+        baseList,
+      );
+      const slot = slots.find((s) => s.item.id === itemId);
+      const fileId = slot?.file?.id;
+      if (!fileId) return baseList;
+      return baseList.filter((f) => f.id !== fileId);
+    });
+    const doc = trustCase.docs.find((row) => row.id === docId);
+    if (doc && doc.status === "received") {
+      patchTrustDoc(docId, { status: "requested" });
+    }
+  };
+
+  const onTrustRowUploadInputChange = (event: {
+    target: { files?: FileList | null; value?: string };
+  }) => {
+    const docId = trustRowUploadDocIdRef.current;
+    const itemId = trustRowUploadItemIdRef.current;
+    const file = event.target.files?.[0];
+    trustRowUploadDocIdRef.current = null;
+    trustRowUploadItemIdRef.current = null;
+    if (!docId) return;
+    addTrustUploadedFileForRequest(docId, file?.name, itemId);
+  };
+
+  const toggleTrustManualRequests = (docId: string) => {
+    // Expand/collapse only — never seed/replace requestItems or expectedCount.
+    // Rows come from existing items (trustDocComposeItems for display); Add document adds.
+    setTrustManualOpenDocIds((prev) => {
+      const set = new Set(prev || []);
+      if (set.has(docId)) set.delete(docId);
+      else set.add(docId);
+      return Array.from(set);
+    });
+  };
+
+  const latestTrustReceivedForRequest = (
+    docId: string,
+  ): ReceivedClientDoc | null => {
+    const rid = (docId || "").trim();
+    if (!rid) return null;
+    const linked = trustReceivedList.filter((f) => {
+      const link = (f.purposeId || f.linkedRequestId || "").trim();
+      return link === rid;
+    });
+    if (!linked.length) return null;
+    const ok = linked.filter((f) => f.reviewVerdict === "ok");
+    const pool = ok.length ? ok : linked;
+    return (
+      pool
+        .slice()
+        .sort((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || ""))[0] ??
+      null
+    );
+  };
+
+  const viewTrustRequestDoc = (docId: string) => {
+    const file = latestTrustReceivedForRequest(docId);
+    if (!file) {
+      setTrustSlimRowFlash(t(uiLang, "trustRowViewEmptyFlash"));
+      window.setTimeout(() => setTrustSlimRowFlash(""), 1600);
+      return;
+    }
+    setLiveFileOpenTrustForm({
+      id: file.id,
+      name: file.name,
+      folderPath: `${client.name} \\ ${year} \\ Docs received \\ ${file.name}`,
+      source: "trust",
+    });
+  };
+
   const openTrustReceivedResendPopout = (received: ReceivedClientDoc) => {
     const channel = received.channel as Exclude<TrustDocChannel, "">;
     const purposeId = (received.purposeId || received.linkedRequestId || "").trim();
@@ -48110,6 +50205,10 @@ function TrustReportingWorkspace({
       channel,
     );
     patchTrustReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    // Not OK undoes rule-out: reopen request → sent glyph / not Received.
+    if (purposeId) {
+      patchTrustDoc(purposeId, { status: "requested" });
+    }
     setTrustChannelFlash("");
     const contactList =
       channel === "portal"
@@ -48139,7 +50238,129 @@ function TrustReportingWorkspace({
     });
   };
 
-  const openTrustSeeMessage = (docId: string) => {
+  const openTrustGeneralComposeMessage = () => {
+    if (!trustComposePortal && !trustComposeEmail && !trustComposeWhatsApp) {
+      setTrustChannelFlash(t(uiLang, "taxReturnPickChannel"));
+      return;
+    }
+    const hasTargets = (trustSendTargetRows || []).length > 0;
+    const hasDraftNames = trustReqDrafts.some((d) => d.name.trim());
+    if (!hasTargets && !hasDraftNames) return;
+    // Preview only — do not commit/clear Sending-for rows until confirmed send.
+    const preview = buildTrustComposeDocs({
+      sendPortal: trustComposePortal,
+      sendEmail: trustComposeEmail,
+      sendWhatsApp: trustComposeWhatsApp,
+    });
+    if (!preview) return;
+    const { focusDoc } = preview;
+    const channel: TrustDocChannel = focusDoc.sendEmail
+      ? "email"
+      : focusDoc.sendPortal
+        ? "portal"
+        : focusDoc.sendWhatsApp
+          ? "whatsapp"
+          : "";
+    if (!channel) {
+      setTrustChannelFlash(t(uiLang, "taxReturnPickChannel"));
+      return;
+    }
+    const phones = clientPhonesForDemo(client, uiLang);
+    const emails = clientEmailsForTools(client);
+    const contactPrefill =
+      channel === "whatsapp"
+        ? phones[0]?.value || client.phone || ""
+        : channel === "email"
+          ? emails[0] || client.email || ""
+          : displayClientName(client, uiLang);
+    // One bullet per send-for target instance + each named general draft.
+    // Do NOT use focusDoc.requestItems (may include seed/merged checklist rows).
+    const checklistDocs = trustCase.docs.filter((d) =>
+      isTrustChecklistDocId(d.id),
+    );
+    const bulletLines: string[] = [];
+    for (const row of trustSendTargetRows || []) {
+      if (!row || !isTrustChecklistDocId(row.docId)) continue;
+      if (!checklistDocs.some((d) => d.id === row.docId)) continue;
+      const doc = checklistDocs.find((d) => d.id === row.docId);
+      const typeLabel = (doc?.label || "").trim() || row.docId;
+      const name = (row.name || "").trim() || typeLabel;
+      if (!name) continue;
+      bulletLines.push(`• ${name} (${typeLabel})`);
+    }
+    const generalType = t(uiLang, "trustGeneralDocuments");
+    for (const d of trustReqDrafts) {
+      const name = (d.name || "").trim();
+      if (!name) continue;
+      bulletLines.push(`• ${name} (${generalType})`);
+    }
+    const contactName = client.profile?.contactName?.trim();
+    const hello = contactName
+      ? uiLang === "he"
+        ? `שלום ${contactName}`
+        : `Hello ${contactName}`
+      : uiLang === "he"
+        ? "שלום"
+        : "Hello";
+    const composedBase = composeTrustChannelMessage(focusDoc, channel);
+    const bulletBlock = bulletLines.join("\n");
+    let message = composedBase.message;
+    let subject = composedBase.subject;
+    if (bulletLines.length > 0) {
+      if (channel === "email") {
+        subject =
+          uiLang === "he"
+            ? `בקשת מסמכים — נאמנות ${year}`
+            : `Document request — trust ${year}`;
+        message =
+          uiLang === "he"
+            ? `${hello},\n\nנא לשלוח / להעלות את המסמך הבא לדיווח הנאמנות ${year}:\n${bulletBlock}\n\nתודה.`
+            : `${hello},\n\nPlease send or upload the following document for trust reporting ${year}:\n${bulletBlock}\n\nThank you.`;
+      } else if (channel === "portal") {
+        message =
+          uiLang === "he"
+            ? `${hello},\n\nנוספה בקשה בפורטל הלקוח:\n${bulletBlock}\nשנת נאמנות ${year}.\n\nאנא העלו את הקובץ בפורטל.`
+            : `${hello},\n\nA new request was added in the client portal:\n${bulletBlock}\nTrust year ${year}.\n\nPlease upload the file in the portal.`;
+      } else {
+        // WhatsApp: still use the same Name (Type) bullet list when present.
+        message =
+          uiLang === "he"
+            ? `${hello} — נא לשלוח:\n${bulletBlock}\nנאמנות ${year}. תודה.`
+            : `${hello} — please send:\n${bulletBlock}\nTrust ${year}. Thanks.`;
+      }
+    }
+    setTrustChannelFlash("");
+    const contactList =
+      channel === "portal"
+        ? [contactPrefill]
+        : channel === "email"
+          ? (emails.length ? emails : [contactPrefill]).filter(Boolean)
+          : (phones.map((p) => p.value).filter(Boolean).length
+              ? phones.map((p) => p.value)
+              : [contactPrefill]
+            ).filter(Boolean);
+    setTrustChannelPopout({
+      docId: focusDoc.id,
+      channel,
+      message,
+      contact: contactPrefill,
+      contacts: contactList.length ? contactList : [contactPrefill],
+      ccEmails: [],
+      bccEmails: [],
+      subject,
+      bodyHtml: message
+        .split("\n")
+        .map((line) => line || " ")
+        .join("<br/>"),
+      period: focusDoc.period,
+      mode: "compose",
+    });
+  };
+
+  const openTrustSeeMessage = (
+    docId: string,
+    opts?: { reqResend?: boolean },
+  ) => {
     const doc = trustCase.docs.find((row) => row.id === docId);
     if (!doc) return;
     const channel: TrustDocChannel = doc.sendEmail
@@ -48154,7 +50375,47 @@ function TrustReportingWorkspace({
       return;
     }
     setTrustChannelFlash("");
-    openTrustDocChannelPopout(docId, channel);
+    openTrustDocChannelPopout(docId, channel, {
+      mode: opts?.reqResend ? "req-resend" : undefined,
+    });
+  };
+
+  const silentTrustReqResend = (docId: string) => {
+    const doc = trustCase.docs.find((row) => row.id === docId);
+    if (!doc) return;
+    const channel: TrustDocChannel = doc.sendEmail
+      ? "email"
+      : doc.sendPortal
+        ? "portal"
+        : doc.sendWhatsApp
+          ? "whatsapp"
+          : "";
+    if (!channel) {
+      setTrustChannelFlash(t(uiLang, "taxReturnPickChannel"));
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const composed = composeTrustChannelMessage(doc, channel);
+    const finalMessage = (doc.message || "").trim() || composed.message;
+    patchTrustDoc(docId, {
+      status: "requested",
+      requestDate: today,
+      message: finalMessage,
+      resendCount: (doc.resendCount ?? 0) + 1,
+    });
+    const channelLabel =
+      channel === "email"
+        ? t(uiLang, "taxReturnSendEmail")
+        : channel === "portal"
+          ? t(uiLang, "taxReturnSendPortal")
+          : t(uiLang, "taxReturnSendWhatsApp");
+    setTrustChannelFlash(
+      t(uiLang, "trustDocsResendFlash").replace("{channel}", channelLabel),
+    );
+  };
+
+  const beginTrustReqResend = (docId: string) => {
+    setTrustReqResendConfirm({ docId, step: 1 });
   };
 
   const toggleChecklistItem = (id: string) => {
@@ -48266,12 +50527,15 @@ function TrustReportingWorkspace({
         stage === "documents"
           ? countReceivedDocsNeedingReview(trustReceivedList)
           : 0;
-      const stageStatus =
-        stage === "documents"
-          ? trustRequestedCount + trustDocsReviewPending === 0
-            ? ("finished" as const)
-            : ("in-process" as const)
-          : checklistRowsToWorkFlowStatus(rows);
+      const stageForcedComplete = !!trustStagesCompleted[stage];
+      /** ✓ only when list fully ruled out or Completed — never from tab existence. */
+      const stageStatus = trustProcessStageTabStatus({
+        stage,
+        rows,
+        docs: trustCase.docs,
+        received: trustReceivedList,
+        completedByUser: stageForcedComplete,
+      });
       const stageTab = {
         id: stage as TrustSection,
         label: trustProcessLabel(uiLang, stage),
@@ -48392,52 +50656,371 @@ function TrustReportingWorkspace({
                 {t(uiLang, "trustDocRequestHint")}
               </ChromeText>
               <Stack
+                gap={10}
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  background: chromeSoftFill(theme),
+                  border: `1px solid ${chromeBorder(theme)}`,
+                }}
+              >
+                <ChromeText size="small" weight="semibold">
+                  {t(uiLang, "taxReturnRequestDoc")}
+                </ChromeText>
+                <Stack gap={6}>
+                  <ChromeText size="small" weight="semibold" tone="secondary">
+                    {t(uiLang, "trustSendTargets")}
+                  </ChromeText>
+                  <ChromeText size="small" tone="tertiary">
+                    {t(uiLang, "trustSendTargetsHint")}
+                  </ChromeText>
+                  {(() => {
+                    const checklistDocs = trustCase.docs.filter((d) =>
+                      isTrustChecklistDocId(d.id),
+                    );
+                    const rows = (trustSendTargetRows || []).filter((r) =>
+                      checklistDocs.some((d) => d.id === r.docId),
+                    );
+                    const addOptions = [
+                      {
+                        value: "",
+                        label: t(uiLang, "trustSendTargetsAdd"),
+                      },
+                      ...checklistDocs.map((d) => ({
+                        value: d.id,
+                        label: d.label,
+                      })),
+                      {
+                        value: "other",
+                        label: trustTr(
+                          uiLang,
+                          "Other supporting doc",
+                          "מסמך תומך אחר",
+                        ),
+                      },
+                      ...trustCustomDocTypes.map((label) => ({
+                        value: `custom:${label}`,
+                        label,
+                      })),
+                    ];
+                    return (
+                      <Stack gap={6}>
+                        <Select
+                          value=""
+                          onChange={(v) => {
+                            if (!v) return;
+                            if (v === "other" || v.startsWith("custom:")) {
+                              const customLabel = v.startsWith("custom:")
+                                ? v.slice("custom:".length)
+                                : "";
+                              setTrustReqDrafts((prev) => [
+                                ...prev,
+                                newTrustDocRequestItem(
+                                  customLabel,
+                                  "",
+                                ),
+                              ]);
+                              return;
+                            }
+                            if (!isTrustChecklistDocId(v)) return;
+                            const doc = checklistDocs.find((d) => d.id === v);
+                            setTrustSendTargetRows((prev) => [
+                              ...(prev || []),
+                              newTrustSendTargetRow(
+                                v,
+                                "",
+                                (doc?.kind || "").trim(),
+                              ),
+                            ]);
+                          }}
+                          options={addOptions}
+                          style={{ maxWidth: 360 }}
+                        />
+                        {rows.length > 0 ? (
+                          <Stack gap={6}>
+                            {rows.map((row) => {
+                              const doc = checklistDocs.find(
+                                (d) => d.id === row.docId,
+                              );
+                              return (
+                                <Row
+                                  key={row.key}
+                                  gap={8}
+                                  align="center"
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${chromeBorder(theme)}`,
+                                    background: chromeSoftFill(theme),
+                                  }}
+                                >
+                                  <ChromeText
+                                    size="small"
+                                    weight="semibold"
+                                    style={{
+                                      flex: "0 0 auto",
+                                      minWidth: 100,
+                                      maxWidth: 160,
+                                    }}
+                                  >
+                                    {doc?.label || row.docId}
+                                  </ChromeText>
+                                  <ChromeTextInput
+                                    value={row.name}
+                                    onChange={(v) =>
+                                      setTrustSendTargetRows((prev) =>
+                                        (prev || []).map((r) =>
+                                          r.key === row.key
+                                            ? { ...r, name: v }
+                                            : r,
+                                        ),
+                                      )
+                                    }
+                                    placeholder={trustDocNamePlaceholder(
+                                      uiLang,
+                                      row.docId,
+                                    )}
+                                    style={{
+                                      flex: "0 1 200px",
+                                      width: 200,
+                                      maxWidth: 220,
+                                      minWidth: 120,
+                                    }}
+                                  />
+                                  <Select
+                                    value={(row.type || "").trim()}
+                                    onChange={(value) =>
+                                      setTrustSendTargetRows((prev) =>
+                                        (prev || []).map((r) =>
+                                          r.key === row.key
+                                            ? { ...r, type: value }
+                                            : r,
+                                        ),
+                                      )
+                                    }
+                                    options={trustDocKindOptions(
+                                      row.docId,
+                                      uiLang,
+                                    )}
+                                    style={{
+                                      flex: "0 0 150px",
+                                      width: 150,
+                                      minWidth: 130,
+                                    }}
+                                  />
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() =>
+                                      setTrustSendTargetRows((prev) =>
+                                        (prev || []).filter(
+                                          (r) => r.key !== row.key,
+                                        ),
+                                      )
+                                    }
+                                    style={{ flexShrink: 0 }}
+                                  >
+                                    ×
+                                  </Button>
+                                </Row>
+                              );
+                            })}
+                          </Stack>
+                        ) : null}
+                      </Stack>
+                    );
+                  })()}
+                </Stack>
+                <Stack gap={6}>
+                  <Stack gap={6}>
+                    {trustReqDrafts.map((draft) => (
+                      <Stack key={draft.id} gap={4}>
+                        <Row
+                          gap={8}
+                          align="center"
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 8,
+                            border: `1px solid ${chromeBorder(theme)}`,
+                            background: chromeSoftFill(theme),
+                          }}
+                        >
+                          <ChromeText
+                            size="small"
+                            weight="semibold"
+                            style={{
+                              flex: "0 0 auto",
+                              minWidth: 100,
+                              maxWidth: 160,
+                            }}
+                          >
+                            {t(uiLang, "trustGeneralDocuments")}
+                          </ChromeText>
+                          <ChromeTextInput
+                            value={draft.name}
+                            onChange={(v) =>
+                              updateTrustReqDraft(draft.id, { name: v })
+                            }
+                            placeholder={trustDocNamePlaceholder(
+                              uiLang,
+                              "general",
+                            )}
+                            style={{
+                              flex: "0 1 200px",
+                              width: 200,
+                              maxWidth: 220,
+                              minWidth: 120,
+                            }}
+                          />
+                          <Select
+                            value={(() => {
+                              const opts = trustDocKindOptions("bank", uiLang);
+                              const cur = (draft.type || "").trim();
+                              return opts.some((o) => o.value === cur)
+                                ? cur
+                                : "";
+                            })()}
+                            onChange={(v) => {
+                              setTrustCreatingDocTypeForDraftId(null);
+                              setTrustNewDocTypeDraft("");
+                              updateTrustReqDraft(draft.id, { type: v });
+                            }}
+                            options={trustDocKindOptions("bank", uiLang)}
+                            style={{
+                              flex: "0 0 150px",
+                              width: 150,
+                              minWidth: 130,
+                            }}
+                          />
+                          <Button
+                            variant="secondary"
+                            onClick={() => removeTrustReqDraft(draft.id)}
+                            style={{ flexShrink: 0 }}
+                          >
+                            ×
+                          </Button>
+                        </Row>
+                      </Stack>
+                    ))}
+                    <Row gap={8} align="center" justify="center" wrap>
+                      <Button variant="secondary" onClick={addTrustReqDraft}>
+                        {t(uiLang, "bkAddDocRow")}
+                      </Button>
+                    </Row>
+                    <ChromeText size="small" tone="tertiary">
+                      {t(uiLang, "taxReturnRequestDocHint")}
+                    </ChromeText>
+                  </Stack>
+                </Stack>
+                <Row gap={12} wrap align="center">
+                  <Checkbox
+                    checked={!!trustComposePortal}
+                    onChange={setTrustComposePortal}
+                    label={t(uiLang, "taxReturnSendPortal")}
+                  />
+                  <Checkbox
+                    checked={!!trustComposeEmail}
+                    onChange={setTrustComposeEmail}
+                    label={t(uiLang, "taxReturnSendEmail")}
+                  />
+                  <Checkbox
+                    checked={!!trustComposeWhatsApp}
+                    onChange={setTrustComposeWhatsApp}
+                    label={t(uiLang, "taxReturnSendWhatsApp")}
+                  />
+                </Row>
+                <Row
+                  gap={8}
+                  align="center"
+                  style={{
+                    width: "100%",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Button
+                    variant="primary"
+                    onClick={openTrustGeneralComposeMessage}
+                  >
+                    {t(uiLang, "bkViewMessage")}
+                  </Button>
+                </Row>
+              </Stack>
+                            <input
+                ref={trustRowUploadInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,application/pdf,image/*"
+                style={{ display: "none" }}
+                onChange={onTrustRowUploadInputChange}
+              />
+              {trustSlimRowFlash ? (
+                <ChromeText size="small" tone="secondary">
+                  {trustSlimRowFlash}
+                </ChromeText>
+              ) : null}
+<Stack
                 gap={0}
                 style={{
                   borderRadius: 10,
                   border: `1px solid ${chromeBorder(theme)}`,
-                  background: CHROME_WHITE,
+                  background: chromeSoftFill(theme),
                   overflow: "hidden",
                 }}
               >
                 {trustCase.docs.map((doc, idx) => {
+                  const okForDoc = countOkReceivedForRequest(
+                    trustReceivedList,
+                    doc.id,
+                  );
+                  const needCount = trustDocExpectedCount(doc);
+                  const fullyOk = isRequestFullySatisfied(
+                    trustReceivedList,
+                    doc.id,
+                    needCount,
+                  );
                   const docDone =
-                    doc.status === "received" || doc.status === "reviewed";
-                  const expanded = doc.status !== "not-requested";
+                    doc.status !== "not-requested" &&
+                    (doc.status === "received" ||
+                      doc.status === "reviewed" ||
+                      fullyOk);
+                  const nOfM = requestNOfMLabel(
+                    uiLang,
+                    okForDoc,
+                    needCount,
+                  );
+                  const statusValue =
+                    doc.status === "reviewed" ? "received" : doc.status;
+                  const viewFile = latestTrustReceivedForRequest(doc.id);
+                  const manualOpen = (trustManualOpenDocIds || []).includes(
+                    doc.id,
+                  );
+                  const manualItems = trustDocComposeItems(doc);
                   return (
                     <Stack
                       key={doc.id}
-                      gap={8}
+                      gap={0}
                       style={{
-                        padding: expanded ? "10px 12px" : "8px 12px",
                         borderTop:
                           idx === 0
                             ? undefined
                             : `1px solid ${chromeBorder(theme)}`,
-                        background: docDone
-                          ? chromeSoftFill(theme)
-                          : CHROME_WHITE,
+                        background: chromeSoftFill(theme),
                       }}
                     >
-                      <Row gap={8} wrap align="center">
+                      <Row
+                        gap={8}
+                        wrap
+                        align="center"
+                        style={{
+                          padding: "6px 10px",
+                        }}
+                      >
                         {doc.status !== "not-requested" ? (
                           <>
                             <DocRequestFlowGlyph
-                              kind={
-                                doc.status === "received" ||
-                                doc.status === "reviewed"
-                                  ? "received"
-                                  : "sent"
-                              }
+                              kind={docDone ? "received" : "sent"}
                               size={15}
                             />
                             <DocRequestFlowBadge
-                              kind={
-                                doc.status === "received" ||
-                                doc.status === "reviewed"
-                                  ? "received"
-                                  : "sent"
-                              }
+                              kind={docDone ? "received" : "sent"}
                               uiLang={uiLang}
                             />
                           </>
@@ -48447,7 +51030,7 @@ function TrustReportingWorkspace({
                           tone={docDone ? "secondary" : "primary"}
                           style={{
                             flex: 1,
-                            minWidth: 140,
+                            minWidth: 120,
                             ...(docDone
                               ? { textDecoration: "line-through" }
                               : {}),
@@ -48455,66 +51038,153 @@ function TrustReportingWorkspace({
                         >
                           {doc.label}
                         </ChromeText>
+                        {nOfM ? (
+                          <Pill size="sm" tone="info">
+                            {nOfM}
+                          </Pill>
+                        ) : null}
                         <Select
-                          value={doc.status}
+                          value={statusValue}
                           onChange={(value) =>
-                            patchTrustDoc(doc.id, {
-                              status: value as TrustDocStatus,
-                            })
+                            applyTrustSlimStatus(doc.id, value)
                           }
-                          options={TRUST_DOC_STATUSES.map((status) => ({
+                          options={TRUST_DOC_STATUSES.filter(
+                            (s) =>
+                              s === "not-requested" ||
+                              s === "requested" ||
+                              s === "received" ||
+                              s === "missing",
+                          ).map((status) => ({
                             value: status,
                             label: trustDocStatusLabel(uiLang, status),
                           }))}
                           style={{ width: 150 }}
                         />
-                      </Row>
-                      <Row gap={12} wrap align="center">
-                        <Checkbox
-                          checked={!!doc.sendPortal}
-                          onChange={(v) =>
-                            patchTrustDoc(doc.id, { sendPortal: v })
-                          }
-                          label={t(uiLang, "taxReturnSendPortal")}
-                        />
-                        <Checkbox
-                          checked={!!doc.sendEmail}
-                          onChange={(v) =>
-                            patchTrustDoc(doc.id, { sendEmail: v })
-                          }
-                          label={t(uiLang, "taxReturnSendEmail")}
-                        />
-                        <Checkbox
-                          checked={!!doc.sendWhatsApp}
-                          onChange={(v) =>
-                            patchTrustDoc(doc.id, { sendWhatsApp: v })
-                          }
-                          label={t(uiLang, "taxReturnSendWhatsApp")}
-                        />
                         <Button
-                          variant="primary"
-                          onClick={() => openTrustSeeMessage(doc.id)}
+                          variant="secondary"
+                          onClick={() => toggleTrustManualRequests(doc.id)}
                         >
-                          {t(uiLang, "bkSeeMessage")}
+                          {manualOpen
+                            ? t(uiLang, "trustRowManualRequestsHide")
+                            : t(uiLang, "trustRowManualRequests")}
                         </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() => openTrustUploadManually(doc.id)}
+                        >
+                          {t(uiLang, "trustRowUpload")}
+                        </Button>
+                        <DocRequestEyeViewButton
+                          label={t(uiLang, "taxReturnViewDoc")}
+                          onClick={() => viewTrustRequestDoc(doc.id)}
+                          color={theme.accent.primary}
+                          disabled={!viewFile}
+                        />
                       </Row>
-                      {expanded ? (
-                        <ChromeText size="small" tone="tertiary">
-                          {[
-                            doc.sendEmail
-                              ? t(uiLang, "taxReturnSendEmail")
-                              : null,
-                            doc.sendPortal
-                              ? t(uiLang, "taxReturnSendPortal")
-                              : null,
-                            doc.sendWhatsApp
-                              ? t(uiLang, "taxReturnSendWhatsApp")
-                              : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ") || "—"}
-                          {doc.requestDate ? ` · ${doc.requestDate}` : ""}
-                        </ChromeText>
+                      {manualOpen ? (
+                        <Stack
+                          gap={6}
+                          style={{
+                            padding: "4px 10px 10px 10px",
+                            borderTop: `1px dashed ${chromeBorder(theme)}`,
+                          }}
+                        >
+                          {manualItems.map((item, itemIdx) => {
+                            const kindOpts = trustDocKindOptionList(doc.id);
+                            const kindVal = (item.type || "").trim();
+                            const kindValue = kindOpts.some(
+                              (o) => o.value === kindVal,
+                            )
+                              ? kindVal
+                              : "";
+                            return (
+                            <Stack key={item.id} gap={4}>
+                              <Row gap={8} align="center" wrap>
+                                <ChromeTextInput
+                                  value={item.name}
+                                  onChange={(v) =>
+                                    updateTrustDocRequestItem(doc.id, item.id, {
+                                      name: v,
+                                    })
+                                  }
+                                  placeholder={t(uiLang, "taxReturnDocNamePh")}
+                                  style={{
+                                    flex: "0 1 200px",
+                                    width: 200,
+                                    maxWidth: 220,
+                                    minWidth: 120,
+                                  }}
+                                />
+                                <Select
+                                  value={kindValue}
+                                  onChange={(v) => {
+                                    setTrustCase((prev) => ({
+                                      ...prev,
+                                      docs: prev.docs.map((row) => {
+                                        if (row.id !== doc.id) return row;
+                                        let items = trustDocComposeItems(
+                                          row,
+                                        ).map((it) =>
+                                          it.id === item.id
+                                            ? { ...it, type: v }
+                                            : it,
+                                        );
+                                        // Append missing id — never collapse m=2 → 1.
+                                        if (
+                                          !items.some((it) => it.id === item.id)
+                                        ) {
+                                          items = [
+                                            ...items,
+                                            {
+                                              id: item.id,
+                                              name: row.label || "",
+                                              type: v,
+                                            },
+                                          ];
+                                        }
+                                        return normalizeTrustDoc({
+                                          ...row,
+                                          ...(itemIdx === 0
+                                            ? { kind: v }
+                                            : {}),
+                                          requestItems: items,
+                                          expectedCount:
+                                            items.length > 0
+                                              ? items.length
+                                              : 1,
+                                        });
+                                      }),
+                                    }));
+                                  }}
+                                  options={trustDocKindOptions(doc.id, uiLang)}
+                                  style={{
+                                    flex: "0 0 150px",
+                                    width: 150,
+                                    minWidth: 130,
+                                  }}
+                                />
+                                <Button
+                                  variant="secondary"
+                                  onClick={() =>
+                                    removeTrustDocRequestItem(doc.id, item.id)
+                                  }
+                                  style={{ flexShrink: 0 }}
+                                >
+                                  ×
+                                </Button>
+                              </Row>
+                            </Stack>
+                            );
+                          })}
+                          <Row gap={8}>
+                            <Button
+                              variant="secondary"
+                              onClick={() => addTrustDocRequestItem(doc.id)}
+                            >
+                              {t(uiLang, "bkAddDocRow")}
+                            </Button>
+                          </Row>
+                        </Stack>
                       ) : null}
                     </Stack>
                   );
@@ -48531,19 +51201,57 @@ function TrustReportingWorkspace({
                 if (partial.purposeId !== undefined) {
                   const pid = (partial.purposeId || "").trim();
                   if (pid) {
-                    patchTrustDoc(pid, { status: "received" });
+                    const nextFiles = trustReceivedList.map((f) =>
+                      f.id === id
+                        ? {
+                            ...f,
+                            ...partial,
+                            linkedRequestId: (partial.purposeId || "").trim(),
+                          }
+                        : f,
+                    );
+                    const doc = trustCase.docs.find((d) => d.id === pid);
+                    if (
+                      isRequestFullySatisfied(
+                        nextFiles,
+                        pid,
+                        trustDocExpectedCount(doc ?? { id: pid }),
+                      )
+                    ) {
+                      patchTrustDoc(pid, { status: "received" });
+                    }
                   }
                 }
               }}
               onOk={(file) => {
                 const purposeId = (file.purposeId ?? "").trim();
+                const pid = (purposeId || file.linkedRequestId || "").trim();
+                const nextFiles = trustReceivedList.map((f) =>
+                  f.id === file.id
+                    ? {
+                        ...f,
+                        reviewVerdict: "ok" as const,
+                        status: "reviewed" as const,
+                      }
+                    : f,
+                );
                 patchTrustReceivedDoc(file.id, {
                   reviewVerdict: "ok",
                   status: "reviewed",
                 });
-                const pid = (purposeId || file.linkedRequestId || "").trim();
                 if (pid) {
-                  patchTrustDoc(pid, { status: "reviewed" });
+                  const doc = trustCase.docs.find((d) => d.id === pid);
+                  if (
+                    isRequestFullySatisfied(
+                      nextFiles,
+                      pid,
+                      trustDocExpectedCount(doc ?? { id: pid }),
+                    )
+                  ) {
+                    patchTrustDoc(pid, { status: "reviewed" });
+                  } else {
+                    patchTrustDoc(pid, { status: "requested" });
+                  }
                 }
               }}
               onNotOk={openTrustReceivedResendPopout}
@@ -48555,6 +51263,22 @@ function TrustReportingWorkspace({
                 return linked
                   ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.label}`
                   : null;
+              }}
+              progressLabel={(file) => {
+                const pid = (
+                  file.purposeId ||
+                  file.linkedRequestId ||
+                  ""
+                ).trim();
+                if (!pid) return null;
+                const doc = trustCase.docs.find((d) => d.id === pid);
+                return (
+                  requestNOfMLabel(
+                    uiLang,
+                    countOkReceivedForRequest(trustReceivedList, pid),
+                    trustDocExpectedCount(doc ?? { id: pid }),
+                  ) || null
+                );
               }}
             />
           )}
@@ -49479,6 +52203,44 @@ function TrustReportingWorkspace({
       </div>
 
       {stageCompletePopout}
+      {trustReqResendConfirm ? (
+        <ConfirmYesNoPopout
+          title={
+            trustReqResendConfirm.step === 1
+              ? t(uiLang, "reqResendConfirmTitle")
+              : t(uiLang, "reqResendViewOrSendTitle")
+          }
+          yesLabel={
+            trustReqResendConfirm.step === 1
+              ? t(uiLang, "yes")
+              : t(uiLang, "reqResendViewYes")
+          }
+          noLabel={
+            trustReqResendConfirm.step === 1
+              ? t(uiLang, "no")
+              : t(uiLang, "reqResendSendNoView")
+          }
+          onDismiss={() => setTrustReqResendConfirm(null)}
+          onYes={() => {
+            const { docId, step } = trustReqResendConfirm;
+            if (step === 1) {
+              setTrustReqResendConfirm({ docId, step: 2 });
+              return;
+            }
+            setTrustReqResendConfirm(null);
+            openTrustSeeMessage(docId, { reqResend: true });
+          }}
+          onNo={() => {
+            const { docId, step } = trustReqResendConfirm;
+            if (step === 1) {
+              setTrustReqResendConfirm(null);
+              return;
+            }
+            setTrustReqResendConfirm(null);
+            silentTrustReqResend(docId);
+          }}
+        />
+      ) : null}
       {trustChannelFlash ? (
         <Callout
           tone={
@@ -49491,6 +52253,189 @@ function TrustReportingWorkspace({
           {trustChannelFlash}
         </Callout>
       ) : null}
+      {trustUploadPopupDocId
+        ? (() => {
+            const popupDoc = trustCase.docs.find(
+              (d) => d.id === trustUploadPopupDocId,
+            );
+            if (!popupDoc) return null;
+            const slots = trustDocItemUploadSlots(
+              popupDoc,
+              trustReceivedList,
+            );
+            const need = Math.max(slots.length, 1);
+            const okN = slots.filter((s) => !!s.file).length;
+            const pct = Math.round((okN / need) * 100);
+            return (
+              <RequestMessagePopout
+                title={t(uiLang, "trustUploadPopupTitle").replace(
+                  "{label}",
+                  popupDoc.label || popupDoc.id,
+                )}
+                closeLabel={t(uiLang, "trustUploadPopupClose")}
+                onClose={() => {
+                  setTrustUploadPopupDocId(null);
+                  setTrustUploadPopupEditItemId(null);
+                }}
+                anchorRect={null}
+              >
+                <Stack gap={12}>
+                  <Stack gap={4}>
+                    <ChromeText size="small" tone="secondary">
+                      {t(uiLang, "trustUploadPopupProgress")
+                        .replace("{ok}", String(okN))
+                        .replace("{need}", String(need))}
+                    </ChromeText>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 4,
+                        background: chromeBorder(theme),
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${pct}%`,
+                          background: theme.accent.primary,
+                          transition: "width 160ms ease",
+                        }}
+                      />
+                    </div>
+                  </Stack>
+                  {okN >= need ? (
+                    <ChromeText tone="secondary">
+                      {t(uiLang, "trustUploadPopupAllDone")}
+                    </ChromeText>
+                  ) : null}
+                  {slots.map((slot, idx) => {
+                    const done = !!slot.file;
+                    const editing =
+                      trustUploadPopupEditItemId === slot.item.id;
+                    const displayName =
+                      (slot.item.name || "").trim() ||
+                      popupDoc.label ||
+                      `Doc ${idx + 1}`;
+                    return (
+                      <Stack
+                        key={slot.item.id}
+                        gap={6}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border: `1px solid ${chromeBorder(theme)}`,
+                          background: chromeSoftFill(theme),
+                          opacity: done ? 0.85 : 1,
+                        }}
+                      >
+                        <Row gap={8} align="center" wrap>
+                          <ChromeText
+                            weight="semibold"
+                            tone={done ? "secondary" : "primary"}
+                            style={
+                              done
+                                ? { textDecoration: "line-through" }
+                                : undefined
+                            }
+                          >
+                            {t(uiLang, "trustUploadPopupStep")
+                              .replace("{n}", String(idx + 1))
+                              .replace("{name}", displayName)}
+                          </ChromeText>
+                          {done ? (
+                            <Pill size="sm" tone="success">
+                              {t(uiLang, "trustUploadPopupDone")}
+                            </Pill>
+                          ) : null}
+                        </Row>
+                        {slot.file ? (
+                          <ChromeText size="small" tone="secondary">
+                            {slot.file.name}
+                          </ChromeText>
+                        ) : null}
+                        {editing ? (
+                          <Row gap={8} align="center" wrap>
+                            <ChromeTextInput
+                              value={slot.item.name}
+                              onChange={(v) =>
+                                updateTrustDocRequestItem(
+                                  popupDoc.id,
+                                  slot.item.id,
+                                  { name: v },
+                                )
+                              }
+                              placeholder={t(uiLang, "taxReturnDocNamePh")}
+                              style={{ flex: 1, minWidth: 140 }}
+                            />
+                            <Button
+                              variant="secondary"
+                              onClick={() =>
+                                setTrustUploadPopupEditItemId(null)
+                              }
+                            >
+                              {t(uiLang, "taxReturnClosePreview")}
+                            </Button>
+                          </Row>
+                        ) : null}
+                        <Row gap={8} wrap>
+                          {!done ? (
+                            <Button
+                              variant="primary"
+                              onClick={() =>
+                                pickTrustUploadFileForItem(
+                                  popupDoc.id,
+                                  slot.item.id,
+                                )
+                              }
+                            >
+                              {t(uiLang, "trustRowUpload")}
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  deleteTrustUploadForItem(
+                                    popupDoc.id,
+                                    slot.item.id,
+                                  )
+                                }
+                              >
+                                {t(uiLang, "trustUploadPopupDelete")}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  pickTrustUploadFileForItem(
+                                    popupDoc.id,
+                                    slot.item.id,
+                                  )
+                                }
+                              >
+                                {t(uiLang, "trustUploadPopupReupload")}
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              setTrustUploadPopupEditItemId(
+                                editing ? null : slot.item.id,
+                              )
+                            }
+                          >
+                            {t(uiLang, "trustUploadPopupEditName")}
+                          </Button>
+                        </Row>
+                      </Stack>
+                    );
+                  })}
+                </Stack>
+              </RequestMessagePopout>
+            );
+          })()
+        : null}
       {trustChannelPopout ? (
         <RequestMessagePopout
           title={
@@ -49506,33 +52451,70 @@ function TrustReportingWorkspace({
         >
           <Stack gap={10}>
             {trustChannelPopout.mode !== "resend" ? (
-              <TextInput
-                value={trustChannelPopout.period}
-                placeholder={trustTr(uiLang, "Period", "תקופה")}
-                onChange={(value) => {
-                  setTrustChannelPopout((prev) => {
-                    if (!prev || prev.mode === "resend") return prev;
-                    const doc = trustCase.docs.find(
-                      (row) => row.id === prev.docId,
-                    );
-                    if (!doc) return { ...prev, period: value };
-                    const composed = composeTrustChannelMessage(
-                      { ...doc, period: value },
-                      prev.channel,
-                    );
-                    return {
-                      ...prev,
-                      period: value,
-                      message: composed.message,
-                      subject: composed.subject,
-                      bodyHtml: composed.message
-                        .split("\n")
-                        .map((line) => line || " ")
-                        .join("<br/>"),
-                    };
-                  });
-                }}
-              />
+              <Stack gap={8}>
+                <Select
+                  value={
+                    trustCase.docs.find(
+                      (row) => row.id === trustChannelPopout.docId,
+                    )?.kind || ""
+                  }
+                  onChange={(value) => {
+                    const docId = trustChannelPopout.docId;
+                    patchTrustDoc(docId, { kind: value });
+                    setTrustChannelPopout((prev) => {
+                      if (!prev || prev.mode === "resend") return prev;
+                      const doc = trustCase.docs.find(
+                        (row) => row.id === prev.docId,
+                      );
+                      if (!doc) return prev;
+                      const composed = composeTrustChannelMessage(
+                        { ...doc, kind: value, period: prev.period },
+                        prev.channel,
+                      );
+                      return {
+                        ...prev,
+                        message: composed.message,
+                        subject: composed.subject,
+                        bodyHtml: composed.message
+                          .split("\n")
+                          .map((line) => line || " ")
+                          .join("<br/>"),
+                      };
+                    });
+                  }}
+                  options={trustDocKindOptions(
+                    trustChannelPopout.docId,
+                    uiLang,
+                  )}
+                />
+                <TextInput
+                  value={trustChannelPopout.period}
+                  placeholder={trustTr(uiLang, "Period", "תקופה")}
+                  onChange={(value) => {
+                    setTrustChannelPopout((prev) => {
+                      if (!prev || prev.mode === "resend") return prev;
+                      const doc = trustCase.docs.find(
+                        (row) => row.id === prev.docId,
+                      );
+                      if (!doc) return { ...prev, period: value };
+                      const composed = composeTrustChannelMessage(
+                        { ...doc, period: value },
+                        prev.channel,
+                      );
+                      return {
+                        ...prev,
+                        period: value,
+                        message: composed.message,
+                        subject: composed.subject,
+                        bodyHtml: composed.message
+                          .split("\n")
+                          .map((line) => line || " ")
+                          .join("<br/>"),
+                      };
+                    });
+                  }}
+                />
+              </Stack>
             ) : null}
             {trustChannelPopout.channel === "email" ? (
               <RequestEmailStandardCompose
@@ -50344,6 +53326,20 @@ function BookkeepingWorkspace({
     `bkDocRequests.v1:${yearScope}`,
     [],
   );
+  const bkRowUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const bkRowUploadDocIdRef = useRef<string | null>(null);
+  const bkRowUploadItemIdRef = useRef<string | null>(null);
+  const [bkSlimRowFlash, setBkSlimRowFlash] = useState("");
+  const [bkManualOpenDocIds, setBkManualOpenDocIds] = useCanvasState<string[]>(
+    `bkManualOpenDocIds.v1:${yearScope}`,
+    [],
+  );
+  const [bkUploadPopupDocId, setBkUploadPopupDocId] = useCanvasState<
+    string | null
+  >(`bkUploadPopupDocId.v1:${yearScope}`, null);
+  const [bkUploadPopupEditItemId, setBkUploadPopupEditItemId] = useState<
+    string | null
+  >(null);
   const [bkDocsTopTab, setBkDocsTopTab] = useCanvasState<DocsReceivedTopTab>(
     `bkDocsTopTab.v1:${yearScope}`,
     "requests",
@@ -50358,6 +53354,17 @@ function BookkeepingWorkspace({
     bkReceivedDocs && bkReceivedDocs.length > 0
       ? bkReceivedDocs
       : seedModuleReceivedClientDocs("bookkeeping", client, bkYear);
+  const pendingReqs = docRequests.filter((r) => {
+    if (r.status === "pending" || r.status === "missing") return true;
+    if (r.status === "uploaded") {
+      return !isRequestFullySatisfied(
+        bkReceivedList,
+        r.id,
+        portalDocExpectedCount(r),
+      );
+    }
+    return false;
+  }).length;
   const [bkResendPopout, setBkResendPopout] =
     useState<DocsReceivedResendPopoutState | null>(null);
   const [folderExpanded, setFolderExpanded] = useCanvasState<
@@ -50405,6 +53412,13 @@ function BookkeepingWorkspace({
   );
   /** Ephemeral — do not persist; stuck true was reopening the popout on remount. */
   const [reqPreviewOpen, setReqPreviewOpen] = useState(false);
+  const [bkReqResendConfirm, setBkReqResendConfirm] = useState<1 | 2 | null>(
+    null,
+  );
+  const [bkPendingResendBump, setBkPendingResendBump] = useState(false);
+  const [bkMonthResendCount, setBkMonthResendCount] = useCanvasState<
+    Record<string, number>
+  >(`bkMonthResendCount.v1:${yearScope}`, {});
   /** Receive-expenses / receive-income checklist request status (Pending → Requested). */
   const [bkReceiveReqStatus, setBkReceiveReqStatus] = useCanvasState<
     Record<string, "not-requested" | "requested" | "received">
@@ -50435,7 +53449,7 @@ function BookkeepingWorkspace({
     `bkViewDoc.v1:${yearScope}`,
     null,
   );
-  const pendingReqs = docRequests.filter((r) => r.status === "pending").length;
+
   const viewing = docRequests.find((r) => r.id === viewDocId) ?? null;
   const bkContactEmails = clientEmailsForTools(client);
   const bkContactPhones = clientPhonesForDemo(client, uiLang);
@@ -50640,6 +53654,12 @@ function BookkeepingWorkspace({
                 : [contactPrefill]
             ).filter(Boolean);
     patchBkReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    // Not OK undoes rule-out: reopen request → pending + sent glyph.
+    if (purposeId) {
+      setDocRequests((prev) =>
+        prev.map((r) => (r.id === purposeId ? reopenPortalDocRequest(r) : r)),
+      );
+    }
     setBkResendPopout({
       channel,
       receivedDocId: received.id,
@@ -50671,15 +53691,7 @@ function BookkeepingWorkspace({
     const pid = (received?.purposeId || received?.linkedRequestId || "").trim();
     if (pid) {
       setDocRequests((prev) =>
-        prev.map((r) =>
-          r.id === pid
-            ? markPortalRequestReceived(r, {
-                fileName: received?.name,
-                previewText: `Reminder sent · not OK · ${received?.name ?? r.docName}`,
-                year: bkYear,
-              })
-            : r,
-        ),
+        prev.map((r) => (r.id === pid ? reopenPortalDocRequest(r) : r)),
       );
     }
     setReqFlash(
@@ -50770,6 +53782,21 @@ function BookkeepingWorkspace({
       [`${activeMonth}:${BK_CHECK_EXP_RECEIVE}`]: "requested",
       [`${activeMonth}:${BK_CHECK_INC_RECEIVE}`]: "requested",
     }));
+    if (bkPendingResendBump) {
+      setBkMonthResendCount((prev) => ({
+        ...prev,
+        [activeMonth]: (prev[activeMonth] ?? 0) + 1,
+      }));
+      setDocRequests((prev) => {
+        const ids = new Set(rows.map((r) => r.id));
+        return prev.map((r) =>
+          ids.has(r.id)
+            ? { ...r, resendCount: (r.resendCount ?? 0) + 1 }
+            : r,
+        );
+      });
+      setBkPendingResendBump(false);
+    }
     const bkRecipientBits = [
       reqEmail && (bkEmails.length || client.email)
         ? t(uiLang, "reqComposeRecipientsFlash").replace(
@@ -50862,6 +53889,312 @@ function BookkeepingWorkspace({
     );
   };
 
+
+  const applyBkSlimStatus = (reqId: string, value: string) => {
+    const status = value as PortalDocRequest["status"];
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        if (status === "missing") {
+          return { ...reopenPortalDocRequest(r), status: "missing" as const };
+        }
+        if (status === "uploaded") {
+          return markPortalRequestReceived(r, { year: bkYear });
+        }
+        return { ...r, status: "pending" as const };
+      }),
+    );
+  };
+
+  const toggleBkManualRequests = (reqId: string) => {
+    setBkManualOpenDocIds((prev) => {
+      const set = new Set(prev || []);
+      if (set.has(reqId)) set.delete(reqId);
+      else set.add(reqId);
+      return Array.from(set);
+    });
+    const row = docRequests.find((r) => r.id === reqId);
+    if (row && !(row.requestItems && row.requestItems.length > 0)) {
+      const seed = seedPortalRequestItems(row);
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === reqId ? withPortalRequestItems(r, seed) : r,
+        ),
+      );
+    }
+  };
+
+  const addBkDocRequestItem = (reqId: string) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        const base = trustDocComposeItems(portalDocAsComposeDoc(r));
+        const items = [...base, newTrustDocRequestItem("", r.docType || "")];
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const updateBkDocRequestItem = (
+    reqId: string,
+    itemId: string,
+    partial: Partial<TrustDocRequestItem>,
+  ) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        let items = trustDocComposeItems(portalDocAsComposeDoc(r)).map((it) =>
+          it.id === itemId ? { ...it, ...partial } : it,
+        );
+        if (!items.some((it) => it.id === itemId)) {
+          items = [
+            {
+              id: itemId,
+              name: r.docName || "",
+              type: r.docType || "",
+              ...partial,
+            },
+          ];
+        }
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const removeBkDocRequestItem = (reqId: string, itemId: string) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        const base = trustDocComposeItems(portalDocAsComposeDoc(r));
+        let items = base.filter((it) => it.id !== itemId);
+        if (items.length === 0) {
+          items = [newTrustDocRequestItem("", r.docType || "")];
+        }
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const addBkUploadedFileForRequest = (
+    reqId: string,
+    pickedName?: string,
+    itemId?: string | null,
+  ) => {
+    const row = docRequests.find((r) => r.id === reqId);
+    if (!row) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const compose = portalDocAsComposeDoc(row);
+    const items = trustDocComposeItems(compose);
+    const targetItem =
+      (itemId
+        ? items.find((it) => it.id === itemId)
+        : null) ??
+      trustDocItemUploadSlots(compose, bkReceivedList).find((s) => !s.file)
+        ?.item ??
+      items[0] ??
+      null;
+    const targetItemId = targetItem?.id ?? itemId ?? null;
+    let nextFiles: ReceivedClientDoc[] = [];
+    setBkReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0 ? prev : seedModuleReceivedClientDocs("bookkeeping", client, bkYear);
+      const withoutPrior = targetItemId
+        ? baseList.filter((f) => {
+            const link = (f.purposeId || f.linkedRequestId || "").trim();
+            if (link !== reqId) return true;
+            if ((f.linkedRequestItemId || "").trim() !== targetItemId)
+              return true;
+            return f.reviewVerdict !== "ok";
+          })
+        : baseList;
+      const seq = countOkReceivedForRequest(withoutPrior, reqId) + 1;
+      const itemName = (targetItem?.name || "").trim();
+      const safeLabel = (itemName || row.docName || reqId).replace(/\s+/g, "_");
+      const fileName = (pickedName || "").trim()
+        ? pickedName!.trim()
+        : `${safeLabel}_${seq}_{bkYear}.pdf`;
+      const newFile: ReceivedClientDoc = {
+        id: `${client.id}-bk-upl-${reqId}-${Date.now()}`,
+        clientId: client.id,
+        taxYear: String(bkYear),
+        name: fileName,
+        channel: "portal",
+        receivedAt: today,
+        docType: itemName || row.docName || row.docType || "",
+        linkedRequestId: reqId,
+        purposeId: reqId,
+        linkedRequestItemId: targetItemId || undefined,
+        status: "reviewed",
+        reviewVerdict: "ok",
+        resendLog: [],
+      };
+      nextFiles = [...withoutPrior, newFile];
+      return nextFiles;
+    });
+    const needCount = portalDocExpectedCount(
+      row.requestItems && row.requestItems.length > 0
+        ? row
+        : withPortalRequestItems(row, seedPortalRequestItems(row)),
+    );
+    const shownOk = nextFiles.length
+      ? countOkReceivedForRequest(nextFiles, reqId)
+      : countOkReceivedForRequest(bkReceivedList, reqId) + 1;
+    const progress =
+      requestNOfMLabel(uiLang, shownOk, needCount) ||
+      `${shownOk}/${needCount}`;
+    const flash = t(uiLang, "trustRowUploadDoneFlash")
+      .replace("{label}", row.docName || reqId)
+      .replace("{progress}", progress);
+    setBkSlimRowFlash(flash);
+    window.setTimeout(() => setBkSlimRowFlash(""), 2200);
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        let next = r;
+        if (!(r.requestItems && r.requestItems.length > 0)) {
+          next = withPortalRequestItems(r, seedPortalRequestItems(r));
+        }
+        if (next.status === "missing") {
+          next = { ...next, status: "pending" as const };
+        }
+        if (shownOk >= portalDocExpectedCount(next)) {
+          return markPortalRequestReceived(next, {
+            fileName: nextFiles[nextFiles.length - 1]?.name,
+            year: bkYear,
+          });
+        }
+        return next;
+      }),
+    );
+  };
+
+  const pickBkUploadFileForItem = (
+    reqId: string,
+    itemId?: string | null,
+  ) => {
+    const input = bkRowUploadInputRef.current;
+    if (!input) {
+      addBkUploadedFileForRequest(reqId, undefined, itemId);
+      return;
+    }
+    bkRowUploadDocIdRef.current = reqId;
+    bkRowUploadItemIdRef.current = itemId ?? null;
+    try {
+      input.value = "";
+    } catch {
+      /* ignore */
+    }
+    const finishDemoIfPending = () => {
+      if (bkRowUploadDocIdRef.current !== reqId) return;
+      const pendingItem = bkRowUploadItemIdRef.current;
+      bkRowUploadDocIdRef.current = null;
+      bkRowUploadItemIdRef.current = null;
+      addBkUploadedFileForRequest(reqId, undefined, pendingItem);
+    };
+    const onWinFocus = () => {
+      window.setTimeout(finishDemoIfPending, 200);
+      window.removeEventListener("focus", onWinFocus);
+    };
+    window.addEventListener("focus", onWinFocus);
+    window.setTimeout(finishDemoIfPending, 2500);
+    try {
+      input.click();
+    } catch {
+      window.removeEventListener("focus", onWinFocus);
+      bkRowUploadDocIdRef.current = null;
+      bkRowUploadItemIdRef.current = null;
+      addBkUploadedFileForRequest(reqId, undefined, itemId);
+    }
+  };
+
+  const openBkUploadManually = (reqId: string) => {
+    const row = docRequests.find((r) => r.id === reqId);
+    if (!row) return;
+    let working = row;
+    if (!(row.requestItems && row.requestItems.length > 0)) {
+      const seed = seedPortalRequestItems(row);
+      working = withPortalRequestItems(row, seed);
+      setDocRequests((prev) =>
+        prev.map((r) => (r.id === reqId ? working : r)),
+      );
+    }
+    const needCount = portalDocExpectedCount(working);
+    if (needCount > 1) {
+      setBkUploadPopupDocId(reqId);
+      setBkUploadPopupEditItemId(null);
+      return;
+    }
+    const slots = trustDocItemUploadSlots(
+      portalDocAsComposeDoc(working),
+      bkReceivedList,
+    );
+    const pending = slots.find((s) => !s.file)?.item;
+    pickBkUploadFileForItem(reqId, pending?.id ?? null);
+  };
+
+  const deleteBkUploadForItem = (reqId: string, itemId: string) => {
+    setBkReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0 ? prev : seedModuleReceivedClientDocs("bookkeeping", client, bkYear);
+      const row = docRequests.find((d) => d.id === reqId);
+      const slots = trustDocItemUploadSlots(
+        portalDocAsComposeDoc(
+          row || {
+            id: reqId,
+            clientId: client.id,
+            year: String(bkYear),
+            sourcePanel: "stream-bookkeeping",
+            docName: "",
+            docType: "",
+            note: "",
+            status: "pending",
+            createdAt: "",
+            sendPortal: false,
+            sendEmail: false,
+            sendWhatsApp: false,
+            requestItems: [],
+          } as PortalDocRequest,
+        ),
+        baseList,
+      );
+      const slot = slots.find((s) => s.item.id === itemId);
+      const fileId = slot?.file?.id;
+      if (!fileId) return baseList;
+      return baseList.filter((f) => f.id !== fileId);
+    });
+    setDocRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId && r.status === "uploaded"
+          ? reopenPortalDocRequest(r)
+          : r,
+      ),
+    );
+  };
+
+  const onBkRowUploadInputChange = (event: {
+    target: { files?: FileList | null; value?: string };
+  }) => {
+    const reqId = bkRowUploadDocIdRef.current;
+    const itemId = bkRowUploadItemIdRef.current;
+    const file = event.target.files?.[0];
+    bkRowUploadDocIdRef.current = null;
+    bkRowUploadItemIdRef.current = null;
+    if (!reqId) return;
+    addBkUploadedFileForRequest(reqId, file?.name, itemId);
+  };
+
+  const viewBkRequestDoc = (reqId: string) => {
+    const file = latestReceivedForRequest(bkReceivedList, reqId);
+    if (!file) {
+      setBkSlimRowFlash(
+        uiLang === "he" ? "אין קובץ להצגה עדיין." : "No file to view yet.",
+      );
+      window.setTimeout(() => setBkSlimRowFlash(""), 1600);
+      return;
+    }
+    setViewDocId(reqId);
+  };
+
   const accent = theme.accent.primary;
   const requestsStatus = bkPipelineScreenWorkFlowStatus(
     "requests",
@@ -50931,7 +54264,15 @@ function BookkeepingWorkspace({
     {
       id: "requests",
       labelKey: "bkNavRequests",
-      status: requestsStatus,
+      /** ✓ only when all portal requests fully OK or pipeline Completed. */
+      status: docRequestsStageTabStatus(
+        docRequests.map((r) => ({
+          id: r.id,
+          expectedCount: r.expectedCount,
+        })),
+        bkReceivedList,
+        requestsStatus === "finished",
+      ),
       icon: "requests",
       flowGlyphs:
         pendingReqs > 0 ? (["sent"] as const) : undefined,
@@ -51280,50 +54621,43 @@ function BookkeepingWorkspace({
           </ChromeText>
           <Stack gap={8}>
             {reqDrafts.map((draft, index) => (
-              <Stack key={draft.id} gap={6}>
+              <Stack key={draft.id} gap={4}>
               <Row gap={8} align="center">
-                <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
-                  <ChromeText size="small" tone="secondary">
-                    {t(uiLang, "taxReturnDocName")}
-                    {reqDrafts.length > 1 ? ` (${index + 1})` : ""}
-                  </ChromeText>
-                  <ChromeTextInput
-                    value={draft.name}
-                    onChange={(v) => updateReqDraft(draft.id, { name: v })}
-                    placeholder={t(uiLang, "taxReturnDocNamePh")}
-                  />
-                </Stack>
-                <Stack
-                  gap={4}
-                  style={{ flex: "0 0 180px", width: 180, minWidth: 160 }}
-                >
-                  <ChromeText size="small" tone="secondary">
-                    {t(uiLang, "taxReturnDocType")}
-                  </ChromeText>
-                  <Select
-                    value={
-                      draft.type === CRM_DOC_TYPE_CREATE_VALUE
-                        ? "other"
-                        : draft.type
-                    }
-                    onChange={(v) => {
-                      if (v === CRM_DOC_TYPE_CREATE_VALUE) {
-                        setCreatingDocTypeForDraftId(draft.id);
-                        setNewDocTypeDraft("");
-                        return;
-                      }
-                      setCreatingDocTypeForDraftId(null);
+                <ChromeTextInput
+                  value={draft.name}
+                  onChange={(v) => updateReqDraft(draft.id, { name: v })}
+                  placeholder={t(uiLang, "taxReturnDocNamePh")}
+                  style={{
+                    flex: "0 1 200px",
+                    width: 200,
+                    maxWidth: 220,
+                    minWidth: 120,
+                  }}
+                />
+                <Select
+                  value={
+                    draft.type === CRM_DOC_TYPE_CREATE_VALUE
+                      ? "other"
+                      : draft.type
+                  }
+                  onChange={(v) => {
+                    if (v === CRM_DOC_TYPE_CREATE_VALUE) {
+                      setCreatingDocTypeForDraftId(draft.id);
                       setNewDocTypeDraft("");
-                      updateReqDraft(draft.id, { type: v });
-                    }}
-                    options={bkDocTypeOptions}
-                  />
-                </Stack>
+                      return;
+                    }
+                    setCreatingDocTypeForDraftId(null);
+                    setNewDocTypeDraft("");
+                    updateReqDraft(draft.id, { type: v });
+                  }}
+                  options={bkDocTypeOptions}
+                  style={{ flex: "0 0 150px", width: 150, minWidth: 130 }}
+                />
                 {reqDrafts.length > 1 ? (
                   <Button
                     variant="secondary"
                     onClick={() => removeReqDraft(draft.id)}
-                    style={{ flexShrink: 0, alignSelf: "flex-end" }}
+                    style={{ flexShrink: 0 }}
                   >
                     {t(uiLang, "bkRemoveDocRow")}
                   </Button>
@@ -51385,32 +54719,131 @@ function BookkeepingWorkspace({
               label={t(uiLang, "taxReturnSendWhatsApp")}
             />
           </Row>
-          <Row gap={8} wrap align="center">
-            <Pill
-              size="sm"
-              tone={
-                bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_EXP_RECEIVE}`] ===
-                  "requested" ||
-                bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_INC_RECEIVE}`] ===
-                  "requested"
-                  ? "info"
-                  : "neutral"
-              }
-            >
-              {bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_EXP_RECEIVE}`] ===
-                "requested" ||
-              bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_INC_RECEIVE}`] ===
-                "requested"
-                ? t(uiLang, "bkChannelRequestedPill")
-                : t(uiLang, "taxReturnDocPending")}
-            </Pill>
-            <Button variant="primary" onClick={openBkReqPreview}>
-              {t(uiLang, "bkSeeMessage")}
-            </Button>
-            <Button variant="secondary" onClick={uploadBkManual}>
-              {t(uiLang, "bkUploadManual")}
-            </Button>
+          <Row
+            gap={8}
+            wrap
+            align="center"
+            style={{ width: "100%", justifyContent: "space-between" }}
+          >
+            <Row gap={8} wrap align="center" style={{ flexShrink: 0 }}>
+              <Pill
+                size="sm"
+                tone={
+                  bkReceiveReqStatus[
+                    `${activeMonth}:${BK_CHECK_EXP_RECEIVE}`
+                  ] === "requested" ||
+                  bkReceiveReqStatus[
+                    `${activeMonth}:${BK_CHECK_INC_RECEIVE}`
+                  ] === "requested"
+                    ? "info"
+                    : "neutral"
+                }
+              >
+                {bkReceiveReqStatus[
+                  `${activeMonth}:${BK_CHECK_EXP_RECEIVE}`
+                ] === "requested" ||
+                bkReceiveReqStatus[
+                  `${activeMonth}:${BK_CHECK_INC_RECEIVE}`
+                ] === "requested"
+                  ? t(uiLang, "bkChannelRequestedPill")
+                  : t(uiLang, "taxReturnDocPending")}
+              </Pill>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  const already =
+                    bkReceiveReqStatus[
+                      `${activeMonth}:${BK_CHECK_EXP_RECEIVE}`
+                    ] === "requested" ||
+                    bkReceiveReqStatus[
+                      `${activeMonth}:${BK_CHECK_INC_RECEIVE}`
+                    ] === "requested";
+                  if (already) setBkReqResendConfirm(1);
+                  else openBkReqPreview();
+                }}
+              >
+                {bkReceiveReqStatus[
+                  `${activeMonth}:${BK_CHECK_EXP_RECEIVE}`
+                ] === "requested" ||
+                bkReceiveReqStatus[
+                  `${activeMonth}:${BK_CHECK_INC_RECEIVE}`
+                ] === "requested"
+                  ? t(uiLang, "bkResendMessage")
+                  : t(uiLang, "bkViewMessage")}
+              </Button>
+              <Button variant="secondary" onClick={uploadBkManual}>
+                {t(uiLang, "bkUploadManual")}
+              </Button>
+            </Row>
+            {bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_EXP_RECEIVE}`] ===
+              "requested" ||
+            bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_INC_RECEIVE}`] ===
+              "requested" ? (
+              <ChromeText
+                size="small"
+                tone="primary"
+                weight="medium"
+                style={{
+                  marginInlineStart: "auto",
+                  textAlign: "end",
+                  flexShrink: 1,
+                  minWidth: 0,
+                }}
+              >
+                {[
+                  reqChannelShortLabel(uiLang, {
+                    sendEmail: reqEmail,
+                    sendPortal: reqPortal,
+                    sendWhatsApp: reqWhatsApp,
+                  }) || null,
+                  reqSentOrResentLabel(
+                    uiLang,
+                    bkMonthResendCount[activeMonth],
+                  ),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </ChromeText>
+            ) : null}
           </Row>
+          {bkReqResendConfirm ? (
+            <ConfirmYesNoPopout
+              title={
+                bkReqResendConfirm === 1
+                  ? t(uiLang, "reqResendConfirmTitle")
+                  : t(uiLang, "reqResendViewOrSendTitle")
+              }
+              yesLabel={
+                bkReqResendConfirm === 1
+                  ? t(uiLang, "yes")
+                  : t(uiLang, "reqResendViewYes")
+              }
+              noLabel={
+                bkReqResendConfirm === 1
+                  ? t(uiLang, "no")
+                  : t(uiLang, "reqResendSendNoView")
+              }
+              onDismiss={() => setBkReqResendConfirm(null)}
+              onYes={() => {
+                if (bkReqResendConfirm === 1) {
+                  setBkReqResendConfirm(2);
+                  return;
+                }
+                setBkReqResendConfirm(null);
+                setBkPendingResendBump(true);
+                openBkReqPreview();
+              }}
+              onNo={() => {
+                if (bkReqResendConfirm === 1) {
+                  setBkReqResendConfirm(null);
+                  return;
+                }
+                setBkReqResendConfirm(null);
+                setBkPendingResendBump(true);
+                sendBkRequest();
+              }}
+            />
+          ) : null}
           {reqPreviewOpen ? (
             <RequestMessagePopout
               title={t(uiLang, "bkRequestPreviewTitle")}
@@ -51525,116 +54958,243 @@ function BookkeepingWorkspace({
               <ChromeText size="small" tone="tertiary">
                 {t(uiLang, "bkDocReqChecklistHint")}
               </ChromeText>
+              <input
+                ref={bkRowUploadInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,application/pdf,image/*"
+                style={{ display: "none" }}
+                onChange={onBkRowUploadInputChange}
+              />
+              {bkSlimRowFlash ? (
+                <ChromeText size="small" tone="secondary">
+                  {bkSlimRowFlash}
+                </ChromeText>
+              ) : null}
               <Stack gap={6}>
                 {docRequests.map((r) => {
-                  const done = r.status === "uploaded";
+                  const needCount = portalDocExpectedCount(r);
+                  const okForReq = countOkReceivedForRequest(
+                    bkReceivedList,
+                    r.id,
+                  );
+                  const fullyOk = isRequestFullySatisfied(
+                    bkReceivedList,
+                    r.id,
+                    needCount,
+                  );
+                  const done = r.status === "uploaded" && fullyOk;
+                  const nOfM = requestNOfMLabel(
+                    uiLang,
+                    okForReq,
+                    needCount,
+                  );
+                  const viewFile = latestReceivedForRequest(
+                    bkReceivedList,
+                    r.id,
+                  );
+                  const manualOpen = (bkManualOpenDocIds || []).includes(r.id);
+                  const manualItems = trustDocComposeItems(
+                    portalDocAsComposeDoc(r),
+                  );
+                  const statusValue =
+                    r.status === "uploaded"
+                      ? "uploaded"
+                      : r.status === "missing"
+                        ? "missing"
+                        : "pending";
                   return (
-                    <Row
+                    <Stack
                       key={r.id}
-                      align="center"
-                      gap={8}
-                      wrap
+                      gap={0}
                       style={{
-                        padding: "8px 10px",
                         borderRadius: 8,
                         background: chromeSoftFill(theme),
                         border: `1px solid ${chromeBorder(theme)}`,
+                        overflow: "hidden",
                       }}
                     >
-                      <div
-                        onClick={() => toggleBkDocRequest(r.id)}
+                      <Row
+                        align="center"
+                        gap={8}
+                        wrap
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          flex: 1,
-                          minWidth: 140,
-                          cursor: "pointer",
+                          padding: "8px 10px",
                         }}
                       >
-                        <span
-                          aria-hidden
+                        <div
+                          onClick={() => toggleBkDocRequest(r.id)}
                           style={{
-                            width: 14,
-                            height: 14,
-                            borderRadius: 4,
-                            flexShrink: 0,
-                            background: done
-                              ? theme.category.green
-                              : chromeSelectedFill(theme),
-                            border: `1px solid ${
-                              done
-                                ? theme.category.green
-                                : CHROME_BORDER_BLUE
-                            }`,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            flex: 1,
+                            minWidth: 140,
+                            cursor: "pointer",
                           }}
-                        />
-                        <DocRequestFlowGlyph
-                          kind={done ? "received" : "sent"}
-                          size={15}
-                        />
-                        <DocRequestFlowBadge
-                          kind={done ? "received" : "sent"}
-                          uiLang={uiLang}
-                        />
-                        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                        >
                           <span
+                            aria-hidden
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 8,
-                              textDecoration: done ? "line-through" : undefined,
+                              width: 14,
+                              height: 14,
+                              borderRadius: 4,
+                              flexShrink: 0,
+                              background: done
+                                ? theme.category.green
+                                : chromeSelectedFill(theme),
+                              border: `1px solid ${
+                                done
+                                  ? theme.category.green
+                                  : CHROME_BORDER_BLUE
+                              }`,
                             }}
-                          >
-                            <ExplorerFileIcon
-                              label={
-                                r.uploadedFileName ?? `${r.docName}.pdf`
-                              }
-                              kind="file"
-                              size="sm"
-                            />
-                            <ChromeText
-                              size="small"
-                              tone={done ? "secondary" : "primary"}
-                              weight="semibold"
+                          />
+                          <DocRequestFlowGlyph
+                            kind={done ? "received" : "sent"}
+                            size={15}
+                          />
+                          <DocRequestFlowBadge
+                            kind={done ? "received" : "sent"}
+                            uiLang={uiLang}
+                          />
+                          <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 8,
+                                textDecoration: done
+                                  ? "line-through"
+                                  : undefined,
+                              }}
                             >
-                              {r.docName}
+                              <ExplorerFileIcon
+                                label={
+                                  r.uploadedFileName ?? `${r.docName}.pdf`
+                                }
+                                kind="file"
+                                size="sm"
+                              />
+                              <ChromeText
+                                size="small"
+                                tone={done ? "secondary" : "primary"}
+                                weight="semibold"
+                              >
+                                {r.docName}
+                              </ChromeText>
+                              {typeof nOfM === "string" && nOfM ? (
+                                <Pill size="sm" tone="info">
+                                  {nOfM}
+                                </Pill>
+                              ) : null}
+                            </span>
+                            <ChromeText size="small" tone="tertiary">
+                              {r.docType} · {r.createdAt}
+                              {r.sendPortal || r.sendEmail || r.sendWhatsApp
+                                ? ` · ${[
+                                    r.sendPortal ? "portal" : null,
+                                    r.sendEmail ? "email" : null,
+                                    r.sendWhatsApp ? "whatsapp" : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ")}`
+                                : ""}
                             </ChromeText>
-                          </span>
-                          <ChromeText size="small" tone="tertiary">
-                            {r.docType} · {r.createdAt}
-                            {r.sendPortal || r.sendEmail || r.sendWhatsApp
-                              ? ` · ${[
-                                  r.sendPortal ? "portal" : null,
-                                  r.sendEmail ? "email" : null,
-                                  r.sendWhatsApp ? "whatsapp" : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(", ")}`
-                              : ""}
-                          </ChromeText>
-                        </Stack>
-                      </div>
-                      <Pill size="sm" tone={done ? "success" : "info"}>
-                        {done
-                          ? t(uiLang, "taxReturnDocUploaded")
-                          : t(uiLang, "bkChannelRequestedPill")}
-                      </Pill>
-                      {done ? (
+                          </Stack>
+                        </div>
+                        <Select
+                          value={statusValue}
+                          onChange={(value) =>
+                            applyBkSlimStatus(r.id, value)
+                          }
+                          options={PORTAL_SLIM_STATUSES.map((status) => ({
+                            value: status,
+                            label: portalDocStatusLabel(uiLang, status),
+                          }))}
+                          style={{ width: 150 }}
+                        />
+                        <Button
+                          variant="secondary"
+                          onClick={() => toggleBkManualRequests(r.id)}
+                        >
+                          {manualOpen
+                            ? t(uiLang, "trustRowManualRequestsHide")
+                            : t(uiLang, "trustRowManualRequests")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() => openBkUploadManually(r.id)}
+                        >
+                          {t(uiLang, "trustRowUpload")}
+                        </Button>
                         <DocRequestEyeViewButton
                           label={t(uiLang, "taxReturnViewDoc")}
-                          onClick={() => setViewDocId(r.id)}
+                          onClick={() => viewBkRequestDoc(r.id)}
                           color={accent}
+                          disabled={!viewFile}
                         />
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          onClick={() => markBkUploaded(r.id, "simulate")}
+                      </Row>
+                      {manualOpen ? (
+                        <Stack
+                          gap={6}
+                          style={{
+                            padding: "4px 10px 10px 10px",
+                            borderTop: `1px dashed ${chromeBorder(theme)}`,
+                          }}
                         >
-                          {t(uiLang, "taxReturnSimulateUpload")}
-                        </Button>
-                      )}
-                    </Row>
+                          {manualItems.map((item) => (
+                            <Row key={item.id} gap={8} align="center" wrap>
+                              <ChromeTextInput
+                                value={item.name}
+                                onChange={(v) =>
+                                  updateBkDocRequestItem(r.id, item.id, {
+                                    name: v,
+                                  })
+                                }
+                                placeholder={t(uiLang, "taxReturnDocNamePh")}
+                                style={{
+                                  flex: "0 1 200px",
+                                  width: 200,
+                                  maxWidth: 220,
+                                  minWidth: 120,
+                                }}
+                              />
+                              <Select
+                                value={item.type || ""}
+                                onChange={(v) =>
+                                  updateBkDocRequestItem(r.id, item.id, {
+                                    type: v,
+                                  })
+                                }
+                                options={bkDocTypeOptions}
+                                style={{
+                                  flex: "0 0 150px",
+                                  width: 150,
+                                  minWidth: 130,
+                                }}
+                              />
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  removeBkDocRequestItem(r.id, item.id)
+                                }
+                                style={{ flexShrink: 0 }}
+                              >
+                                ×
+                              </Button>
+                            </Row>
+                          ))}
+                          <Row gap={8}>
+                            <Button
+                              variant="secondary"
+                              onClick={() => addBkDocRequestItem(r.id)}
+                            >
+                              {t(uiLang, "bkAddDocRow")}
+                            </Button>
+                          </Row>
+                        </Stack>
+                      ) : null}
+                    </Stack>
                   );
                 })}
               </Stack>
@@ -51682,48 +55242,82 @@ function BookkeepingWorkspace({
                 if (partial.purposeId !== undefined) {
                   const pid = (partial.purposeId || "").trim();
                   if (pid) {
-                    const file = bkReceivedList.find((f) => f.id === id);
+                    const nextFiles = bkReceivedList.map((f) =>
+                      f.id === id
+                        ? {
+                            ...f,
+                            ...partial,
+                            linkedRequestId: (partial.purposeId || "").trim(),
+                          }
+                        : f,
+                    );
                     setDocRequests((prev) =>
-                      prev.map((r) =>
-                        r.id === pid
-                          ? markPortalRequestReceived(r, {
-                              fileName: file?.name,
-                              previewText: file
-                                ? `Paired · ${file.name}`
-                                : undefined,
-                              year: bkYear,
-                            })
-                          : r,
-                      ),
+                      prev.map((r) => {
+                        if (r.id !== pid) return r;
+                        if (
+                          isRequestFullySatisfied(
+                            nextFiles,
+                            pid,
+                            r.expectedCount,
+                          )
+                        ) {
+                          const file = nextFiles.find((f) => f.id === id);
+                          return markPortalRequestReceived(r, {
+                            fileName: file?.name,
+                            previewText: file
+                              ? `Paired · ${file.name}`
+                              : undefined,
+                            year: bkYear,
+                          });
+                        }
+                        return reopenPortalDocRequest(r);
+                      }),
                     );
                   }
                 }
               }}
               onOk={(file) => {
-                patchBkReceivedDoc(file.id, {
-                  reviewVerdict: "ok",
-                  status: "reviewed",
-                });
                 const pid = (
                   file.purposeId ||
                   file.linkedRequestId ||
                   ""
                 ).trim();
+                const nextFiles = bkReceivedList.map((f) =>
+                  f.id === file.id
+                    ? {
+                        ...f,
+                        reviewVerdict: "ok" as const,
+                        status: "reviewed" as const,
+                      }
+                    : f,
+                );
+                patchBkReceivedDoc(file.id, {
+                  reviewVerdict: "ok",
+                  status: "reviewed",
+                });
                 if (pid) {
                   setDocRequests((prev) =>
-                    prev.map((r) =>
-                      r.id === pid
-                        ? {
-                            ...r,
-                            status: "uploaded" as const,
-                            uploadedFileName:
-                              r.uploadedFileName ??
-                              `${r.docName.replace(/\s+/g, "_")}_${bkYear}.pdf`,
-                            previewText:
-                              r.previewText ?? `Staff OK · ${file.name}`,
-                          }
-                        : r,
-                    ),
+                    prev.map((r) => {
+                      if (r.id !== pid) return r;
+                      if (
+                        isRequestFullySatisfied(
+                          nextFiles,
+                          pid,
+                          r.expectedCount,
+                        )
+                      ) {
+                        return {
+                          ...r,
+                          status: "uploaded" as const,
+                          uploadedFileName:
+                            r.uploadedFileName ??
+                            `${r.docName.replace(/\s+/g, "_")}_{bkYear}.pdf`,
+                          previewText:
+                            r.previewText ?? `Staff OK · ${file.name}`,
+                        };
+                      }
+                      return reopenPortalDocRequest(r);
+                    }),
                   );
                 }
               }}
@@ -51737,9 +55331,210 @@ function BookkeepingWorkspace({
                   ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.docName}`
                   : null;
               }}
+              progressLabel={(file) => {
+                const pid = (
+                  file.purposeId ||
+                  file.linkedRequestId ||
+                  ""
+                ).trim();
+                if (!pid) return null;
+                const linked = docRequests.find((r) => r.id === pid);
+                return (
+                  requestNOfMLabel(
+                    uiLang,
+                    countOkReceivedForRequest(bkReceivedList, pid),
+                    linked?.expectedCount,
+                  ) || null
+                );
+              }}
             />}
           overlay={
-            bkResendPopout ? (
+            <>
+            
+      {bkUploadPopupDocId
+        ? (() => {
+            const popupReq = docRequests.find(
+              (d) => d.id === bkUploadPopupDocId,
+            );
+            if (!popupReq) return null;
+            const slots = trustDocItemUploadSlots(
+              portalDocAsComposeDoc(popupReq),
+              bkReceivedList,
+            );
+            const need = Math.max(slots.length, 1);
+            const okN = slots.filter((s) => !!s.file).length;
+            const pct = Math.round((okN / need) * 100);
+            return (
+              <RequestMessagePopout
+                title={t(uiLang, "trustUploadPopupTitle").replace(
+                  "{label}",
+                  popupReq.docName || popupReq.id,
+                )}
+                closeLabel={t(uiLang, "trustUploadPopupClose")}
+                onClose={() => {
+                  setBkUploadPopupDocId(null);
+                  setBkUploadPopupEditItemId(null);
+                }}
+                anchorRect={null}
+              >
+                <Stack gap={12}>
+                  <Stack gap={4}>
+                    <ChromeText size="small" tone="secondary">
+                      {t(uiLang, "trustUploadPopupProgress")
+                        .replace("{ok}", String(okN))
+                        .replace("{need}", String(need))}
+                    </ChromeText>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 4,
+                        background: chromeBorder(theme),
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${pct}%`,
+                          background: theme.accent.primary,
+                          transition: "width 160ms ease",
+                        }}
+                      />
+                    </div>
+                  </Stack>
+                  {okN >= need ? (
+                    <ChromeText tone="secondary">
+                      {t(uiLang, "trustUploadPopupAllDone")}
+                    </ChromeText>
+                  ) : null}
+                  {slots.map((slot, idx) => {
+                    const done = !!slot.file;
+                    const editing =
+                      bkUploadPopupEditItemId === slot.item.id;
+                    const displayName =
+                      (slot.item.name || "").trim() ||
+                      popupReq.docName ||
+                      `Doc ${idx + 1}`;
+                    return (
+                      <Stack
+                        key={slot.item.id}
+                        gap={6}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border: `1px solid ${chromeBorder(theme)}`,
+                          background: chromeSoftFill(theme),
+                          opacity: done ? 0.85 : 1,
+                        }}
+                      >
+                        <Row gap={8} align="center" wrap>
+                          <ChromeText
+                            weight="semibold"
+                            tone={done ? "secondary" : "primary"}
+                            style={
+                              done
+                                ? { textDecoration: "line-through" }
+                                : undefined
+                            }
+                          >
+                            {t(uiLang, "trustUploadPopupStep")
+                              .replace("{n}", String(idx + 1))
+                              .replace("{name}", displayName)}
+                          </ChromeText>
+                          {done ? (
+                            <Pill size="sm" tone="success">
+                              {t(uiLang, "trustUploadPopupDone")}
+                            </Pill>
+                          ) : null}
+                        </Row>
+                        {slot.file ? (
+                          <ChromeText size="small" tone="secondary">
+                            {slot.file.name}
+                          </ChromeText>
+                        ) : null}
+                        {editing ? (
+                          <Row gap={8} align="center" wrap>
+                            <ChromeTextInput
+                              value={slot.item.name}
+                              onChange={(v) =>
+                                updateBkDocRequestItem(
+                                  popupReq.id,
+                                  slot.item.id,
+                                  { name: v },
+                                )
+                              }
+                              placeholder={t(uiLang, "taxReturnDocNamePh")}
+                              style={{ flex: 1, minWidth: 140 }}
+                            />
+                            <Button
+                              variant="secondary"
+                              onClick={() =>
+                                setBkUploadPopupEditItemId(null)
+                              }
+                            >
+                              {t(uiLang, "taxReturnClosePreview")}
+                            </Button>
+                          </Row>
+                        ) : null}
+                        <Row gap={8} wrap>
+                          {!done ? (
+                            <Button
+                              variant="primary"
+                              onClick={() =>
+                                pickBkUploadFileForItem(
+                                  popupReq.id,
+                                  slot.item.id,
+                                )
+                              }
+                            >
+                              {t(uiLang, "trustRowUpload")}
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  deleteBkUploadForItem(
+                                    popupReq.id,
+                                    slot.item.id,
+                                  )
+                                }
+                              >
+                                {t(uiLang, "trustUploadPopupDelete")}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  pickBkUploadFileForItem(
+                                    popupReq.id,
+                                    slot.item.id,
+                                  )
+                                }
+                              >
+                                {t(uiLang, "trustUploadPopupReupload")}
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              setBkUploadPopupEditItemId(
+                                editing ? null : slot.item.id,
+                              )
+                            }
+                          >
+                            {t(uiLang, "trustUploadPopupEditName")}
+                          </Button>
+                        </Row>
+                      </Stack>
+                    );
+                  })}
+                </Stack>
+              </RequestMessagePopout>
+            );
+          })()
+        : null}
+            {bkResendPopout ? (
               <RequestMessagePopout
                 title={t(uiLang, "bkRequestPreviewTitle")}
                 closeLabel={t(uiLang, "taxReturnClosePreview")}
@@ -51793,6 +55588,8 @@ function BookkeepingWorkspace({
                 </Stack>
               </RequestMessagePopout>
             ) : null}
+            </>
+          }
         />
       );
     }
@@ -55610,6 +59407,20 @@ function TaxReturnWorkspace({
     `taxReturnDocRequests.v1:${scopeKey}`,
     [],
   );
+  const taxRowUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const taxRowUploadDocIdRef = useRef<string | null>(null);
+  const taxRowUploadItemIdRef = useRef<string | null>(null);
+  const [taxSlimRowFlash, setTaxSlimRowFlash] = useState("");
+  const [taxManualOpenDocIds, setTaxManualOpenDocIds] = useCanvasState<string[]>(
+    `taxManualOpenDocIds.v1:${scopeKey}`,
+    [],
+  );
+  const [taxUploadPopupDocId, setTaxUploadPopupDocId] = useCanvasState<
+    string | null
+  >(`taxUploadPopupDocId.v1:${scopeKey}`, null);
+  const [taxUploadPopupEditItemId, setTaxUploadPopupEditItemId] = useState<
+    string | null
+  >(null);
   const [taxDocsTopTab, setTaxDocsTopTab] = useCanvasState<DocsReceivedTopTab>(
     `taxDocsTopTab.v1:${scopeKey}`,
     "requests",
@@ -55668,6 +59479,13 @@ function TaxReturnWorkspace({
   const [reqPreviewAnchor, setReqPreviewAnchor] =
     useState<RequestMessageAnchorRect | null>(null);
   const seeMessageBtnRef = useRef<HTMLDivElement | null>(null);
+  const [taxReqResendConfirm, setTaxReqResendConfirm] = useState<{
+    id: string;
+    step: 1 | 2;
+  } | null>(null);
+  const [taxPendingResendId, setTaxPendingResendId] = useState<string | null>(
+    null,
+  );
   const [reqRecipientEmails, setReqRecipientEmails] = useCanvasState<string[]>(
     `taxReturnReqEmails.v1:${scopeKey}`,
     [],
@@ -55856,6 +59674,7 @@ function TaxReturnWorkspace({
     null,
   );
   const [formsOsFlash, setFormsOsFlash] = useState("");
+  const formsClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [formsCtxMenu, setFormsCtxMenu] = useState<{
     x: number;
     y: number;
@@ -55863,7 +59682,17 @@ function TaxReturnWorkspace({
     fileName: string;
   } | null>(null);
   const viewing = docRequests.find((r) => r.id === viewDocId) ?? null;
-  const pendingReqs = docRequests.filter((r) => r.status === "pending").length;
+  const pendingReqs = docRequests.filter((r) => {
+    if (r.status === "pending" || r.status === "missing") return true;
+    if (r.status === "uploaded") {
+      return !isRequestFullySatisfied(
+        taxReceivedList,
+        r.id,
+        portalDocExpectedCount(r),
+      );
+    }
+    return false;
+  }).length;
 
   /** Tax ModuleSectionTabs are section browsers, not process stages — no ✓/✗ marks.
    *  Process-stage marks live on the WorkStatusBanner chevron + Completed/Undo. */
@@ -55999,6 +59828,312 @@ function TaxReturnWorkspace({
     });
   };
 
+
+  const applyTaxSlimStatus = (reqId: string, value: string) => {
+    const status = value as PortalDocRequest["status"];
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        if (status === "missing") {
+          return { ...reopenPortalDocRequest(r), status: "missing" as const };
+        }
+        if (status === "uploaded") {
+          return markPortalRequestReceived(r, { year: taxYear });
+        }
+        return { ...r, status: "pending" as const };
+      }),
+    );
+  };
+
+  const toggleTaxManualRequests = (reqId: string) => {
+    setTaxManualOpenDocIds((prev) => {
+      const set = new Set(prev || []);
+      if (set.has(reqId)) set.delete(reqId);
+      else set.add(reqId);
+      return Array.from(set);
+    });
+    const row = docRequests.find((r) => r.id === reqId);
+    if (row && !(row.requestItems && row.requestItems.length > 0)) {
+      const seed = seedPortalRequestItems(row);
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === reqId ? withPortalRequestItems(r, seed) : r,
+        ),
+      );
+    }
+  };
+
+  const addTaxDocRequestItem = (reqId: string) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        const base = trustDocComposeItems(portalDocAsComposeDoc(r));
+        const items = [...base, newTrustDocRequestItem("", r.docType || "")];
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const updateTaxDocRequestItem = (
+    reqId: string,
+    itemId: string,
+    partial: Partial<TrustDocRequestItem>,
+  ) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        let items = trustDocComposeItems(portalDocAsComposeDoc(r)).map((it) =>
+          it.id === itemId ? { ...it, ...partial } : it,
+        );
+        if (!items.some((it) => it.id === itemId)) {
+          items = [
+            {
+              id: itemId,
+              name: r.docName || "",
+              type: r.docType || "",
+              ...partial,
+            },
+          ];
+        }
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const removeTaxDocRequestItem = (reqId: string, itemId: string) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        const base = trustDocComposeItems(portalDocAsComposeDoc(r));
+        let items = base.filter((it) => it.id !== itemId);
+        if (items.length === 0) {
+          items = [newTrustDocRequestItem("", r.docType || "")];
+        }
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const addTaxUploadedFileForRequest = (
+    reqId: string,
+    pickedName?: string,
+    itemId?: string | null,
+  ) => {
+    const row = docRequests.find((r) => r.id === reqId);
+    if (!row) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const compose = portalDocAsComposeDoc(row);
+    const items = trustDocComposeItems(compose);
+    const targetItem =
+      (itemId
+        ? items.find((it) => it.id === itemId)
+        : null) ??
+      trustDocItemUploadSlots(compose, taxReceivedList).find((s) => !s.file)
+        ?.item ??
+      items[0] ??
+      null;
+    const targetItemId = targetItem?.id ?? itemId ?? null;
+    let nextFiles: ReceivedClientDoc[] = [];
+    setTaxReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0 ? prev : seedModuleReceivedClientDocs("tax", client, taxYear);
+      const withoutPrior = targetItemId
+        ? baseList.filter((f) => {
+            const link = (f.purposeId || f.linkedRequestId || "").trim();
+            if (link !== reqId) return true;
+            if ((f.linkedRequestItemId || "").trim() !== targetItemId)
+              return true;
+            return f.reviewVerdict !== "ok";
+          })
+        : baseList;
+      const seq = countOkReceivedForRequest(withoutPrior, reqId) + 1;
+      const itemName = (targetItem?.name || "").trim();
+      const safeLabel = (itemName || row.docName || reqId).replace(/\s+/g, "_");
+      const fileName = (pickedName || "").trim()
+        ? pickedName!.trim()
+        : `${safeLabel}_${seq}_{taxYear}.pdf`;
+      const newFile: ReceivedClientDoc = {
+        id: `${client.id}-tax-upl-${reqId}-${Date.now()}`,
+        clientId: client.id,
+        taxYear: String(taxYear),
+        name: fileName,
+        channel: "portal",
+        receivedAt: today,
+        docType: itemName || row.docName || row.docType || "",
+        linkedRequestId: reqId,
+        purposeId: reqId,
+        linkedRequestItemId: targetItemId || undefined,
+        status: "reviewed",
+        reviewVerdict: "ok",
+        resendLog: [],
+      };
+      nextFiles = [...withoutPrior, newFile];
+      return nextFiles;
+    });
+    const needCount = portalDocExpectedCount(
+      row.requestItems && row.requestItems.length > 0
+        ? row
+        : withPortalRequestItems(row, seedPortalRequestItems(row)),
+    );
+    const shownOk = nextFiles.length
+      ? countOkReceivedForRequest(nextFiles, reqId)
+      : countOkReceivedForRequest(taxReceivedList, reqId) + 1;
+    const progress =
+      requestNOfMLabel(uiLang, shownOk, needCount) ||
+      `${shownOk}/${needCount}`;
+    const flash = t(uiLang, "trustRowUploadDoneFlash")
+      .replace("{label}", row.docName || reqId)
+      .replace("{progress}", progress);
+    setTaxSlimRowFlash(flash);
+    window.setTimeout(() => setTaxSlimRowFlash(""), 2200);
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        let next = r;
+        if (!(r.requestItems && r.requestItems.length > 0)) {
+          next = withPortalRequestItems(r, seedPortalRequestItems(r));
+        }
+        if (next.status === "missing") {
+          next = { ...next, status: "pending" as const };
+        }
+        if (shownOk >= portalDocExpectedCount(next)) {
+          return markPortalRequestReceived(next, {
+            fileName: nextFiles[nextFiles.length - 1]?.name,
+            year: taxYear,
+          });
+        }
+        return next;
+      }),
+    );
+  };
+
+  const pickTaxUploadFileForItem = (
+    reqId: string,
+    itemId?: string | null,
+  ) => {
+    const input = taxRowUploadInputRef.current;
+    if (!input) {
+      addTaxUploadedFileForRequest(reqId, undefined, itemId);
+      return;
+    }
+    taxRowUploadDocIdRef.current = reqId;
+    taxRowUploadItemIdRef.current = itemId ?? null;
+    try {
+      input.value = "";
+    } catch {
+      /* ignore */
+    }
+    const finishDemoIfPending = () => {
+      if (taxRowUploadDocIdRef.current !== reqId) return;
+      const pendingItem = taxRowUploadItemIdRef.current;
+      taxRowUploadDocIdRef.current = null;
+      taxRowUploadItemIdRef.current = null;
+      addTaxUploadedFileForRequest(reqId, undefined, pendingItem);
+    };
+    const onWinFocus = () => {
+      window.setTimeout(finishDemoIfPending, 200);
+      window.removeEventListener("focus", onWinFocus);
+    };
+    window.addEventListener("focus", onWinFocus);
+    window.setTimeout(finishDemoIfPending, 2500);
+    try {
+      input.click();
+    } catch {
+      window.removeEventListener("focus", onWinFocus);
+      taxRowUploadDocIdRef.current = null;
+      taxRowUploadItemIdRef.current = null;
+      addTaxUploadedFileForRequest(reqId, undefined, itemId);
+    }
+  };
+
+  const openTaxUploadManually = (reqId: string) => {
+    const row = docRequests.find((r) => r.id === reqId);
+    if (!row) return;
+    let working = row;
+    if (!(row.requestItems && row.requestItems.length > 0)) {
+      const seed = seedPortalRequestItems(row);
+      working = withPortalRequestItems(row, seed);
+      setDocRequests((prev) =>
+        prev.map((r) => (r.id === reqId ? working : r)),
+      );
+    }
+    const needCount = portalDocExpectedCount(working);
+    if (needCount > 1) {
+      setTaxUploadPopupDocId(reqId);
+      setTaxUploadPopupEditItemId(null);
+      return;
+    }
+    const slots = trustDocItemUploadSlots(
+      portalDocAsComposeDoc(working),
+      taxReceivedList,
+    );
+    const pending = slots.find((s) => !s.file)?.item;
+    pickTaxUploadFileForItem(reqId, pending?.id ?? null);
+  };
+
+  const deleteTaxUploadForItem = (reqId: string, itemId: string) => {
+    setTaxReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0 ? prev : seedModuleReceivedClientDocs("tax", client, taxYear);
+      const row = docRequests.find((d) => d.id === reqId);
+      const slots = trustDocItemUploadSlots(
+        portalDocAsComposeDoc(
+          row || {
+            id: reqId,
+            clientId: client.id,
+            year: String(taxYear),
+            sourcePanel: "stream-tax-return",
+            docName: "",
+            docType: "",
+            note: "",
+            status: "pending",
+            createdAt: "",
+            sendPortal: false,
+            sendEmail: false,
+            sendWhatsApp: false,
+            requestItems: [],
+          } as PortalDocRequest,
+        ),
+        baseList,
+      );
+      const slot = slots.find((s) => s.item.id === itemId);
+      const fileId = slot?.file?.id;
+      if (!fileId) return baseList;
+      return baseList.filter((f) => f.id !== fileId);
+    });
+    setDocRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId && r.status === "uploaded"
+          ? reopenPortalDocRequest(r)
+          : r,
+      ),
+    );
+  };
+
+  const onTaxRowUploadInputChange = (event: {
+    target: { files?: FileList | null; value?: string };
+  }) => {
+    const reqId = taxRowUploadDocIdRef.current;
+    const itemId = taxRowUploadItemIdRef.current;
+    const file = event.target.files?.[0];
+    taxRowUploadDocIdRef.current = null;
+    taxRowUploadItemIdRef.current = null;
+    if (!reqId) return;
+    addTaxUploadedFileForRequest(reqId, file?.name, itemId);
+  };
+
+  const viewTaxRequestDoc = (reqId: string) => {
+    const file = latestReceivedForRequest(taxReceivedList, reqId);
+    if (!file) {
+      setTaxSlimRowFlash(
+        uiLang === "he" ? "אין קובץ להצגה עדיין." : "No file to view yet.",
+      );
+      window.setTimeout(() => setTaxSlimRowFlash(""), 1600);
+      return;
+    }
+    setViewDocId(reqId);
+  };
+
   const openTaxReceivedResendPopout = (received: ReceivedClientDoc) => {
     const channel = received.channel;
     const purposeId = (
@@ -56037,6 +60172,12 @@ function TaxReturnWorkspace({
                 : [contactPrefill]
             ).filter(Boolean);
     patchTaxReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    // Not OK undoes rule-out: reopen request → pending + sent glyph.
+    if (purposeId) {
+      setDocRequests((prev) =>
+        prev.map((r) => (r.id === purposeId ? reopenPortalDocRequest(r) : r)),
+      );
+    }
     setTaxResendPopout({
       channel,
       receivedDocId: received.id,
@@ -56068,15 +60209,7 @@ function TaxReturnWorkspace({
     const pid = (received?.purposeId || received?.linkedRequestId || "").trim();
     if (pid) {
       setDocRequests((prev) =>
-        prev.map((r) =>
-          r.id === pid
-            ? markPortalRequestReceived(r, {
-                fileName: received?.name,
-                previewText: `Reminder sent · not OK · ${received?.name ?? r.docName}`,
-                year: taxYear,
-              })
-            : r,
-        ),
+        prev.map((r) => (r.id === pid ? reopenPortalDocRequest(r) : r)),
       );
     }
     setReqFlash(
@@ -56300,7 +60433,31 @@ function TaxReturnWorkspace({
         lang: uiLang,
       });
     }
-    setDocRequests((prev) => [...rows, ...prev]);
+    if (taxPendingResendId) {
+      const bumpId = taxPendingResendId;
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === bumpId
+            ? {
+                ...r,
+                sendPortal: reqPortal,
+                sendEmail: reqEmail,
+                sendWhatsApp: reqWhatsApp,
+                sendWorkerChat: reqWorkerChat,
+                createdAt: rows[0]?.createdAt ?? r.createdAt,
+                emailLog: rows[0]?.emailLog ?? r.emailLog,
+                whatsappLog: rows[0]?.whatsappLog ?? r.whatsappLog,
+                workerChatLog: rows[0]?.workerChatLog ?? r.workerChatLog,
+                resendCount: (r.resendCount ?? 0) + 1,
+                status: "pending" as const,
+              }
+            : r,
+        ),
+      );
+      setTaxPendingResendId(null);
+    } else {
+      setDocRequests((prev) => [...rows, ...prev]);
+    }
     setReqDrafts([newTaxReturnDocReqDraft()]);
     setReqPreviewOpen(false);
     const channels =
@@ -56563,17 +60720,33 @@ function TaxReturnWorkspace({
                   key={file.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => {
-                    setSelectedFormFileId(file.id);
-                    const folderPath = `${client.name} \\ ${taxYear} \\ ${file.name} · ${receivedClientDocChannelLabel(uiLang, file.channel)}`;
-                    setLiveFileOpenForms({
-                      id: file.id,
-                      name: file.name,
-                      folderPath,
-                      source: "forms",
-                    });
+                  onClick={(e: { detail?: number }) => {
+                    if ((e.detail ?? 1) > 1) return;
+                    if (formsClickTimerRef.current) {
+                      clearTimeout(formsClickTimerRef.current);
+                    }
+                    formsClickTimerRef.current = setTimeout(() => {
+                      formsClickTimerRef.current = null;
+                      setSelectedFormFileId(file.id);
+                      const folderPath = `${client.name} \\ ${taxYear} \\ ${file.name} · ${receivedClientDocChannelLabel(uiLang, file.channel)}`;
+                      setLiveFileOpenForms({
+                        id: file.id,
+                        name: file.name,
+                        folderPath,
+                        source: "forms",
+                      });
+                    }, 280);
                   }}
-                  onDoubleClick={() => {
+                  onDoubleClick={(e: {
+                    preventDefault?: () => void;
+                    stopPropagation?: () => void;
+                  }) => {
+                    e.preventDefault?.();
+                    e.stopPropagation?.();
+                    if (formsClickTimerRef.current) {
+                      clearTimeout(formsClickTimerRef.current);
+                      formsClickTimerRef.current = null;
+                    }
                     setSelectedFormFileId(file.id);
                     setFormsOsFlash(
                       openWithOsDefault(
@@ -56680,50 +60853,43 @@ function TaxReturnWorkspace({
             </ChromeText>
             <Stack gap={8}>
               {reqDrafts.map((draft, index) => (
-                <Stack key={draft.id} gap={6}>
+                <Stack key={draft.id} gap={4}>
                 <Row gap={8} align="center">
-                  <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
-                    <ChromeText size="small" tone="secondary">
-                      {t(uiLang, "taxReturnDocName")}
-                      {reqDrafts.length > 1 ? ` (${index + 1})` : ""}
-                    </ChromeText>
-                    <ChromeTextInput
-                      value={draft.name}
-                      onChange={(v) => updateReqDraft(draft.id, { name: v })}
-                      placeholder={t(uiLang, "taxReturnDocNamePh")}
-                    />
-                  </Stack>
-                  <Stack
-                    gap={4}
-                    style={{ flex: "0 0 180px", width: 180, minWidth: 160 }}
-                  >
-                    <ChromeText size="small" tone="secondary">
-                      {t(uiLang, "taxReturnDocType")}
-                    </ChromeText>
-                    <Select
-                      value={
-                        draft.type === CRM_DOC_TYPE_CREATE_VALUE
-                          ? "other"
-                          : draft.type
-                      }
-                      onChange={(v) => {
-                        if (v === CRM_DOC_TYPE_CREATE_VALUE) {
-                          setCreatingDocTypeForDraftId(draft.id);
-                          setNewDocTypeDraft("");
-                          return;
-                        }
-                        setCreatingDocTypeForDraftId(null);
+                  <ChromeTextInput
+                    value={draft.name}
+                    onChange={(v) => updateReqDraft(draft.id, { name: v })}
+                    placeholder={t(uiLang, "taxReturnDocNamePh")}
+                    style={{
+                      flex: "0 1 200px",
+                      width: 200,
+                      maxWidth: 220,
+                      minWidth: 120,
+                    }}
+                  />
+                  <Select
+                    value={
+                      draft.type === CRM_DOC_TYPE_CREATE_VALUE
+                        ? "other"
+                        : draft.type
+                    }
+                    onChange={(v) => {
+                      if (v === CRM_DOC_TYPE_CREATE_VALUE) {
+                        setCreatingDocTypeForDraftId(draft.id);
                         setNewDocTypeDraft("");
-                        updateReqDraft(draft.id, { type: v });
-                      }}
-                      options={taxReturnDocTypeOptions(uiLang, customDocTypes)}
-                    />
-                  </Stack>
+                        return;
+                      }
+                      setCreatingDocTypeForDraftId(null);
+                      setNewDocTypeDraft("");
+                      updateReqDraft(draft.id, { type: v });
+                    }}
+                    options={taxReturnDocTypeOptions(uiLang, customDocTypes)}
+                    style={{ flex: "0 0 150px", width: 150, minWidth: 130 }}
+                  />
                   {reqDrafts.length > 1 ? (
                     <Button
                       variant="secondary"
                       onClick={() => removeReqDraft(draft.id)}
-                      style={{ flexShrink: 0, alignSelf: "flex-end" }}
+                      style={{ flexShrink: 0 }}
                     >
                       ×
                     </Button>
@@ -56805,7 +60971,7 @@ function TaxReturnWorkspace({
                 style={{ display: "inline-block" }}
               >
                 <Button variant="primary" onClick={openTaxReqPreview}>
-                  {t(uiLang, "bkSeeMessage")}
+                  {t(uiLang, "bkViewMessage")}
                 </Button>
               </div>
             </Row>
@@ -57012,35 +61178,88 @@ function TaxReturnWorkspace({
                 {t(uiLang, "taxReturnDocRequests")}
               </ChromeText>
               <Stack gap={6}>
+                <input
+                  ref={taxRowUploadInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,application/pdf,image/*"
+                  style={{ display: "none" }}
+                  onChange={onTaxRowUploadInputChange}
+                />
+                {taxSlimRowFlash ? (
+                  <ChromeText size="small" tone="secondary">
+                    {taxSlimRowFlash}
+                  </ChromeText>
+                ) : null}
                 {docRequests.map((req) => {
-                  const uploaded = req.status === "uploaded";
+                  const needCount = portalDocExpectedCount(req);
+                  const okForReq = countOkReceivedForRequest(
+                    taxReceivedList,
+                    req.id,
+                  );
+                  const fullyOk = isRequestFullySatisfied(
+                    taxReceivedList,
+                    req.id,
+                    needCount,
+                  );
+                  const uploaded =
+                    req.status === "uploaded" && fullyOk;
+                  const nOfM = requestNOfMLabel(
+                    uiLang,
+                    okForReq,
+                    needCount,
+                  );
+                  const viewFile = latestReceivedForRequest(
+                    taxReceivedList,
+                    req.id,
+                  );
+                  const manualOpen = (taxManualOpenDocIds || []).includes(
+                    req.id,
+                  );
+                  const manualItems = trustDocComposeItems(
+                    portalDocAsComposeDoc(req),
+                  );
+                  const statusValue =
+                    req.status === "uploaded"
+                      ? "uploaded"
+                      : req.status === "missing"
+                        ? "missing"
+                        : "pending";
                   const borderColor = uploaded
                     ? theme.category.green
                     : theme.category.yellow;
                   const fill = uploaded
                     ? chromeSoftFill(theme)
                     : chromeSelectedFill(theme);
-                  const channelBits = [
-                    req.sendPortal ? t(uiLang, "taxReturnSendPortal") : null,
-                    req.sendEmail ? t(uiLang, "taxReturnSendEmail") : null,
-                    req.sendWhatsApp
-                      ? t(uiLang, "taxReturnSendWhatsApp")
-                      : null,
-                    req.sendWorkerChat
-                      ? t(uiLang, "taxReturnSendWorkerChat")
-                      : null,
-                  ].filter(Boolean);
+                  const channelShort = reqChannelShortLabel(
+                    uiLang,
+                    {
+                      sendEmail: req.sendEmail,
+                      sendPortal: req.sendPortal,
+                      sendWhatsApp: req.sendWhatsApp,
+                      sendWorkerChat: req.sendWorkerChat,
+                    },
+                    { includeWorkerChat: true },
+                  );
+                  const sentBit = reqSentOrResentLabel(
+                    uiLang,
+                    req.resendCount,
+                  );
                   return (
                     <div
                       key={req.id}
                       style={{
-                        padding: "8px 10px",
                         borderRadius: 8,
                         background: fill,
                         border: `1px solid ${borderColor}`,
+                        overflow: "hidden",
                       }}
                     >
-                      <Row align="center" gap={8} wrap>
+                      <Row
+                        align="center"
+                        gap={8}
+                        wrap
+                        style={{ padding: "8px 10px" }}
+                      >
                         <span
                           aria-hidden
                           style={{
@@ -57077,50 +61296,389 @@ function TaxReturnWorkspace({
                             <ChromeText size="small" weight="semibold">
                               {req.docName}
                             </ChromeText>
+                            {nOfM ? (
+                              <Pill size="sm" tone="info">
+                                {nOfM}
+                              </Pill>
+                            ) : null}
                           </span>
-                          <ChromeText size="small" tone="tertiary">
-                            {req.docType} · {req.createdAt}
-                            {channelBits.length > 0
-                              ? ` · ${channelBits.join(" · ")}`
-                              : ""}
+                          <ChromeText
+                            size="small"
+                            tone="primary"
+                            weight="medium"
+                          >
+                            {channelShort || "—"}
+                            {` · ${sentBit}`}
+                            {req.createdAt ? ` · ${req.createdAt}` : ""}
+                            {req.docType ? ` · ${req.docType}` : ""}
                           </ChromeText>
                         </Stack>
-                        <Pill
-                          size="sm"
-                          tone={uploaded ? "success" : "warning"}
+                        <Select
+                          value={statusValue}
+                          onChange={(value) =>
+                            applyTaxSlimStatus(req.id, value)
+                          }
+                          options={PORTAL_SLIM_STATUSES.map((status) => ({
+                            value: status,
+                            label: portalDocStatusLabel(uiLang, status),
+                          }))}
+                          style={{ width: 150 }}
+                        />
+                        <Button
+                          variant="secondary"
+                          onClick={() => toggleTaxManualRequests(req.id)}
                         >
-                          {uploaded
-                            ? t(uiLang, "taxReturnDocUploaded")
-                            : t(uiLang, "taxReturnDocPending")}
-                        </Pill>
-                        {uploaded ? (
-                          <DocRequestEyeViewButton
-                            label={t(uiLang, "taxReturnViewDoc")}
-                            onClick={() => setViewDocId(req.id)}
-                            color={theme.category.green}
-                          />
-                        ) : (
-                          <Row gap={6} wrap>
+                          {manualOpen
+                            ? t(uiLang, "trustRowManualRequestsHide")
+                            : t(uiLang, "trustRowManualRequests")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() => openTaxUploadManually(req.id)}
+                        >
+                          {t(uiLang, "trustRowUpload")}
+                        </Button>
+                        <DocRequestEyeViewButton
+                          label={t(uiLang, "taxReturnViewDoc")}
+                          onClick={() => viewTaxRequestDoc(req.id)}
+                          color={theme.category.green}
+                          disabled={!viewFile}
+                        />
+                        <Button
+                          variant="primary"
+                          onClick={() =>
+                            setTaxReqResendConfirm({ id: req.id, step: 1 })
+                          }
+                        >
+                          {t(uiLang, "bkResendMessage")}
+                        </Button>
+                      </Row>
+                      {manualOpen ? (
+                        <Stack
+                          gap={6}
+                          style={{
+                            padding: "4px 10px 10px 10px",
+                            borderTop: `1px dashed ${chromeBorder(theme)}`,
+                          }}
+                        >
+                          {manualItems.map((item) => (
+                            <Row key={item.id} gap={8} align="center" wrap>
+                              <ChromeTextInput
+                                value={item.name}
+                                onChange={(v) =>
+                                  updateTaxDocRequestItem(req.id, item.id, {
+                                    name: v,
+                                  })
+                                }
+                                placeholder={t(uiLang, "taxReturnDocNamePh")}
+                                style={{
+                                  flex: "0 1 200px",
+                                  width: 200,
+                                  maxWidth: 220,
+                                  minWidth: 120,
+                                }}
+                              />
+                              <Select
+                                value={item.type || ""}
+                                onChange={(v) =>
+                                  updateTaxDocRequestItem(req.id, item.id, {
+                                    type: v,
+                                  })
+                                }
+                                options={taxReturnDocTypeOptions(
+                                  uiLang,
+                                  customDocTypes,
+                                )}
+                                style={{
+                                  flex: "0 0 150px",
+                                  width: 150,
+                                  minWidth: 130,
+                                }}
+                              />
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  removeTaxDocRequestItem(req.id, item.id)
+                                }
+                                style={{ flexShrink: 0 }}
+                              >
+                                ×
+                              </Button>
+                            </Row>
+                          ))}
+                          <Row gap={8}>
                             <Button
                               variant="secondary"
-                              onClick={() => markUploaded(req.id, "mark")}
+                              onClick={() => addTaxDocRequestItem(req.id)}
                             >
-                              {t(uiLang, "taxReturnMarkReceived")}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={() => markUploaded(req.id, "simulate")}
-                            >
-                              {t(uiLang, "taxReturnSimulateUpload")}
+                              {t(uiLang, "bkAddDocRow")}
                             </Button>
                           </Row>
-                        )}
-                      </Row>
+                        </Stack>
+                      ) : null}
                     </div>
                   );
                 })}
               </Stack>
             </Stack>
+          ) : null}
+
+          {taxUploadPopupDocId
+            ? (() => {
+                const popupReq = docRequests.find(
+                  (d) => d.id === taxUploadPopupDocId,
+                );
+                if (!popupReq) return null;
+                const slots = trustDocItemUploadSlots(
+                  portalDocAsComposeDoc(popupReq),
+                  taxReceivedList,
+                );
+                const need = Math.max(slots.length, 1);
+                const okN = slots.filter((s) => !!s.file).length;
+                const pct = Math.round((okN / need) * 100);
+                return (
+                  <RequestMessagePopout
+                    title={t(uiLang, "trustUploadPopupTitle").replace(
+                      "{label}",
+                      popupReq.docName || popupReq.id,
+                    )}
+                    closeLabel={t(uiLang, "trustUploadPopupClose")}
+                    onClose={() => {
+                      setTaxUploadPopupDocId(null);
+                      setTaxUploadPopupEditItemId(null);
+                    }}
+                    anchorRect={null}
+                  >
+                    <Stack gap={12}>
+                      <Stack gap={4}>
+                        <ChromeText size="small" tone="secondary">
+                          {t(uiLang, "trustUploadPopupProgress")
+                            .replace("{ok}", String(okN))
+                            .replace("{need}", String(need))}
+                        </ChromeText>
+                        <div
+                          style={{
+                            height: 8,
+                            borderRadius: 4,
+                            background: chromeBorder(theme),
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: "100%",
+                              width: `${pct}%`,
+                              background: theme.accent.primary,
+                              transition: "width 160ms ease",
+                            }}
+                          />
+                        </div>
+                      </Stack>
+                      {okN >= need ? (
+                        <ChromeText tone="secondary">
+                          {t(uiLang, "trustUploadPopupAllDone")}
+                        </ChromeText>
+                      ) : null}
+                      {slots.map((slot, idx) => {
+                        const doneSlot = !!slot.file;
+                        const editing =
+                          taxUploadPopupEditItemId === slot.item.id;
+                        const displayName =
+                          (slot.item.name || "").trim() ||
+                          popupReq.docName ||
+                          `Doc ${idx + 1}`;
+                        return (
+                          <Stack
+                            key={slot.item.id}
+                            gap={6}
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 8,
+                              border: `1px solid ${chromeBorder(theme)}`,
+                              background: chromeSoftFill(theme),
+                              opacity: doneSlot ? 0.85 : 1,
+                            }}
+                          >
+                            <Row gap={8} align="center" wrap>
+                              <ChromeText
+                                weight="semibold"
+                                tone={doneSlot ? "secondary" : "primary"}
+                                style={
+                                  doneSlot
+                                    ? { textDecoration: "line-through" }
+                                    : undefined
+                                }
+                              >
+                                {t(uiLang, "trustUploadPopupStep")
+                                  .replace("{n}", String(idx + 1))
+                                  .replace("{name}", displayName)}
+                              </ChromeText>
+                              {doneSlot ? (
+                                <Pill size="sm" tone="success">
+                                  {t(uiLang, "trustUploadPopupDone")}
+                                </Pill>
+                              ) : null}
+                            </Row>
+                            {slot.file ? (
+                              <ChromeText size="small" tone="secondary">
+                                {slot.file.name}
+                              </ChromeText>
+                            ) : null}
+                            {editing ? (
+                              <Row gap={8} align="center" wrap>
+                                <ChromeTextInput
+                                  value={slot.item.name}
+                                  onChange={(v) =>
+                                    updateTaxDocRequestItem(
+                                      popupReq.id,
+                                      slot.item.id,
+                                      { name: v },
+                                    )
+                                  }
+                                  placeholder={t(uiLang, "taxReturnDocNamePh")}
+                                  style={{ flex: 1, minWidth: 140 }}
+                                />
+                                <Button
+                                  variant="secondary"
+                                  onClick={() =>
+                                    setTaxUploadPopupEditItemId(null)
+                                  }
+                                >
+                                  {t(uiLang, "taxReturnClosePreview")}
+                                </Button>
+                              </Row>
+                            ) : null}
+                            <Row gap={8} wrap>
+                              {!doneSlot ? (
+                                <Button
+                                  variant="primary"
+                                  onClick={() =>
+                                    pickTaxUploadFileForItem(
+                                      popupReq.id,
+                                      slot.item.id,
+                                    )
+                                  }
+                                >
+                                  {t(uiLang, "trustRowUpload")}
+                                </Button>
+                              ) : (
+                                <>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() =>
+                                      deleteTaxUploadForItem(
+                                        popupReq.id,
+                                        slot.item.id,
+                                      )
+                                    }
+                                  >
+                                    {t(uiLang, "trustUploadPopupDelete")}
+                                  </Button>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() =>
+                                      pickTaxUploadFileForItem(
+                                        popupReq.id,
+                                        slot.item.id,
+                                      )
+                                    }
+                                  >
+                                    {t(uiLang, "trustUploadPopupReupload")}
+                                  </Button>
+                                </>
+                              )}
+                              <Button
+                                variant="secondary"
+                                onClick={() =>
+                                  setTaxUploadPopupEditItemId(
+                                    editing ? null : slot.item.id,
+                                  )
+                                }
+                              >
+                                {t(uiLang, "trustUploadPopupEditName")}
+                              </Button>
+                            </Row>
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
+                  </RequestMessagePopout>
+                );
+              })()
+            : null}
+
+          {taxReqResendConfirm ? (
+            <ConfirmYesNoPopout
+              title={
+                taxReqResendConfirm.step === 1
+                  ? t(uiLang, "reqResendConfirmTitle")
+                  : t(uiLang, "reqResendViewOrSendTitle")
+              }
+              yesLabel={
+                taxReqResendConfirm.step === 1
+                  ? t(uiLang, "yes")
+                  : t(uiLang, "reqResendViewYes")
+              }
+              noLabel={
+                taxReqResendConfirm.step === 1
+                  ? t(uiLang, "no")
+                  : t(uiLang, "reqResendSendNoView")
+              }
+              onDismiss={() => setTaxReqResendConfirm(null)}
+              onYes={() => {
+                const { id, step } = taxReqResendConfirm;
+                if (step === 1) {
+                  setTaxReqResendConfirm({ id, step: 2 });
+                  return;
+                }
+                const row = docRequests.find((r) => r.id === id);
+                setTaxReqResendConfirm(null);
+                if (!row) return;
+                setReqPortal(!!row.sendPortal);
+                setReqEmail(!!row.sendEmail);
+                setReqWhatsApp(!!row.sendWhatsApp);
+                setReqWorkerChat(!!row.sendWorkerChat);
+                setTaxPendingResendId(id);
+                openTaxReqPreview();
+              }}
+              onNo={() => {
+                const { id, step } = taxReqResendConfirm;
+                if (step === 1) {
+                  setTaxReqResendConfirm(null);
+                  return;
+                }
+                const row = docRequests.find((r) => r.id === id);
+                setTaxReqResendConfirm(null);
+                const today = new Date().toISOString().slice(0, 10);
+                setDocRequests((prev) =>
+                  prev.map((r) =>
+                    r.id === id
+                      ? {
+                          ...r,
+                          createdAt: today,
+                          resendCount: (r.resendCount ?? 0) + 1,
+                          status: "pending" as const,
+                        }
+                      : r,
+                  ),
+                );
+                setReqFlash(
+                  t(uiLang, "trustDocsResendFlash").replace(
+                    "{channel}",
+                    reqChannelShortLabel(
+                      uiLang,
+                      {
+                        sendEmail: row?.sendEmail,
+                        sendPortal: row?.sendPortal,
+                        sendWhatsApp: row?.sendWhatsApp,
+                        sendWorkerChat: row?.sendWorkerChat,
+                      },
+                      { includeWorkerChat: true },
+                    ) || "—",
+                  ),
+                );
+              }}
+            />
           ) : null}
 
           {viewing && viewing.status === "uploaded" ? (
@@ -57177,48 +61735,82 @@ function TaxReturnWorkspace({
                 if (partial.purposeId !== undefined) {
                   const pid = (partial.purposeId || "").trim();
                   if (pid) {
-                    const file = taxReceivedList.find((f) => f.id === id);
+                    const nextFiles = taxReceivedList.map((f) =>
+                      f.id === id
+                        ? {
+                            ...f,
+                            ...partial,
+                            linkedRequestId: (partial.purposeId || "").trim(),
+                          }
+                        : f,
+                    );
                     setDocRequests((prev) =>
-                      prev.map((r) =>
-                        r.id === pid
-                          ? markPortalRequestReceived(r, {
-                              fileName: file?.name,
-                              previewText: file
-                                ? `Paired · ${file.name}`
-                                : undefined,
-                              year: taxYear,
-                            })
-                          : r,
-                      ),
+                      prev.map((r) => {
+                        if (r.id !== pid) return r;
+                        if (
+                          isRequestFullySatisfied(
+                            nextFiles,
+                            pid,
+                            r.expectedCount,
+                          )
+                        ) {
+                          const file = nextFiles.find((f) => f.id === id);
+                          return markPortalRequestReceived(r, {
+                            fileName: file?.name,
+                            previewText: file
+                              ? `Paired · ${file.name}`
+                              : undefined,
+                            year: taxYear,
+                          });
+                        }
+                        return reopenPortalDocRequest(r);
+                      }),
                     );
                   }
                 }
               }}
               onOk={(file) => {
-                patchTaxReceivedDoc(file.id, {
-                  reviewVerdict: "ok",
-                  status: "reviewed",
-                });
                 const pid = (
                   file.purposeId ||
                   file.linkedRequestId ||
                   ""
                 ).trim();
+                const nextFiles = taxReceivedList.map((f) =>
+                  f.id === file.id
+                    ? {
+                        ...f,
+                        reviewVerdict: "ok" as const,
+                        status: "reviewed" as const,
+                      }
+                    : f,
+                );
+                patchTaxReceivedDoc(file.id, {
+                  reviewVerdict: "ok",
+                  status: "reviewed",
+                });
                 if (pid) {
                   setDocRequests((prev) =>
-                    prev.map((r) =>
-                      r.id === pid
-                        ? {
-                            ...r,
-                            status: "uploaded" as const,
-                            uploadedFileName:
-                              r.uploadedFileName ??
-                              `${r.docName.replace(/\s+/g, "_")}_${taxYear}.pdf`,
-                            previewText:
-                              r.previewText ?? `Staff OK · ${file.name}`,
-                          }
-                        : r,
-                    ),
+                    prev.map((r) => {
+                      if (r.id !== pid) return r;
+                      if (
+                        isRequestFullySatisfied(
+                          nextFiles,
+                          pid,
+                          r.expectedCount,
+                        )
+                      ) {
+                        return {
+                          ...r,
+                          status: "uploaded" as const,
+                          uploadedFileName:
+                            r.uploadedFileName ??
+                            `${r.docName.replace(/\s+/g, "_")}_{taxYear}.pdf`,
+                          previewText:
+                            r.previewText ?? `Staff OK · ${file.name}`,
+                        };
+                      }
+                      return reopenPortalDocRequest(r);
+                    }),
                   );
                 }
               }}
@@ -57231,6 +61823,22 @@ function TaxReturnWorkspace({
                 return linked
                   ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.docName}`
                   : null;
+              }}
+              progressLabel={(file) => {
+                const pid = (
+                  file.purposeId ||
+                  file.linkedRequestId ||
+                  ""
+                ).trim();
+                if (!pid) return null;
+                const linked = docRequests.find((r) => r.id === pid);
+                return (
+                  requestNOfMLabel(
+                    uiLang,
+                    countOkReceivedForRequest(taxReceivedList, pid),
+                    linked?.expectedCount,
+                  ) || null
+                );
               }}
             />}
           overlay={
@@ -57498,6 +62106,19 @@ function AuditProcessWorkspace({
     `auditDocRequests.v1:${scopeKey}`,
     [],
   );
+  const auditRowUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const auditRowUploadDocIdRef = useRef<string | null>(null);
+  const auditRowUploadItemIdRef = useRef<string | null>(null);
+  const [auditSlimRowFlash, setAuditSlimRowFlash] = useState("");
+  const [auditManualOpenDocIds, setAuditManualOpenDocIds] = useCanvasState<
+    string[]
+  >(`auditManualOpenDocIds.v1:${scopeKey}`, []);
+  const [auditUploadPopupDocId, setAuditUploadPopupDocId] = useCanvasState<
+    string | null
+  >(`auditUploadPopupDocId.v1:${scopeKey}`, null);
+  const [auditUploadPopupEditItemId, setAuditUploadPopupEditItemId] = useState<
+    string | null
+  >(null);
   const [auditDocsTopTab, setAuditDocsTopTab] =
     useCanvasState<DocsReceivedTopTab>(
       `auditDocsTopTab.v1:${scopeKey}`,
@@ -57515,6 +62136,11 @@ function AuditProcessWorkspace({
       : seedModuleReceivedClientDocs("audit", client, auditYear);
   const [auditResendPopout, setAuditResendPopout] =
     useState<DocsReceivedResendPopoutState | null>(null);
+  const [reqDrafts, setReqDrafts] = useCanvasState<
+    { id: string; name: string; type: string }[]
+  >(`auditReqDrafts.v1:${scopeKey}`, [
+    { id: `au-draft-1`, name: "", type: "bank-confirm" },
+  ]);
   const [reqName, setReqName] = useCanvasState(
     `auditReqName.v1:${scopeKey}`,
     "",
@@ -57549,6 +62175,13 @@ function AuditProcessWorkspace({
   );
   const [reqPreviewOpen, setReqPreviewOpen] = useState(false);
   const [reqPreviewMessage, setReqPreviewMessage] = useState("");
+  const [auditReqResendConfirm, setAuditReqResendConfirm] = useState<{
+    id: string;
+    step: 1 | 2;
+  } | null>(null);
+  const [auditPendingResendId, setAuditPendingResendId] = useState<
+    string | null
+  >(null);
   const [workerChatLogs, setWorkerChatLogs] = useCanvasState<string[]>(
     `auditWorkerChatLog.v1:${scopeKey}`,
     [],
@@ -57732,7 +62365,17 @@ function AuditProcessWorkspace({
     auditChecklistLabels,
   );
   const highlightStage = focusStage ?? processStage;
-  const pendingReqs = docRequests.filter((r) => r.status === "pending").length;
+  const pendingReqs = docRequests.filter((r) => {
+    if (r.status === "pending" || r.status === "missing") return true;
+    if (r.status === "uploaded") {
+      return !isRequestFullySatisfied(
+        auditReceivedList,
+        r.id,
+        portalDocExpectedCount(r),
+      );
+    }
+    return false;
+  }).length;
   const viewing = docRequests.find((r) => r.id === viewDocId) ?? null;
   const uploadedReqs = docRequests.filter((r) => r.status === "uploaded");
   const folderTree = buildAuditWorkingFolder(
@@ -58169,6 +62812,312 @@ function AuditProcessWorkspace({
     });
   };
 
+
+  const applyAuditSlimStatus = (reqId: string, value: string) => {
+    const status = value as PortalDocRequest["status"];
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        if (status === "missing") {
+          return { ...reopenPortalDocRequest(r), status: "missing" as const };
+        }
+        if (status === "uploaded") {
+          return markPortalRequestReceived(r, { year: auditYear });
+        }
+        return { ...r, status: "pending" as const };
+      }),
+    );
+  };
+
+  const toggleAuditManualRequests = (reqId: string) => {
+    setAuditManualOpenDocIds((prev) => {
+      const set = new Set(prev || []);
+      if (set.has(reqId)) set.delete(reqId);
+      else set.add(reqId);
+      return Array.from(set);
+    });
+    const row = docRequests.find((r) => r.id === reqId);
+    if (row && !(row.requestItems && row.requestItems.length > 0)) {
+      const seed = seedPortalRequestItems(row);
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === reqId ? withPortalRequestItems(r, seed) : r,
+        ),
+      );
+    }
+  };
+
+  const addAuditDocRequestItem = (reqId: string) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        const base = trustDocComposeItems(portalDocAsComposeDoc(r));
+        const items = [...base, newTrustDocRequestItem("", r.docType || "")];
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const updateAuditDocRequestItem = (
+    reqId: string,
+    itemId: string,
+    partial: Partial<TrustDocRequestItem>,
+  ) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        let items = trustDocComposeItems(portalDocAsComposeDoc(r)).map((it) =>
+          it.id === itemId ? { ...it, ...partial } : it,
+        );
+        if (!items.some((it) => it.id === itemId)) {
+          items = [
+            {
+              id: itemId,
+              name: r.docName || "",
+              type: r.docType || "",
+              ...partial,
+            },
+          ];
+        }
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const removeAuditDocRequestItem = (reqId: string, itemId: string) => {
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        const base = trustDocComposeItems(portalDocAsComposeDoc(r));
+        let items = base.filter((it) => it.id !== itemId);
+        if (items.length === 0) {
+          items = [newTrustDocRequestItem("", r.docType || "")];
+        }
+        return withPortalRequestItems(r, items);
+      }),
+    );
+  };
+
+  const addAuditUploadedFileForRequest = (
+    reqId: string,
+    pickedName?: string,
+    itemId?: string | null,
+  ) => {
+    const row = docRequests.find((r) => r.id === reqId);
+    if (!row) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const compose = portalDocAsComposeDoc(row);
+    const items = trustDocComposeItems(compose);
+    const targetItem =
+      (itemId
+        ? items.find((it) => it.id === itemId)
+        : null) ??
+      trustDocItemUploadSlots(compose, auditReceivedList).find((s) => !s.file)
+        ?.item ??
+      items[0] ??
+      null;
+    const targetItemId = targetItem?.id ?? itemId ?? null;
+    let nextFiles: ReceivedClientDoc[] = [];
+    setAuditReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0 ? prev : seedModuleReceivedClientDocs("audit", client, auditYear);
+      const withoutPrior = targetItemId
+        ? baseList.filter((f) => {
+            const link = (f.purposeId || f.linkedRequestId || "").trim();
+            if (link !== reqId) return true;
+            if ((f.linkedRequestItemId || "").trim() !== targetItemId)
+              return true;
+            return f.reviewVerdict !== "ok";
+          })
+        : baseList;
+      const seq = countOkReceivedForRequest(withoutPrior, reqId) + 1;
+      const itemName = (targetItem?.name || "").trim();
+      const safeLabel = (itemName || row.docName || reqId).replace(/\s+/g, "_");
+      const fileName = (pickedName || "").trim()
+        ? pickedName!.trim()
+        : `${safeLabel}_${seq}_{auditYear}.pdf`;
+      const newFile: ReceivedClientDoc = {
+        id: `${client.id}-audit-upl-${reqId}-${Date.now()}`,
+        clientId: client.id,
+        taxYear: String(auditYear),
+        name: fileName,
+        channel: "portal",
+        receivedAt: today,
+        docType: itemName || row.docName || row.docType || "",
+        linkedRequestId: reqId,
+        purposeId: reqId,
+        linkedRequestItemId: targetItemId || undefined,
+        status: "reviewed",
+        reviewVerdict: "ok",
+        resendLog: [],
+      };
+      nextFiles = [...withoutPrior, newFile];
+      return nextFiles;
+    });
+    const needCount = portalDocExpectedCount(
+      row.requestItems && row.requestItems.length > 0
+        ? row
+        : withPortalRequestItems(row, seedPortalRequestItems(row)),
+    );
+    const shownOk = nextFiles.length
+      ? countOkReceivedForRequest(nextFiles, reqId)
+      : countOkReceivedForRequest(auditReceivedList, reqId) + 1;
+    const progress =
+      requestNOfMLabel(uiLang, shownOk, needCount) ||
+      `${shownOk}/${needCount}`;
+    const flash = t(uiLang, "trustRowUploadDoneFlash")
+      .replace("{label}", row.docName || reqId)
+      .replace("{progress}", progress);
+    setAuditSlimRowFlash(flash);
+    window.setTimeout(() => setAuditSlimRowFlash(""), 2200);
+    setDocRequests((prev) =>
+      prev.map((r) => {
+        if (r.id !== reqId) return r;
+        let next = r;
+        if (!(r.requestItems && r.requestItems.length > 0)) {
+          next = withPortalRequestItems(r, seedPortalRequestItems(r));
+        }
+        if (next.status === "missing") {
+          next = { ...next, status: "pending" as const };
+        }
+        if (shownOk >= portalDocExpectedCount(next)) {
+          return markPortalRequestReceived(next, {
+            fileName: nextFiles[nextFiles.length - 1]?.name,
+            year: auditYear,
+          });
+        }
+        return next;
+      }),
+    );
+  };
+
+  const pickAuditUploadFileForItem = (
+    reqId: string,
+    itemId?: string | null,
+  ) => {
+    const input = auditRowUploadInputRef.current;
+    if (!input) {
+      addAuditUploadedFileForRequest(reqId, undefined, itemId);
+      return;
+    }
+    auditRowUploadDocIdRef.current = reqId;
+    auditRowUploadItemIdRef.current = itemId ?? null;
+    try {
+      input.value = "";
+    } catch {
+      /* ignore */
+    }
+    const finishDemoIfPending = () => {
+      if (auditRowUploadDocIdRef.current !== reqId) return;
+      const pendingItem = auditRowUploadItemIdRef.current;
+      auditRowUploadDocIdRef.current = null;
+      auditRowUploadItemIdRef.current = null;
+      addAuditUploadedFileForRequest(reqId, undefined, pendingItem);
+    };
+    const onWinFocus = () => {
+      window.setTimeout(finishDemoIfPending, 200);
+      window.removeEventListener("focus", onWinFocus);
+    };
+    window.addEventListener("focus", onWinFocus);
+    window.setTimeout(finishDemoIfPending, 2500);
+    try {
+      input.click();
+    } catch {
+      window.removeEventListener("focus", onWinFocus);
+      auditRowUploadDocIdRef.current = null;
+      auditRowUploadItemIdRef.current = null;
+      addAuditUploadedFileForRequest(reqId, undefined, itemId);
+    }
+  };
+
+  const openAuditUploadManually = (reqId: string) => {
+    const row = docRequests.find((r) => r.id === reqId);
+    if (!row) return;
+    let working = row;
+    if (!(row.requestItems && row.requestItems.length > 0)) {
+      const seed = seedPortalRequestItems(row);
+      working = withPortalRequestItems(row, seed);
+      setDocRequests((prev) =>
+        prev.map((r) => (r.id === reqId ? working : r)),
+      );
+    }
+    const needCount = portalDocExpectedCount(working);
+    if (needCount > 1) {
+      setAuditUploadPopupDocId(reqId);
+      setAuditUploadPopupEditItemId(null);
+      return;
+    }
+    const slots = trustDocItemUploadSlots(
+      portalDocAsComposeDoc(working),
+      auditReceivedList,
+    );
+    const pending = slots.find((s) => !s.file)?.item;
+    pickAuditUploadFileForItem(reqId, pending?.id ?? null);
+  };
+
+  const deleteAuditUploadForItem = (reqId: string, itemId: string) => {
+    setAuditReceivedDocs((prev) => {
+      const baseList =
+        prev && prev.length > 0 ? prev : seedModuleReceivedClientDocs("audit", client, auditYear);
+      const row = docRequests.find((d) => d.id === reqId);
+      const slots = trustDocItemUploadSlots(
+        portalDocAsComposeDoc(
+          row || {
+            id: reqId,
+            clientId: client.id,
+            year: String(auditYear),
+            sourcePanel: "stream-audit",
+            docName: "",
+            docType: "",
+            note: "",
+            status: "pending",
+            createdAt: "",
+            sendPortal: false,
+            sendEmail: false,
+            sendWhatsApp: false,
+            requestItems: [],
+          } as PortalDocRequest,
+        ),
+        baseList,
+      );
+      const slot = slots.find((s) => s.item.id === itemId);
+      const fileId = slot?.file?.id;
+      if (!fileId) return baseList;
+      return baseList.filter((f) => f.id !== fileId);
+    });
+    setDocRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId && r.status === "uploaded"
+          ? reopenPortalDocRequest(r)
+          : r,
+      ),
+    );
+  };
+
+  const onAuditRowUploadInputChange = (event: {
+    target: { files?: FileList | null; value?: string };
+  }) => {
+    const reqId = auditRowUploadDocIdRef.current;
+    const itemId = auditRowUploadItemIdRef.current;
+    const file = event.target.files?.[0];
+    auditRowUploadDocIdRef.current = null;
+    auditRowUploadItemIdRef.current = null;
+    if (!reqId) return;
+    addAuditUploadedFileForRequest(reqId, file?.name, itemId);
+  };
+
+  const viewAuditRequestDoc = (reqId: string) => {
+    const file = latestReceivedForRequest(auditReceivedList, reqId);
+    if (!file) {
+      setAuditSlimRowFlash(
+        uiLang === "he" ? "אין קובץ להצגה עדיין." : "No file to view yet.",
+      );
+      window.setTimeout(() => setAuditSlimRowFlash(""), 1600);
+      return;
+    }
+    setViewDocId(reqId);
+  };
+
   const openAuditReceivedResendPopout = (received: ReceivedClientDoc) => {
     const channel = received.channel;
     const purposeId = (
@@ -58207,6 +63156,12 @@ function AuditProcessWorkspace({
                 : [contactPrefill]
             ).filter(Boolean);
     patchAuditReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    // Not OK undoes rule-out: reopen request → pending + sent glyph.
+    if (purposeId) {
+      setDocRequests((prev) =>
+        prev.map((r) => (r.id === purposeId ? reopenPortalDocRequest(r) : r)),
+      );
+    }
     setAuditResendPopout({
       channel,
       receivedDocId: received.id,
@@ -58238,15 +63193,7 @@ function AuditProcessWorkspace({
     const pid = (received?.purposeId || received?.linkedRequestId || "").trim();
     if (pid) {
       setDocRequests((prev) =>
-        prev.map((r) =>
-          r.id === pid
-            ? markPortalRequestReceived(r, {
-                fileName: received?.name,
-                previewText: `Reminder sent · not OK · ${received?.name ?? r.docName}`,
-                year: auditYear,
-              })
-            : r,
-        ),
+        prev.map((r) => (r.id === pid ? reopenPortalDocRequest(r) : r)),
       );
     }
     setReqFlash(
@@ -58352,7 +63299,23 @@ function AuditProcessWorkspace({
       whatsappLog,
       workerChatLog,
     };
-    setDocRequests((prev) => [row, ...prev]);
+    if (auditPendingResendId) {
+      const bumpId = auditPendingResendId;
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === bumpId
+            ? {
+                ...row,
+                id: bumpId,
+                resendCount: (r.resendCount ?? 0) + 1,
+              }
+            : r,
+        ),
+      );
+      setAuditPendingResendId(null);
+    } else {
+      setDocRequests((prev) => [row, ...prev]);
+    }
     setReqName("");
     const channels =
       (reqPortal ? t(uiLang, "taxReturnRequestSentPortalSuffix") : "") +
@@ -58544,20 +63507,87 @@ function AuditProcessWorkspace({
             <ChromeText size="small" tone="secondary">
               {t(uiLang, "auditDocsHintFieldwork")}
             </ChromeText>
-            <ChromeTextInput
-              value={reqName}
-              onChange={setReqName}
-              placeholder={t(uiLang, "taxReturnDocNamePh")}
-            />
-            <Select
-              value={reqType}
-              onChange={(v) => setReqType(v as AuditDocTypeId)}
-              options={AUDIT_DOC_TYPE_IDS.map((id) => ({
-                value: id,
-                label: auditDocTypeLabel(uiLang, id),
-              }))}
-              style={{ width: "100%" }}
-            />
+            <Stack gap={8}>
+              {reqDrafts.map((draft, index) => (
+                <Row key={draft.id} gap={8} align="center">
+                  <ChromeTextInput
+                    value={draft.name}
+                    onChange={(v) => {
+                      setReqDrafts((prev) =>
+                        prev.map((d) =>
+                          d.id === draft.id ? { ...d, name: v } : d,
+                        ),
+                      );
+                      if (index === 0) setReqName(v);
+                    }}
+                    placeholder={t(uiLang, "taxReturnDocNamePh")}
+                    style={{
+                      flex: "0 1 200px",
+                      width: 200,
+                      maxWidth: 220,
+                      minWidth: 120,
+                    }}
+                  />
+                  <Select
+                    value={draft.type}
+                    onChange={(v) => {
+                      setReqDrafts((prev) =>
+                        prev.map((d) =>
+                          d.id === draft.id ? { ...d, type: v } : d,
+                        ),
+                      );
+                      if (index === 0) setReqType(v as AuditDocTypeId);
+                    }}
+                    options={AUDIT_DOC_TYPE_IDS.map((id) => ({
+                      value: id,
+                      label: auditDocTypeLabel(uiLang, id),
+                    }))}
+                    style={{ flex: "0 0 150px", width: 150, minWidth: 130 }}
+                  />
+                  {reqDrafts.length > 1 ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        setReqDrafts((prev) => {
+                          const next = prev.filter((d) => d.id !== draft.id);
+                          return next.length
+                            ? next
+                            : [
+                                {
+                                  id: `au-draft-${Date.now()}`,
+                                  name: "",
+                                  type: "bank-confirm",
+                                },
+                              ];
+                        })
+                      }
+                      style={{ flexShrink: 0 }}
+                    >
+                      ×
+                    </Button>
+                  ) : null}
+                </Row>
+              ))}
+              <Row gap={8} align="center" justify="center">
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    setReqDrafts((prev) => [
+                      ...prev,
+                      {
+                        id: `au-draft-${Date.now()}-${Math.random()
+                          .toString(36)
+                          .slice(2, 5)}`,
+                        name: "",
+                        type: "bank-confirm",
+                      },
+                    ])
+                  }
+                >
+                  {t(uiLang, "bkAddDocRow")}
+                </Button>
+              </Row>
+            </Stack>
             <Row gap={12} wrap align="center">
               <Checkbox
                 checked={reqPortal}
@@ -58583,7 +63613,7 @@ function AuditProcessWorkspace({
                 label={t(uiLang, "taxReturnSendWorkerChat")}
               />
               <Button variant="primary" onClick={openAuditReqPreview}>
-                {t(uiLang, "bkSeeMessage")}
+                {t(uiLang, "bkViewMessage")}
               </Button>
             </Row>
             {reqWorkerChat ? (
@@ -58675,25 +63705,74 @@ function AuditProcessWorkspace({
               <ChromeText size="small" weight="semibold">
                 {t(uiLang, "taxReturnDocRequests")}
               </ChromeText>
-              {docRequests.map((r) => (
-                <Row
+              <input
+                ref={auditRowUploadInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,application/pdf,image/*"
+                style={{ display: "none" }}
+                onChange={onAuditRowUploadInputChange}
+              />
+              {auditSlimRowFlash ? (
+                <ChromeText size="small" tone="secondary">
+                  {auditSlimRowFlash}
+                </ChromeText>
+              ) : null}
+              {docRequests.map((r) => {
+                const needCount = portalDocExpectedCount(r);
+                const okForReq = countOkReceivedForRequest(
+                  auditReceivedList,
+                  r.id,
+                );
+                const fullyOk = isRequestFullySatisfied(
+                  auditReceivedList,
+                  r.id,
+                  needCount,
+                );
+                const done = r.status === "uploaded" && fullyOk;
+                const nOfM = requestNOfMLabel(
+                  uiLang,
+                  okForReq,
+                  needCount,
+                );
+                const viewFile = latestReceivedForRequest(
+                  auditReceivedList,
+                  r.id,
+                );
+                const manualOpen = (auditManualOpenDocIds || []).includes(r.id);
+                const manualItems = trustDocComposeItems(
+                  portalDocAsComposeDoc(r),
+                );
+                const statusValue =
+                  r.status === "uploaded"
+                    ? "uploaded"
+                    : r.status === "missing"
+                      ? "missing"
+                      : "pending";
+                return (
+                <Stack
                   key={r.id}
+                  gap={0}
+                  style={{
+                    borderRadius: 8,
+                    background: chromeSoftFill(theme),
+                    border: `1px solid ${chromeBorder(theme)}`,
+                    overflow: "hidden",
+                  }}
+                >
+                <Row
                   align="center"
                   gap={8}
                   wrap
                   style={{
                     padding: "8px 10px",
-                    borderRadius: 8,
-                    background: chromeSoftFill(theme),
-                    border: `1px solid ${chromeBorder(theme)}`,
                   }}
                 >
                   <DocRequestFlowGlyph
-                    kind={r.status === "uploaded" ? "received" : "sent"}
+                    kind={done ? "received" : "sent"}
                     size={15}
                   />
                   <DocRequestFlowBadge
-                    kind={r.status === "uploaded" ? "received" : "sent"}
+                    kind={done ? "received" : "sent"}
                     uiLang={uiLang}
                   />
                   <Stack gap={2} style={{ flex: 1, minWidth: 140 }}>
@@ -58712,44 +63791,323 @@ function AuditProcessWorkspace({
                       <ChromeText size="small" weight="semibold">
                         {r.docName}
                       </ChromeText>
+                      {nOfM ? (
+                        <Pill size="sm" tone="info">
+                          {nOfM}
+                        </Pill>
+                      ) : null}
                     </span>
-                    <ChromeText size="small" tone="tertiary">
-                      {r.docType} · {r.createdAt}
+                    <ChromeText
+                      size="small"
+                      tone="primary"
+                      weight="medium"
+                    >
+                      {[
+                        reqChannelShortLabel(
+                          uiLang,
+                          {
+                            sendEmail: r.sendEmail,
+                            sendPortal: r.sendPortal,
+                            sendWhatsApp: r.sendWhatsApp,
+                            sendWorkerChat: r.sendWorkerChat,
+                          },
+                          { includeWorkerChat: true },
+                        ) || null,
+                        reqSentOrResentLabel(uiLang, r.resendCount),
+                        r.createdAt || null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </ChromeText>
                   </Stack>
-                  <Pill
-                    size="sm"
-                    tone={r.status === "uploaded" ? "success" : "warning"}
+                  <Select
+                    value={statusValue}
+                    onChange={(value) =>
+                      applyAuditSlimStatus(r.id, value)
+                    }
+                    options={PORTAL_SLIM_STATUSES.map((status) => ({
+                      value: status,
+                      label: portalDocStatusLabel(uiLang, status),
+                    }))}
+                    style={{ width: 150 }}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() => toggleAuditManualRequests(r.id)}
                   >
-                    {r.status === "uploaded"
-                      ? t(uiLang, "taxReturnDocUploaded")
-                      : t(uiLang, "taxReturnDocPending")}
-                  </Pill>
-                  {r.status === "uploaded" ? (
-                    <DocRequestEyeViewButton
-                      label={t(uiLang, "taxReturnViewDoc")}
-                      onClick={() => setViewDocId(r.id)}
-                      color={accent}
-                    />
-                  ) : (
-                    <Row gap={6}>
+                    {manualOpen
+                      ? t(uiLang, "trustRowManualRequestsHide")
+                      : t(uiLang, "trustRowManualRequests")}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => openAuditUploadManually(r.id)}
+                  >
+                    {t(uiLang, "trustRowUpload")}
+                  </Button>
+                  <DocRequestEyeViewButton
+                    label={t(uiLang, "taxReturnViewDoc")}
+                    onClick={() => viewAuditRequestDoc(r.id)}
+                    color={accent}
+                    disabled={!viewFile}
+                  />
+                  <Button
+                    variant="primary"
+                    onClick={() =>
+                      setAuditReqResendConfirm({ id: r.id, step: 1 })
+                    }
+                  >
+                    {t(uiLang, "bkResendMessage")}
+                  </Button>
+                </Row>
+                {manualOpen ? (
+                  <Stack
+                    gap={6}
+                    style={{
+                      padding: "4px 10px 10px 10px",
+                      borderTop: `1px dashed ${chromeBorder(theme)}`,
+                    }}
+                  >
+                    {manualItems.map((item) => (
+                      <Row key={item.id} gap={8} align="center" wrap>
+                        <ChromeTextInput
+                          value={item.name}
+                          onChange={(v) =>
+                            updateAuditDocRequestItem(r.id, item.id, {
+                              name: v,
+                            })
+                          }
+                          placeholder={t(uiLang, "taxReturnDocNamePh")}
+                          style={{
+                            flex: "0 1 200px",
+                            width: 200,
+                            maxWidth: 220,
+                            minWidth: 120,
+                          }}
+                        />
+                        <Select
+                          value={item.type || ""}
+                          onChange={(v) =>
+                            updateAuditDocRequestItem(r.id, item.id, {
+                              type: v,
+                            })
+                          }
+                          options={AUDIT_DOC_TYPE_IDS.map((id) => ({
+                                  value: id,
+                                  label: auditDocTypeLabel(uiLang, id),
+                                }))}
+                          style={{
+                            flex: "0 0 150px",
+                            width: 150,
+                            minWidth: 130,
+                          }}
+                        />
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            removeAuditDocRequestItem(r.id, item.id)
+                          }
+                          style={{ flexShrink: 0 }}
+                        >
+                          ×
+                        </Button>
+                      </Row>
+                    ))}
+                    <Row gap={8}>
                       <Button
                         variant="secondary"
-                        onClick={() => markUploaded(r.id, "mark")}
+                        onClick={() => addAuditDocRequestItem(r.id)}
                       >
-                        {t(uiLang, "taxReturnMarkReceived")}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => markUploaded(r.id, "simulate")}
-                      >
-                        {t(uiLang, "taxReturnSimulateUpload")}
+                        {t(uiLang, "bkAddDocRow")}
                       </Button>
                     </Row>
-                  )}
-                </Row>
-              ))}
+                  </Stack>
+                ) : null}
+                </Stack>
+                );
+              })}
             </Stack>
+          ) : null}
+          {auditUploadPopupDocId
+            ? (() => {
+                const popupReq = docRequests.find(
+                  (d) => d.id === auditUploadPopupDocId,
+                );
+                if (!popupReq) return null;
+                const slots = trustDocItemUploadSlots(
+                  portalDocAsComposeDoc(popupReq),
+                  auditReceivedList,
+                );
+                const need = Math.max(slots.length, 1);
+                const okN = slots.filter((s) => !!s.file).length;
+                const pct = Math.round((okN / need) * 100);
+                return (
+                  <RequestMessagePopout
+                    title={t(uiLang, "trustUploadPopupTitle").replace(
+                      "{label}",
+                      popupReq.docName || popupReq.id,
+                    )}
+                    closeLabel={t(uiLang, "trustUploadPopupClose")}
+                    onClose={() => {
+                      setAuditUploadPopupDocId(null);
+                      setAuditUploadPopupEditItemId(null);
+                    }}
+                    anchorRect={null}
+                  >
+                    <Stack gap={12}>
+                      <ChromeText size="small" tone="secondary">
+                        {t(uiLang, "trustUploadPopupProgress")
+                          .replace("{ok}", String(okN))
+                          .replace("{need}", String(need))}
+                      </ChromeText>
+                      <div
+                        style={{
+                          height: 8,
+                          borderRadius: 4,
+                          background: chromeBorder(theme),
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${pct}%`,
+                            background: theme.accent.primary,
+                          }}
+                        />
+                      </div>
+                      {slots.map((slot, idx) => {
+                        const doneSlot = !!slot.file;
+                        return (
+                          <Stack
+                            key={slot.item.id}
+                            gap={6}
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 8,
+                              border: `1px solid ${chromeBorder(theme)}`,
+                              background: chromeSoftFill(theme),
+                            }}
+                          >
+                            <ChromeText weight="semibold">
+                              {t(uiLang, "trustUploadPopupStep")
+                                .replace("{n}", String(idx + 1))
+                                .replace(
+                                  "{name}",
+                                  (slot.item.name || "").trim() ||
+                                    popupReq.docName ||
+                                    `Doc ${idx + 1}`,
+                                )}
+                            </ChromeText>
+                            <Row gap={8} wrap>
+                              {!doneSlot ? (
+                                <Button
+                                  variant="primary"
+                                  onClick={() =>
+                                    pickAuditUploadFileForItem(
+                                      popupReq.id,
+                                      slot.item.id,
+                                    )
+                                  }
+                                >
+                                  {t(uiLang, "trustRowUpload")}
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="secondary"
+                                  onClick={() =>
+                                    deleteAuditUploadForItem(
+                                      popupReq.id,
+                                      slot.item.id,
+                                    )
+                                  }
+                                >
+                                  {t(uiLang, "trustUploadPopupDelete")}
+                                </Button>
+                              )}
+                            </Row>
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
+                  </RequestMessagePopout>
+                );
+              })()
+            : null}
+
+          {auditReqResendConfirm ? (
+            <ConfirmYesNoPopout
+              title={
+                auditReqResendConfirm.step === 1
+                  ? t(uiLang, "reqResendConfirmTitle")
+                  : t(uiLang, "reqResendViewOrSendTitle")
+              }
+              yesLabel={
+                auditReqResendConfirm.step === 1
+                  ? t(uiLang, "yes")
+                  : t(uiLang, "reqResendViewYes")
+              }
+              noLabel={
+                auditReqResendConfirm.step === 1
+                  ? t(uiLang, "no")
+                  : t(uiLang, "reqResendSendNoView")
+              }
+              onDismiss={() => setAuditReqResendConfirm(null)}
+              onYes={() => {
+                const { id, step } = auditReqResendConfirm;
+                if (step === 1) {
+                  setAuditReqResendConfirm({ id, step: 2 });
+                  return;
+                }
+                const row = docRequests.find((x) => x.id === id);
+                setAuditReqResendConfirm(null);
+                if (!row) return;
+                setReqPortal(!!row.sendPortal);
+                setReqEmail(!!row.sendEmail);
+                setReqWhatsApp(!!row.sendWhatsApp);
+                setReqWorkerChat(!!row.sendWorkerChat);
+                setReqName(row.docName);
+                setAuditPendingResendId(id);
+                openAuditReqPreview();
+              }}
+              onNo={() => {
+                const { id, step } = auditReqResendConfirm;
+                if (step === 1) {
+                  setAuditReqResendConfirm(null);
+                  return;
+                }
+                const row = docRequests.find((x) => x.id === id);
+                setAuditReqResendConfirm(null);
+                const today = new Date().toISOString().slice(0, 10);
+                setDocRequests((prev) =>
+                  prev.map((x) =>
+                    x.id === id
+                      ? {
+                          ...x,
+                          createdAt: today,
+                          resendCount: (x.resendCount ?? 0) + 1,
+                          status: "pending" as const,
+                        }
+                      : x,
+                  ),
+                );
+                setReqFlash(
+                  t(uiLang, "trustDocsResendFlash").replace(
+                    "{channel}",
+                    reqChannelShortLabel(
+                      uiLang,
+                      {
+                        sendEmail: row?.sendEmail,
+                        sendPortal: row?.sendPortal,
+                        sendWhatsApp: row?.sendWhatsApp,
+                        sendWorkerChat: row?.sendWorkerChat,
+                      },
+                      { includeWorkerChat: true },
+                    ) || "—",
+                  ),
+                );
+              }}
+            />
           ) : null}
           {viewing ? (
             <Callout tone="info" title={t(uiLang, "taxReturnDocPreviewTitle")}>
@@ -58793,48 +64151,82 @@ function AuditProcessWorkspace({
                 if (partial.purposeId !== undefined) {
                   const pid = (partial.purposeId || "").trim();
                   if (pid) {
-                    const file = auditReceivedList.find((f) => f.id === id);
+                    const nextFiles = auditReceivedList.map((f) =>
+                      f.id === id
+                        ? {
+                            ...f,
+                            ...partial,
+                            linkedRequestId: (partial.purposeId || "").trim(),
+                          }
+                        : f,
+                    );
                     setDocRequests((prev) =>
-                      prev.map((r) =>
-                        r.id === pid
-                          ? markPortalRequestReceived(r, {
-                              fileName: file?.name,
-                              previewText: file
-                                ? `Paired · ${file.name}`
-                                : undefined,
-                              year: auditYear,
-                            })
-                          : r,
-                      ),
+                      prev.map((r) => {
+                        if (r.id !== pid) return r;
+                        if (
+                          isRequestFullySatisfied(
+                            nextFiles,
+                            pid,
+                            r.expectedCount,
+                          )
+                        ) {
+                          const file = nextFiles.find((f) => f.id === id);
+                          return markPortalRequestReceived(r, {
+                            fileName: file?.name,
+                            previewText: file
+                              ? `Paired · ${file.name}`
+                              : undefined,
+                            year: auditYear,
+                          });
+                        }
+                        return reopenPortalDocRequest(r);
+                      }),
                     );
                   }
                 }
               }}
               onOk={(file) => {
-                patchAuditReceivedDoc(file.id, {
-                  reviewVerdict: "ok",
-                  status: "reviewed",
-                });
                 const pid = (
                   file.purposeId ||
                   file.linkedRequestId ||
                   ""
                 ).trim();
+                const nextFiles = auditReceivedList.map((f) =>
+                  f.id === file.id
+                    ? {
+                        ...f,
+                        reviewVerdict: "ok" as const,
+                        status: "reviewed" as const,
+                      }
+                    : f,
+                );
+                patchAuditReceivedDoc(file.id, {
+                  reviewVerdict: "ok",
+                  status: "reviewed",
+                });
                 if (pid) {
                   setDocRequests((prev) =>
-                    prev.map((r) =>
-                      r.id === pid
-                        ? {
-                            ...r,
-                            status: "uploaded" as const,
-                            uploadedFileName:
-                              r.uploadedFileName ??
-                              `${r.docName.replace(/\s+/g, "_")}_${auditYear}.pdf`,
-                            previewText:
-                              r.previewText ?? `Staff OK · ${file.name}`,
-                          }
-                        : r,
-                    ),
+                    prev.map((r) => {
+                      if (r.id !== pid) return r;
+                      if (
+                        isRequestFullySatisfied(
+                          nextFiles,
+                          pid,
+                          r.expectedCount,
+                        )
+                      ) {
+                        return {
+                          ...r,
+                          status: "uploaded" as const,
+                          uploadedFileName:
+                            r.uploadedFileName ??
+                            `${r.docName.replace(/\s+/g, "_")}_{auditYear}.pdf`,
+                          previewText:
+                            r.previewText ?? `Staff OK · ${file.name}`,
+                        };
+                      }
+                      return reopenPortalDocRequest(r);
+                    }),
                   );
                 }
               }}
@@ -58847,6 +64239,22 @@ function AuditProcessWorkspace({
                 return linked
                   ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.docName}`
                   : null;
+              }}
+              progressLabel={(file) => {
+                const pid = (
+                  file.purposeId ||
+                  file.linkedRequestId ||
+                  ""
+                ).trim();
+                if (!pid) return null;
+                const linked = docRequests.find((r) => r.id === pid);
+                return (
+                  requestNOfMLabel(
+                    uiLang,
+                    countOkReceivedForRequest(auditReceivedList, pid),
+                    linked?.expectedCount,
+                  ) || null
+                );
               }}
             />}
           overlay={
@@ -60312,6 +65720,8 @@ function ClientCardScreen({
   );
   const [quickAccessByWorker, setQuickAccessByWorker] =
     useCanvasState<QuickAccessByWorker>(CRM_QUICK_ACCESS_BY_WORKER_KEY, {});
+  const [clientDefaultTabByClient, setClientDefaultTabByClient] =
+    useCanvasState<ClientDefaultTabByClient>(CRM_CLIENT_DEFAULT_TAB_KEY, {});
   const workersList = normalizeFirmWorkers(
     Array.isArray(firmWorkers) ? firmWorkers : DEMO_STAFF,
   );
@@ -60814,6 +66224,80 @@ function ClientCardScreen({
       (tab.id.startsWith("stream-") && tab.id !== "stream-vat") ||
       tab.id === "invoices",
   );
+
+  const pinnedDefaultTabId: ClientCardPanel | null = (() => {
+    const raw = clientDefaultTabByClient?.[client.id];
+    if (!raw) return null;
+    return gmailTabs.some((tab) => tab.id === raw) ? raw : null;
+  })();
+
+  const toggleDefaultTabPin = (id: ClientCardPanel) => {
+    setClientDefaultTabByClient((prev) => {
+      const next: ClientDefaultTabByClient = { ...(prev ?? {}) };
+      if (next[client.id] === id) {
+        delete next[client.id];
+      } else {
+        next[client.id] = id;
+      }
+      return next;
+    });
+  };
+
+  const isModuleTabPinnedToSidebar = (tabId: ClientCardPanel) =>
+    pinsForQuickAccessSidebar(
+      workerQuickAccessPins(quickAccessByWorker, signedInWorkerId, uiLang),
+      "clients",
+    ).some((p) =>
+      quickAccessPinMatches(
+        p,
+        clientCardTabPinId(client.id, tabId),
+        "clients",
+        "clientTab",
+      ),
+    );
+
+  const toggleModuleTabSidebarPin = (tabId: ClientCardPanel) => {
+    const pinId = clientCardTabPinId(client.id, tabId);
+    const tabLabel =
+      gmailTabs.find((tab) => tab.id === tabId)?.label ??
+      clientPanelTitle(uiLang, tabId);
+    const label = formatClientCardTabPinLabel(
+      tabLabel,
+      displayClientName(client, uiLang),
+    );
+    setQuickAccessByWorker((prev) => {
+      if (
+        pinsForQuickAccessSidebar(
+          workerQuickAccessPins(prev, signedInWorkerId, uiLang),
+          "clients",
+        ).some((p) =>
+          quickAccessPinMatches(p, pinId, "clients", "clientTab"),
+        )
+      ) {
+        return removeWorkerQuickAccessPin(
+          prev ?? {},
+          signedInWorkerId,
+          pinId,
+          "clients",
+          uiLang,
+          "clientTab",
+        );
+      }
+      return upsertWorkerQuickAccessPin(
+        prev ?? {},
+        signedInWorkerId,
+        {
+          id: pinId,
+          label,
+          sidebar: "clients",
+          kind: "clientTab",
+          clientId: client.id,
+          tabId,
+        },
+        uiLang,
+      );
+    });
+  };
 
   const [popOutPanel, setPopOutPanel] = useCanvasState<ClientCardPanel | null>(
     `clientCardPopOut.v1:${client.id}`,
@@ -62517,6 +68001,10 @@ function ClientCardScreen({
             }
             togglePopOut(activeTab);
           }}
+          defaultPinTabId={pinnedDefaultTabId}
+          onToggleDefaultPin={toggleDefaultTabPin}
+          isTabPinnedToSidebar={isModuleTabPinnedToSidebar}
+          onToggleSidebarPin={toggleModuleTabSidebarPin}
         />
 
         <div
@@ -95983,6 +101471,8 @@ type ChecklistRequest = {
   /** Who created the row — admin doc request or worker asking for a checklist. */
   origin?: ChecklistRequestOrigin;
   channels?: ChecklistRequestChannel[];
+  /** Times resent via Resend message flow (0 = only original send). */
+  resendCount?: number;
 };
 
 const DEFAULT_WORKER_FILES: WorkerFileRow[] = [
@@ -96160,6 +101650,13 @@ function WorkerFilesScreen({ role }: { role: Role }) {
   const [wfReqWaBody, setWfReqWaBody] = useState("");
   const [wfReqChatBody, setWfReqChatBody] = useState("");
   const [wfReqFlash, setWfReqFlash] = useState("");
+  const [wfReqResendConfirm, setWfReqResendConfirm] = useState<{
+    id: string;
+    step: 1 | 2;
+  } | null>(null);
+  const [wfPendingResendId, setWfPendingResendId] = useState<string | null>(
+    null,
+  );
   const wfSeeMessageBtnRef = useRef<HTMLDivElement | null>(null);
 
   const wfToday = () => {
@@ -96223,17 +101720,36 @@ function WorkerFilesScreen({ role }: { role: Role }) {
       ...(wfReqWhatsApp ? (["whatsapp"] as const) : []),
       ...(wfReqWorkerChat ? (["workerChat"] as const) : []),
     ];
-    setRequests((prev) => [
-      {
-        id: `cr-${Date.now()}`,
-        note,
-        status: "pending",
-        requestedAt: wfToday(),
-        origin: "admin",
-        channels,
-      },
-      ...prev,
-    ]);
+    if (wfPendingResendId) {
+      const bumpId = wfPendingResendId;
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.id === bumpId
+            ? {
+                ...r,
+                note,
+                status: "pending" as const,
+                requestedAt: wfToday(),
+                channels,
+                resendCount: (r.resendCount ?? 0) + 1,
+              }
+            : r,
+        ),
+      );
+      setWfPendingResendId(null);
+    } else {
+      setRequests((prev) => [
+        {
+          id: `cr-${Date.now()}`,
+          note,
+          status: "pending",
+          requestedAt: wfToday(),
+          origin: "admin",
+          channels,
+        },
+        ...prev,
+      ]);
+    }
     const channelLabels = [
       ...(wfReqEmail ? [t(uiLang, "workerFilesSendEmail")] : []),
       ...(wfReqWhatsApp ? [t(uiLang, "workerFilesSendWhatsApp")] : []),
@@ -96286,6 +101802,7 @@ function WorkerFilesScreen({ role }: { role: Role }) {
     {},
   );
   const [workerOsFlash, setWorkerOsFlash] = useState("");
+  const workerClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [workerCtxMenu, setWorkerCtxMenu] = useState<{
     x: number;
     y: number;
@@ -96293,6 +101810,10 @@ function WorkerFilesScreen({ role }: { role: Role }) {
   } | null>(null);
 
   const openOsWorkerFile = (f: WorkerFileRow) => {
+    if (workerClickTimerRef.current) {
+      clearTimeout(workerClickTimerRef.current);
+      workerClickTimerRef.current = null;
+    }
     const label = fileLabel(f);
     setWorkerOsFlash(
       openWithOsDefault(
@@ -96326,13 +101847,26 @@ function WorkerFilesScreen({ role }: { role: Role }) {
           role="button"
           tabIndex={0}
           title={t(uiLang, "liveFileOsOpenHint")}
-          onClick={() => openLiveWorkerFile(f)}
+          onClick={(e: { detail?: number }) => {
+            if ((e.detail ?? 1) > 1) return;
+            if (workerClickTimerRef.current) {
+              clearTimeout(workerClickTimerRef.current);
+            }
+            workerClickTimerRef.current = setTimeout(() => {
+              workerClickTimerRef.current = null;
+              openLiveWorkerFile(f);
+            }, 280);
+          }}
           onDoubleClick={(e: {
             preventDefault?: () => void;
             stopPropagation?: () => void;
           }) => {
             e.preventDefault?.();
             e.stopPropagation?.();
+            if (workerClickTimerRef.current) {
+              clearTimeout(workerClickTimerRef.current);
+              workerClickTimerRef.current = null;
+            }
             openOsWorkerFile(f);
           }}
           onContextMenu={(e) => {
@@ -96666,7 +102200,7 @@ function WorkerFilesScreen({ role }: { role: Role }) {
                 style={{ display: "inline-block" }}
               >
                 <Button variant="primary" onClick={openWfReqPreview}>
-                  {t(uiLang, "bkSeeMessage")}
+                  {t(uiLang, "bkViewMessage")}
                 </Button>
               </div>
             </Row>
@@ -96785,17 +102319,52 @@ function WorkerFilesScreen({ role }: { role: Role }) {
                   : t(uiLang, "workerFilesOriginWorker")}
               </ChromeText>
             </Stack>,
-            (r.channels ?? []).length
-              ? (r.channels ?? []).map(channelLabel).join(", ")
-              : "—",
+            <ChromeText
+              key={`${r.id}-ch`}
+              size="small"
+              tone="primary"
+              weight="medium"
+            >
+              {(r.channels ?? []).length
+                ? [
+                    reqChannelShortLabel(
+                      uiLang,
+                      {
+                        sendEmail: (r.channels ?? []).includes("email"),
+                        sendWhatsApp: (r.channels ?? []).includes("whatsapp"),
+                        sendWorkerChat: (r.channels ?? []).includes(
+                          "workerChat",
+                        ),
+                      },
+                      { includeWorkerChat: true, includePortal: false },
+                    ),
+                    reqSentOrResentLabel(uiLang, r.resendCount),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "—"}
+            </ChromeText>,
             r.requestedAt,
             r.status === "done"
               ? t(uiLang, "workerFilesChecklistDone")
               : t(uiLang, "workerFilesChecklistPending"),
             isAdmin && r.status === "pending" ? (
-              <Button variant="secondary" onClick={() => markDone(r.id)}>
-                {t(uiLang, "workerFilesMarkDone")}
-              </Button>
+              <Row key={`${r.id}-acts`} gap={6} wrap>
+                {(r.origin ?? "worker") === "admin" &&
+                (r.channels ?? []).length > 0 ? (
+                  <Button
+                    variant="primary"
+                    onClick={() =>
+                      setWfReqResendConfirm({ id: r.id, step: 1 })
+                    }
+                  >
+                    {t(uiLang, "bkResendMessage")}
+                  </Button>
+                ) : null}
+                <Button variant="secondary" onClick={() => markDone(r.id)}>
+                  {t(uiLang, "workerFilesMarkDone")}
+                </Button>
+              </Row>
             ) : (
               "—"
             ),
@@ -96803,6 +102372,69 @@ function WorkerFilesScreen({ role }: { role: Role }) {
           emptyMessage={t(uiLang, "workerFilesEmptyRequests")}
           stickyHeader={false}
         />
+        {wfReqResendConfirm ? (
+          <ConfirmYesNoPopout
+            title={
+              wfReqResendConfirm.step === 1
+                ? t(uiLang, "reqResendConfirmTitle")
+                : t(uiLang, "reqResendViewOrSendTitle")
+            }
+            yesLabel={
+              wfReqResendConfirm.step === 1
+                ? t(uiLang, "yes")
+                : t(uiLang, "reqResendViewYes")
+            }
+            noLabel={
+              wfReqResendConfirm.step === 1
+                ? t(uiLang, "no")
+                : t(uiLang, "reqResendSendNoView")
+            }
+            onDismiss={() => setWfReqResendConfirm(null)}
+            onYes={() => {
+              const { id, step } = wfReqResendConfirm;
+              if (step === 1) {
+                setWfReqResendConfirm({ id, step: 2 });
+                return;
+              }
+              const row = requests.find((x) => x.id === id);
+              setWfReqResendConfirm(null);
+              if (!row) return;
+              const chs = row.channels ?? [];
+              setWfReqEmail(chs.includes("email"));
+              setWfReqWhatsApp(chs.includes("whatsapp"));
+              setWfReqWorkerChat(chs.includes("workerChat"));
+              setWfDraftNote(row.note);
+              setWfPendingResendId(id);
+              openWfReqPreview();
+            }}
+            onNo={() => {
+              const { id, step } = wfReqResendConfirm;
+              if (step === 1) {
+                setWfReqResendConfirm(null);
+                return;
+              }
+              setWfReqResendConfirm(null);
+              setRequests((prev) =>
+                prev.map((x) =>
+                  x.id === id
+                    ? {
+                        ...x,
+                        requestedAt: wfToday(),
+                        resendCount: (x.resendCount ?? 0) + 1,
+                        status: "pending" as const,
+                      }
+                    : x,
+                ),
+              );
+              setWfReqFlash(
+                t(uiLang, "trustDocsResendFlash").replace(
+                  "{channel}",
+                  "demo",
+                ),
+              );
+            }}
+          />
+        ) : null}
       </Stack>
     </Stack>
   );
@@ -110723,6 +116355,10 @@ export default function CrmModulesHome() {
     "clientCardPanel",
     "overview",
   );
+  const [clientDefaultTabByClient] = useCanvasState<ClientDefaultTabByClient>(
+    CRM_CLIENT_DEFAULT_TAB_KEY,
+    {},
+  );
   /** One-shot list/module intent for default tab; cleared after open applies it. */
   const [clientCardEntryIntent, setClientCardEntryIntent] = useCanvasState<
     ClientCardEntryContext | ""
@@ -110869,13 +116505,32 @@ export default function CrmModulesHome() {
   const openClient = (
     id: string,
     entry: ClientCardEntryContext = "overview",
+    panelOverride?: ClientCardPanel | null,
   ) => {
     const row = demoRows.find((r) => r.id === id);
-    const panel = defaultPanelForEntryContext(
+    let panel = defaultPanelForEntryContext(
       entry,
       row?.services ?? "",
       services,
     );
+    if (panelOverride) {
+      const forced = resolveClientDefaultTab(
+        panelOverride,
+        row?.services ?? "",
+        services,
+        row,
+      );
+      panel = forced ?? (panelOverride === "stream-vat" ? "stream-bookkeeping" : panelOverride);
+    } else if (panel === "overview") {
+      // Generic open (Overview) → prefer this client's pinned default tab.
+      const pinned = resolveClientDefaultTab(
+        clientDefaultTabByClient?.[id],
+        row?.services ?? "",
+        services,
+        row,
+      );
+      if (pinned) panel = pinned;
+    }
     // Osek / any path that used to land on top-level VAT → Bookkeeping → VAT.
     if (
       (entry === "osek" || panel === "stream-vat") &&
@@ -112101,18 +117756,59 @@ export default function CrmModulesHome() {
       } else {
         for (const pin of clientsQuickAccessPins) {
           const pinKind = pin.kind ?? "folder";
+          const clientTabRef =
+            pinKind === "clientTab"
+              ? parseClientCardTabPinId(pin.id) ??
+                (pin.clientId && pin.tabId
+                  ? { clientId: pin.clientId, tabId: pin.tabId }
+                  : null)
+              : null;
+          let clientsPinLabel = pin.label;
+          if (pinKind === "clientTab" && clientTabRef) {
+            const tabLabel = clientPanelTitle(
+              uiLang,
+              clientTabRef.tabId as ClientCardPanel,
+            );
+            const row = demoRows.find((r) => r.id === clientTabRef.clientId);
+            if (row) {
+              clientsPinLabel = formatClientCardTabPinLabel(
+                tabLabel,
+                displayClientName(row, uiLang),
+              );
+            } else if (pin.label.includes(" · ")) {
+              const parts = pin.label.split(" · ");
+              const clientPart = (parts[0] || "").trim();
+              const tabPart = parts.slice(1).join(" · ").trim();
+              clientsPinLabel = formatClientCardTabPinLabel(tabPart, clientPart);
+            } else {
+              clientsPinLabel = formatClientCardTabPinLabel(
+                tabLabel,
+                pin.label,
+              );
+            }
+          }
           clientsQaRows.push({
             id: `qa-clients-${pinKind}-${pin.id}`,
-            label: shortQuickAccessLabel(pin.label),
-            renameLabel: pin.label,
-            iconId: pinKind === "client" ? "clients" : "client-folders",
+            label: shortQuickAccessLabel(
+              clientsPinLabel,
+              pinKind === "clientTab" ? 40 : 22,
+            ),
+            renameLabel: clientsPinLabel,
+            iconId:
+              pinKind === "client" || pinKind === "clientTab"
+                ? "clients"
+                : "client-folders",
             indent: 1,
             active:
               showActiveMarks &&
               (pinKind === "client"
                 ? screen === "client-card" && selectedClientId === pin.id
-                : screen === "client-folders" &&
-                  clientFoldersSelectedId === pin.id),
+                : pinKind === "clientTab" && clientTabRef
+                  ? screen === "client-card" &&
+                    selectedClientId === clientTabRef.clientId &&
+                    clientCardPanel === clientTabRef.tabId
+                  : screen === "client-folders" &&
+                    clientFoldersSelectedId === pin.id),
             onClick: () => {
               clearHoverLeaveTimer();
               setHoverKey(null);
@@ -112120,6 +117816,14 @@ export default function CrmModulesHome() {
               setNavSecondaryOpen(true);
               if (pinKind === "client") {
                 openClient(pin.id);
+                return;
+              }
+              if (pinKind === "clientTab" && clientTabRef) {
+                openClient(
+                  clientTabRef.clientId,
+                  "overview",
+                  clientTabRef.tabId as ClientCardPanel,
+                );
                 return;
               }
               const foldersTree = buildClientFoldersArchiveTree(uiLang);
