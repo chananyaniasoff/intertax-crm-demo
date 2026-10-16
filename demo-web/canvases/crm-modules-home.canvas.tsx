@@ -34,7 +34,7 @@ import {
   type TextProps,
 } from "cursor/canvas";
 /** Bust stale canvas preview — Trust Forms 1327/1322/1324 open LiveFile on select. */
-const GMAIL_DUAL_NAV_BUILD = "v983-2026-10-16-forms-radio-open-doc";
+const GMAIL_DUAL_NAV_BUILD = "v984-2026-10-16-module-tile-icon-clients-size";
 /** Sibling canvas opened by header "Client portal (demo)". */
 const CLIENT_PORTAL_CANVAS_PATH = 'C:\\Users\\chana\\.cursor\\projects\\c-Users-chana-OneDrive-Desktop-Intertax-Programs-Accounting-CRM-Client-Portal\\canvases\\client-portal.canvas.tsx';
 /** Shared folder explorer tree/detail split width (% of row). */
@@ -12424,6 +12424,7 @@ function tileLabel(lang: UiLang, tileId: string, fallback: string): string {
     "sumit-dapi": "toolsToolSumitDapi",
     section46: "toolsToolSection46",
     masav: "toolsToolMasav",
+    "trust-calc": "toolsToolTrustCalc",
   };
   const key = map[tileId];
   return key ? t(lang, key) : fallback;
@@ -12472,6 +12473,13 @@ function tileHint(lang: UiLang, tileId: string, fallback: string): string {
     "help-feedback": "hintHelpFeedback",
     "ai-maintenance": "hintAiMaintenance",
     wave: "hintWave",
+    "ai-chat": "toolsToolAiChatHint",
+    signature: "toolsToolSignatureHint",
+    converter: "toolsToolConverterHint",
+    "sumit-dapi": "toolsToolSumitDapiHint",
+    section46: "toolsToolSection46Hint",
+    masav: "toolsToolMasavHint",
+    "trust-calc": "toolsToolTrustCalcHint",
   };
   const key = map[tileId];
   return key ? t(lang, key) : fallback;
@@ -99259,131 +99267,66 @@ function ToolsScreen({
 
       {toolsModule === "catalog" ? (
         /**
-         * Same big-square grid as Clients HomeScreen (`ModuleCard` tiles):
-         * Grid columns ≤4 desktop; Android phone → single column full width.
+         * Same ModuleCard tiles as Clients HomeScreen:
+         * iconBox 64 / icon 44 / tileSide 152 (desktop); Android row 56/36.
          */
-        <Grid
-          columns={
-            androidPreview
-              ? 1
-              : Math.min(Math.max(toolsVisible.length, 1), 4)
-          }
-          gap={androidPreview ? 8 : 12}
-          align="stretch"
-          style={{ width: "100%", maxWidth: "100%" }}
-        >
-          {toolsVisible.map((tool) => {
-            const iconAccent = chromeIconAccent(tool.id, theme.category);
-            const badge = toolsModuleBadgeCount(tool.id, packets);
-            const badgeLabel = badge > 99 ? "99+" : String(badge);
-            /** Same destination as Tools secondary sidebar tile / prior Open. */
-            const openTool = () => {
-              setToolsModule(tool.id);
-              setToolsNav("prepare");
-            };
-            return (
-              <div
-                key={tool.id}
-                style={{
-                  width: "100%",
-                  minWidth: 0,
-                  height: "100%",
-                  display: "flex",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={openTool}
-                  style={{
-                    all: "unset",
-                    cursor: "pointer",
-                    display: "block",
-                    boxSizing: "border-box",
-                    width: "100%",
-                    height: "100%",
-                    background: chromeCardBg(theme),
-                    border: `1px solid ${waveChipAlpha(iconAccent, "55")}`,
-                    borderRadius: 12,
-                    padding: "20px 16px",
-                    minHeight: 112,
-                    textAlign: "center",
-                    color: theme.text.primary,
+        androidPreview ? (
+          <Stack gap={6} style={{ width: "100%" }}>
+            {toolsVisible.map((tool) => {
+              const badge = toolsModuleBadgeCount(tool.id, packets);
+              const tile: ModuleTile = {
+                id: tool.id,
+                label: t(uiLang, tool.labelKey),
+                hint: t(uiLang, tool.hintKey),
+                opens: "placeholder",
+                badgeCount: badge > 0 ? badge : undefined,
+              };
+              return (
+                <ModuleCard
+                  key={tool.id}
+                  tile={tile}
+                  onOpen={() => {
+                    setToolsModule(tool.id);
+                    setToolsNav("prepare");
                   }}
-                >
-                  <Stack gap={8} style={{ alignItems: "center" }}>
-                    <div
-                      style={{
-                        position: "relative",
-                        width: 44,
-                        height: 44,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 12,
-                          background: waveChipAlpha(iconAccent, "28"),
-                          border: `1px solid ${waveChipAlpha(iconAccent, "66")}`,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          boxSizing: "border-box",
-                        }}
-                      >
-                        <ModuleTileIcon
-                          tileId={tool.id}
-                          color={iconAccent}
-                        />
-                      </div>
-                      {badge > 0 ? (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: -5,
-                            right: -5,
-                            minWidth: 18,
-                            height: 18,
-                            padding: "0 5px",
-                            borderRadius: 999,
-                            background: theme.category.red,
-                            color: theme.text.onAccent,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            boxSizing: "border-box",
-                            border: `2px solid ${chromeCardBg(theme)}`,
-                            fontSize: 10,
-                            fontWeight: 700,
-                            lineHeight: 1,
-                          }}
-                          aria-label={`${badge} new`}
-                        >
-                          {badgeLabel}
-                        </div>
-                      ) : null}
-                    </div>
-                    <ChromeText
-                      weight="semibold"
-                      style={{ textAlign: "center", color: theme.text.primary }}
-                    >
-                      {t(uiLang, tool.labelKey)}
-                    </ChromeText>
-                    <ChromeText
-                      size="small"
-                      style={{
-                        textAlign: "center",
-                        color: chromeInkMuted(theme),
-                      }}
-                    >
-                      {t(uiLang, tool.hintKey)}
-                    </ChromeText>
-                  </Stack>
-                </button>
-              </div>
-            );
-          })}
-        </Grid>
+                />
+              );
+            })}
+          </Stack>
+        ) : (
+          <div
+            data-chrome="tools-modules-grid-v2"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, 152px)",
+              gap: 6,
+              width: "100%",
+              justifyContent: "start",
+              alignContent: "start",
+            }}
+          >
+            {toolsVisible.map((tool) => {
+              const badge = toolsModuleBadgeCount(tool.id, packets);
+              const tile: ModuleTile = {
+                id: tool.id,
+                label: t(uiLang, tool.labelKey),
+                hint: t(uiLang, tool.hintKey),
+                opens: "placeholder",
+                badgeCount: badge > 0 ? badge : undefined,
+              };
+              return (
+                <ModuleCard
+                  key={tool.id}
+                  tile={tile}
+                  onOpen={() => {
+                    setToolsModule(tool.id);
+                    setToolsNav("prepare");
+                  }}
+                />
+              );
+            })}
+          </div>
+        )
       ) : toolsModule === "ai-chat" ? (
         <AiChatToolsPanel uiLang={uiLang} />
       ) : toolsModule === "converter" ? (
