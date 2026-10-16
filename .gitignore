@@ -1,2 +1,2 @@
-demo-web/node_modules/
-demo-web/dist/
+demo-web/
+*.canvas.tsx
