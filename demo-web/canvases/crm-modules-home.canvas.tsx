@@ -33,8 +33,8 @@ import {
   type TableProps,
   type TextProps,
 } from "cursor/canvas";
-/** Bust stale canvas preview — Clients QA vs Modules section split. */
-const GMAIL_DUAL_NAV_BUILD = "v905-2026-10-15-worker-module-include-visible";
+/** Bust stale canvas preview — Trust Forms 1327/1322/1324 open LiveFile on select. */
+const GMAIL_DUAL_NAV_BUILD = "v983-2026-10-16-forms-radio-open-doc";
 /** Sibling canvas opened by header "Client portal (demo)". */
 const CLIENT_PORTAL_CANVAS_PATH = 'C:\\Users\\chana\\.cursor\\projects\\c-Users-chana-OneDrive-Desktop-Intertax-Programs-Accounting-CRM-Client-Portal\\canvases\\client-portal.canvas.tsx';
 /** Shared folder explorer tree/detail split width (% of row). */
@@ -53,16 +53,25 @@ const CRM_EXPLORER_SPLIT_MAX = 78;
  * explorer “Pin to sidebar”). Never share one list across workers.
  *
  * Pin fields:
- * - `id` — folder node id, or client id when kind is "client"
- * - `label` — short display name for the secondary row
- * - `sidebar` — which AppSecondarySidebar shows it: "work" | "billing" | "clients"
- * - `kind` — "folder" (default) | "client" (Clients list/card pins)
+ * - `id` — folder/file node id, or client id when kind is "client"
+ * - `label` — short display name for the secondary row / explorer Quick access
+ * - `sidebar` — which AppSecondarySidebar / explorer scope: "work" | "billing" | "clients"
+ * - `kind` — "folder" (default) | "client" | "file"
+ * - `surface` — "sidebar" (default, App secondary) | "quickAccess" (explorer left rail)
  *
  * Helpers: workerQuickAccessPins, pinsForQuickAccessSidebar,
- * upsertWorkerQuickAccessPin, removeWorkerQuickAccessPin,
+ * pinsForExplorerQuickAccess, upsertWorkerQuickAccessPin, removeWorkerQuickAccessPin,
  * renameWorkerQuickAccessPin.
  */
 const CRM_QUICK_ACCESS_BY_WORKER_KEY = "crmQuickAccessByWorker.v1";
+
+/**
+ * Firm-wide custom document types (Tax Return + Bookkeeping request Selects).
+ * useCanvasState key: `crmDocTypes.custom.v1` — string[] of labels; survives reload.
+ */
+const CRM_DOC_TYPES_CUSTOM_KEY = "crmDocTypes.custom.v1";
+const CRM_DOC_TYPE_CREATE_VALUE = "__create_doc_type__";
+
 
 /**
  * ── Firm / product branding (renameable; not locked to one company) ──
@@ -111,7 +120,10 @@ function crmProductBrandDisplayName(brand: CrmProductBrand): string {
 
 type QuickAccessSidebar = "work" | "billing" | "clients";
 
-type QuickAccessPinKind = "folder" | "client";
+type QuickAccessPinKind = "folder" | "client" | "file";
+
+/** sidebar = App secondary rail; quickAccess = explorer left-rail Quick access. */
+type QuickAccessPinSurface = "sidebar" | "quickAccess";
 
 type SidebarQuickAccessPin = {
   id: string;
@@ -119,6 +131,8 @@ type SidebarQuickAccessPin = {
   sidebar: QuickAccessSidebar;
   /** Defaults to "folder" when omitted. */
   kind?: QuickAccessPinKind;
+  /** Defaults to "sidebar" when omitted (legacy pins). */
+  surface?: QuickAccessPinSurface;
 };
 
 type QuickAccessByWorker = Record<string, SidebarQuickAccessPin[]>;
@@ -1105,7 +1119,11 @@ function Select({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => {
+        onClick={(e: { stopPropagation?: () => void }) => {
+          // Canvas Row/Stack do not forward onClick — stop here so clickable
+          // parent rows (Docs received one-click preview, etc.) cannot steal
+          // the gesture before the listbox opens.
+          e.stopPropagation?.();
           if (disabled) return;
           if (open) {
             closeMenu();
@@ -1115,6 +1133,12 @@ function Select({
           if (next) setMenuBox(next);
           claimSelectOpen(selectTokenRef.current, closeMenu);
           setOpen(true);
+        }}
+        onMouseDown={(e: { stopPropagation?: () => void }) => {
+          e.stopPropagation?.();
+        }}
+        onPointerDown={(e: { stopPropagation?: () => void }) => {
+          e.stopPropagation?.();
         }}
         style={{
           all: "unset",
@@ -3093,20 +3117,20 @@ const CRM_UI = {
   assignStaff: { en: "Assign staff", he: "שיוך עובדים" },
   myAssignments: { en: "My assignments", he: "השיוכים שלי" },
   assignStaffHint: {
-    en: "Pick a worker, then assign them by department — Bookkeeping, Audit Companies, Tax return, Trusts, Osek Patur, One-time. Assignments persist in this demo session.",
-    he: "בחרו עובד, ואז שייכו לפי מחלקה — הנה״ח, ביקורת חברות, דוח אישי, נאמנויות, עוסק פטור, חד־פעמי. השיוכים נשמרים בסשן הדמו.",
+    en: "Assign clients to workers. Module Visible grants live under System Admin → Company modules — this screen is client work assignment only.",
+    he: "שייכו לקוחות לעובדים. הרשאות מודולים נמצאות תחת מנהל מערכת → מודולי חברה — מסך זה מיועד לשיוך עבודת לקוחות בלבד.",
   },
   assignStaffPickWorker: {
-    en: "Staff member",
+    en: "Worker",
     he: "עובד",
   },
   assignStaffPickWorkerHint: {
-    en: "Search or choose who you are assigning work to.",
-    he: "חפשו או בחרו למי משייכים עבודה.",
+    en: "Choose the worker whose assignments you want to manage.",
+    he: "בחרו את העובד שאת שיוכיו תרצו לנהל.",
   },
   assignStaffSearchWorker: {
-    en: "Search staff…",
-    he: "חיפוש עובד…",
+    en: "Search workers…",
+    he: "חיפוש עובדים…",
   },
   assignStaffScopeClients: {
     en: "Clients",
@@ -3137,12 +3161,12 @@ const CRM_UI = {
     he: "חד־פעמי",
   },
   assignStaffAddEntity: {
-    en: "Add to this scope",
-    he: "הוספה להיקף זה",
+    en: "Add assignment",
+    he: "הוספת שיוך",
   },
   assignStaffSearchEntity: {
-    en: "Search name…",
-    he: "חיפוש שם…",
+    en: "Search clients…",
+    he: "חיפוש לקוחות…",
   },
   assignStaffAssignedTitle: {
     en: "Assignments for {name}",
@@ -3153,8 +3177,8 @@ const CRM_UI = {
     he: "למה אני משויך",
   },
   assignStaffMyHint: {
-    en: "Work your manager assigned you — by department (Bookkeeping, Audit Companies, Tax return, Trusts, Osek, One-time).",
-    he: "העבודה שהמנהל שייך אליכם — לפי מחלקה (הנה״ח, ביקורת חברות, דוח אישי, נאמנויות, עוסק פטור, חד־פעמי).",
+    en: "Read-only view of work assigned to you — by department (Bookkeeping, Audit Companies, Tax return, Trusts, Osek, One-time).",
+    he: "תצוגה לקריאה בלבד של העבודה ששויכה אליכם — לפי מחלקה (הנה״ח, ביקורת חברות, דוח אישי, נאמנויות, עוסק פטור, חד־פעמי).",
   },
   assignStaffEmptyScope: {
     en: "Nothing assigned in this scope yet.",
@@ -3173,12 +3197,260 @@ const CRM_UI = {
     he: "השיוכים עודכנו.",
   },
   assignStaffWorkerReadonly: {
-    en: "Workers can review their own assignments here. Managers and System Admins assign work from Workers → Assign staff.",
-    he: "עובדים יכולים לראות כאן את השיוכים שלהם. מנהלים ומנהלי מערכת משייכים עבודה מתוך עובדים → שיוך עובדים.",
+    en: "This is your personal assignment list. To assign clients to staff, open Workers → Assign staff (requires Assign staff access).",
+    he: "זו רשימת השיוכים האישית שלכם. כדי לשייך לקוחות לעובדים, פתחו עובדים → שיוך עובדים (דורש הרשאת שיוך עובדים).",
   },
   assignStaffCount: {
     en: "{n} assigned",
     he: "{n} משויכים",
+  },
+  assignStaffTabAll: {
+    en: "All assigned",
+    he: "כל השיוכים",
+  },
+  assignStaffTabWorker: {
+    en: "Per worker",
+    he: "לפי עובד",
+  },
+  assignStaffTabUnassigned: {
+    en: "Unassigned",
+    he: "ללא שיוך",
+  },
+  assignStaffAllHint: {
+    en: "Every client ↔ worker assignment. Sort, filter by worker, or search.",
+    he: "כל שיוכי לקוח ↔ עובד. מיון, סינון לפי עובד או חיפוש.",
+  },
+  assignStaffColClient: {
+    en: "Client",
+    he: "לקוח",
+  },
+  assignStaffColWorker: {
+    en: "Worker",
+    he: "עובד",
+  },
+  assignStaffColScope: {
+    en: "Scope",
+    he: "היקף",
+  },
+  assignStaffSortBy: {
+    en: "Sort by",
+    he: "מיון לפי",
+  },
+  assignStaffFilterWorker: {
+    en: "Filter by worker",
+    he: "סינון לפי עובד",
+  },
+  assignStaffFilterAllWorkers: {
+    en: "All workers",
+    he: "כל העובדים",
+  },
+  assignStaffFilterDept: {
+    en: "Filter by department",
+    he: "סינון לפי מחלקה",
+  },
+  assignStaffFilterAllDepts: {
+    en: "All departments",
+    he: "כל המחלקות",
+  },
+  assignStaffWorkerTabAll: {
+    en: "All assigned",
+    he: "כל השיוכים",
+  },
+  assignStaffPickScope: {
+    en: "Department",
+    he: "מחלקה",
+  },
+  assignStaffSearchPairs: {
+    en: "Search clients or workers…",
+    he: "חיפוש לקוחות או עובדים…",
+  },
+  assignStaffEmptyPairs: {
+    en: "No assignments match these filters.",
+    he: "אין שיוכים התואמים לסינון.",
+  },
+  assignStaffWorkerHint: {
+    en: "Assignments for one worker. Add more below, or upload an Excel batch with auto-match.",
+    he: "שיוכים לעובד אחד. הוסיפו למטה, או העלו Excel עם התאמה אוטומטית.",
+  },
+  assignStaffUnassignedHint: {
+    en: "Clients with no worker yet. Pick a worker and assign, or upload Excel and auto-match.",
+    he: "לקוחות ללא עובד. בחרו עובד ושייכו, או העלו Excel והתאימו אוטומטית.",
+  },
+  assignStaffAssignTo: {
+    en: "Assign to",
+    he: "שייך אל",
+  },
+  assignStaffAssignSelected: {
+    en: "Assign selected",
+    he: "שייך נבחרים",
+  },
+  assignStaffEmptyUnassigned: {
+    en: "Every client in scope already has at least one worker.",
+    he: "לכל לקוח בהיקף כבר יש לפחות עובד אחד.",
+  },
+  assignStaffModuleNote: {
+    en: "Client assignment (this screen) is separate from module Visible grants (Company modules → Workers).",
+    he: "שיוך לקוחות (מסך זה) נפרד מהרשאות Visible למודולים (מודולי חברה → עובדים).",
+  },
+  assignStaffOpenMyAssignments: {
+    en: "My assignments",
+    he: "השיוכים שלי",
+  },
+  assignStaffExcelTitle: {
+    en: "Upload Excel · batch assign",
+    he: "העלאת Excel · שיוך מרוכז",
+  },
+  assignStaffExcelHint: {
+    en: "Demo workbook: Worker + Client columns. Auto-match like Files import (Sumit-style), then apply selected pairs.",
+    he: "קובץ דמו: עמודות עובד + לקוח. התאמה אוטומטית בסגנון ייבוא קבצים (Sumit), ואז החלת הזוגות שנבחרו.",
+  },
+  assignStaffExcelUpload: {
+    en: "Upload Excel",
+    he: "העלאת Excel",
+  },
+  assignStaffExcelAutoMatch: {
+    en: "Automatic match",
+    he: "התאמה אוטומטית",
+  },
+  assignStaffExcelManualMatch: {
+    en: "Manual match",
+    he: "התאמה ידנית",
+  },
+  assignStaffExcelCompare: {
+    en: "Field for comparison",
+    he: "שדה להשוואה",
+  },
+  assignStaffExcelCompareName: {
+    en: "Client name",
+    he: "שם לקוח",
+  },
+  assignStaffExcelCompareId: {
+    en: "ID / company no.",
+    he: "מספר זהות / ח.פ.",
+  },
+  assignStaffExcelApply: {
+    en: "Apply selected assignments",
+    he: "החל שיוכים נבחרים",
+  },
+  assignStaffExcelMatched: {
+    en: "Matched pairs",
+    he: "זוגות מותאמים",
+  },
+  assignStaffExcelUnmatched: {
+    en: "Needs manual match",
+    he: "דורש התאמה ידנית",
+  },
+  assignStaffExcelEmpty: {
+    en: "Upload Excel to load a demo batch, then run Automatic match.",
+    he: "העלו Excel לטעינת אצווה לדוגמה, ואז הרצו התאמה אוטומטית.",
+  },
+  assignStaffExcelApplied: {
+    en: "Applied {n} assignment(s) from Excel.",
+    he: "הוחלו {n} שיוכים מ־Excel.",
+  },
+  assignStaffExcelLoaded: {
+    en: "Demo Excel loaded ({n} rows). Run Automatic match to pair workers and clients.",
+    he: "Excel דמו נטען ({n} שורות). הריצו התאמה אוטומטית לזיווג עובדים ולקוחות.",
+  },
+  assignStaffExcelColExcelWorker: {
+    en: "Excel worker",
+    he: "עובד ב־Excel",
+  },
+  assignStaffExcelColExcelClient: {
+    en: "Excel client",
+    he: "לקוח ב־Excel",
+  },
+  assignStaffExcelPickWorker: {
+    en: "Match worker…",
+    he: "התאם עובד…",
+  },
+  assignStaffExcelPickClient: {
+    en: "Match client…",
+    he: "התאם לקוח…",
+  },
+  assignStaffTemplateDownload: {
+    en: "Template download",
+    he: "הורדת תבנית",
+  },
+  assignStaffExcelOptions: {
+    en: "Excel options",
+    he: "אפשרויות Excel",
+  },
+  assignStaffExcelMergeCards: {
+    en: "Merge cards (Sumit)",
+    he: "מיזוג כרטיסים (Sumit)",
+  },
+  assignStaffExcelMergeHint: {
+    en: "Sumit-style: Automatic / Manual match with a compare field — same board as after Upload Excel.",
+    he: "בסגנון Sumit: התאמה אוטומטית / ידנית עם שדה להשוואה — אותו לוח כמו אחרי העלאת Excel.",
+  },
+  assignStaffExcelExportData: {
+    en: "Export data (template)",
+    he: "יצוא נתונים (תבנית)",
+  },
+  assignStaffExcelImportData: {
+    en: "Import data (upload)",
+    he: "יבוא נתונים (העלאה)",
+  },
+  assignStaffTemplateDeptOptional: {
+    en: "Choose department (optional)",
+    he: "בחירת מחלקה (אופציונלי)",
+  },
+  assignStaffTemplateEverything: {
+    en: "All departments",
+    he: "כל המחלקות",
+  },
+  assignStaffTemplateDownloaded: {
+    en: "Demo template downloaded",
+    he: "תבנית הדמו הורדה",
+  },
+  assignStaffUploadDeptTitle: {
+    en: "Upload assignments",
+    he: "העלאת שיוכים",
+  },
+  assignStaffUploadDeptHint: {
+    en: "Which department are you uploading to? Choose Everything to categorize from the template Category column.",
+    he: "לאיזו מחלקה מעלה? בחרו Everything כדי לסווג לפי עמודת הקטגוריה בתבנית.",
+  },
+  assignStaffUploadEverything: {
+    en: "Everything",
+    he: "הכל",
+  },
+  assignStaffUploadContinue: {
+    en: "Continue",
+    he: "המשך",
+  },
+  assignStaffExcelPreviewTitle: {
+    en: "Upload preview",
+    he: "תצוגה מקדימה",
+  },
+  assignStaffExcelPreviewHint: {
+    en: "Review rows before matching. Filter by client or department, then continue to Automatic / Manual match.",
+    he: "בדקו שורות לפני ההתאמה. סננו לפי לקוח או מחלקה, ואז המשיכו להתאמה אוטומטית / ידנית.",
+  },
+  assignStaffExcelPreviewFilterClient: {
+    en: "Filter by client",
+    he: "סינון לפי לקוח",
+  },
+  assignStaffExcelPreviewFilterDept: {
+    en: "Filter by department",
+    he: "סינון לפי מחלקה",
+  },
+  assignStaffExcelPreviewContinue: {
+    en: "Continue to match",
+    he: "המשך להתאמה",
+  },
+  assignStaffExcelColCategory: {
+    en: "Category",
+    he: "קטגוריה",
+  },
+  assignStaffExcelCancel: {
+    en: "Cancel",
+    he: "ביטול",
+  },
+  assignStaffExcelBackPreview: {
+    en: "Back to preview",
+    he: "חזרה לתצוגה מקדימה",
   },
   reports: { en: "Reports", he: "דוחות" },
   reportsModuleHint: {
@@ -4780,11 +5052,23 @@ const CRM_UI = {
     en: "This month's stages",
     he: "שלבי החודש",
   },
+  bkCurrentStage: {
+    en: "Current stage",
+    he: "השלב הנוכחי",
+  },
+  bkAllStagesComplete: {
+    en: "All stages complete this month",
+    he: "כל שלבי החודש הושלמו",
+  },
+  bkGoToCurrentStage: {
+    en: "Go to current stage",
+    he: "מעבר לשלב הנוכחי",
+  },
   bkNavSettings: { en: "Settings", he: "הגדרות" },
   bkSettingsTitle: { en: "Bookkeeping settings", he: "הגדרות הנה״ח" },
   bkSettingsHint: {
-    en: "These choices decide which month steps this client has, and whether the VAT and Salaries tabs show.",
-    he: "הבחירות האלה קובעות אילו שלבים חודשיים יש ללקוח, והאם לשוניות מע״מ ומשכורות מוצגות.",
+    en: "These choices decide which month steps this client has, and which of VAT, Advances, Salaries, and Reconciliations show as tabs.",
+    he: "הבחירות האלה קובעות אילו שלבים חודשיים יש ללקוח, ואילו מלשוניות מע״מ, מקדמות, משכורות והתאמות מוצגות.",
   },
   bkSettingsVat: { en: "VAT", he: "מע״מ" },
   bkSettingsAdvances: { en: "Advances", he: "מקדמות" },
@@ -4806,6 +5090,27 @@ const CRM_UI = {
   bkSettingsBimonthlyHint: {
     en: "Bimonthly report and payment steps appear on Feb, Apr, Jun, Aug, Oct, and Dec.",
     he: "שלבי דיווח ותשלום דו-חודשיים מופיעים בפברואר, אפריל, יוני, אוגוסט, אוקטובר ודצמבר.",
+  },
+  bkNavAdvances: { en: "Advances", he: "מקדמות" },
+  bkNavReconciliations: { en: "Reconciliations", he: "התאמות" },
+  bkStageNote: { en: "Note", he: "הערה" },
+  bkStageNotePh: {
+    en: "Short note for this month",
+    he: "הערה קצרה לחודש הזה",
+  },
+  bkStageNotDue: {
+    en: "Report and payment are not due this month.",
+    he: "דיווח ותשלום לא חלים בחודש הזה.",
+  },
+  bkStageOpen: { en: "Open", he: "פתיחה" },
+  bkStageNavPrevious: { en: "Previous", he: "הקודם" },
+  bkStageNavCaption: { en: "This stage", he: "השלב" },
+  bkStageOpenFolder: { en: "Open in folder", he: "פתיחה בתיקייה" },
+  bkStageOpenMasav: { en: "Open Masav tool", he: "פתיחת כלי מס״ב" },
+  bkStageWorkingPapers: { en: "Working papers", he: "ניירות עבודה" },
+  bkStageSalariesHint: {
+    en: "Prepare salaries, transfer them, then report and pay income tax and National Insurance.",
+    he: "הכנת משכורות, העברה, ואז דיווח ותשלום מס הכנסה וביטוח לאומי.",
   },
   bkCheckExpReceive: {
     en: "Receive expenses from the client",
@@ -4906,6 +5211,42 @@ const CRM_UI = {
     en: "Forms",
     he: "טפסים",
   },
+  taxReturnFormsReceivedHint: {
+    en: "Documents received from the client via email, WhatsApp, or portal for this tax year (not the working folder).",
+    he: "מסמכים שהתקבלו מהלקוח באימייל, וואטסאפ או פורטל לשנת המס (לא תיקיית העבודה).",
+  },
+  taxReturnFormsChannelAll: {
+    en: "All",
+    he: "הכל",
+  },
+  taxReturnFormsChannelEmail: {
+    en: "Email",
+    he: "אימייל",
+  },
+  taxReturnFormsChannelWhatsApp: {
+    en: "WhatsApp",
+    he: "וואטסאפ",
+  },
+  taxReturnFormsChannelPortal: {
+    en: "Portal",
+    he: "פורטל",
+  },
+  taxReturnFormsReceivedEmpty: {
+    en: "No received documents for this year yet.",
+    he: "אין עדיין מסמכים שהתקבלו לשנה זו.",
+  },
+  taxReturnFormsStatusReceived: {
+    en: "Received",
+    he: "התקבל",
+  },
+  taxReturnFormsStatusReviewed: {
+    en: "Reviewed",
+    he: "נבדק",
+  },
+  taxReturnFormsStatusFiled: {
+    en: "Filed",
+    he: "תויק",
+  },
   taxReturnNavFolder: {
     en: "Working folder",
     he: "תיקיית עבודה",
@@ -4987,12 +5328,120 @@ const CRM_UI = {
     he: "הדוח הסתיים — הלקוח בתכנית חיוב {schedule} (ללא חשבונית בסיום).",
   },
   taxReturnRequestDoc: {
-    en: "Request document from client",
-    he: "בקשת מסמך מהלקוח",
+    en: "Request documents from client",
+    he: "בקשת מסמכים מהלקוח",
   },
   taxReturnRequestDocHint: {
-    en: "Choose channels: portal, email, WhatsApp, and/or worker chat — all selected channels can be combined.",
-    he: "בחרו ערוצים: פורטל, אימייל, וואטסאפ ו/או צ׳אט עובד — אפשר לשלב את כל הערוצים שנבחרו.",
+    en: "Build a list of documents, choose channels (portal, email, WhatsApp, and/or worker chat), preview the message, then send.",
+    he: "בנו רשימת מסמכים, בחרו ערוצים (פורטל, אימייל, וואטסאפ ו/או צ׳אט עובד), הציגו תצוגה מקדימה ואז שלחו.",
+  },
+  taxReturnAddEmail: {
+    en: "Add email",
+    he: "הוספת אימייל",
+  },
+  taxReturnAddPhone: {
+    en: "Add WhatsApp number",
+    he: "הוספת מספר וואטסאפ",
+  },
+  reqComposeFrom: {
+    en: "From",
+    he: "מאת",
+  },
+  reqComposeTo: {
+    en: "To",
+    he: "אל",
+  },
+  reqComposeCc: {
+    en: "Cc",
+    he: "עותק",
+  },
+  reqComposeBcc: {
+    en: "Bcc",
+    he: "עותק מוסתר",
+  },
+  reqComposeAddCc: {
+    en: "Add Cc",
+    he: "הוספת עותק",
+  },
+  reqComposeAddBcc: {
+    en: "Add Bcc",
+    he: "הוספת עותק מוסתר",
+  },
+  reqComposeAddWhatsApp: {
+    en: "Add WhatsApp",
+    he: "הוספת וואטסאפ",
+  },
+  reqComposeWhatsAppTo: {
+    en: "WhatsApp phone(s)",
+    he: "טלפון(ים) וואטסאפ",
+  },
+  reqComposeWhatsAppPreview: {
+    en: "WhatsApp message",
+    he: "הודעת וואטסאפ",
+  },
+  reqComposeBody: {
+    en: "Message",
+    he: "הודעה",
+  },
+  reqComposeBold: {
+    en: "Bold",
+    he: "מודגש",
+  },
+  reqComposeItalic: {
+    en: "Italic",
+    he: "נטוי",
+  },
+  reqComposeColor: {
+    en: "Color",
+    he: "צבע",
+  },
+  reqComposeSignature: {
+    en: "Signature",
+    he: "חתימה",
+  },
+  reqComposeSignatureEn: {
+    en: "—\nIntertax · Client requests desk",
+    he: "—\nIntertax · Client requests desk",
+  },
+  reqComposeSignatureHe: {
+    en: "—\nIntertax · דלפק בקשות לקוחות",
+    he: "—\nIntertax · דלפק בקשות לקוחות",
+  },
+  reqComposeTabEmail: {
+    en: "Email",
+    he: "אימייל",
+  },
+  reqComposeTabPortal: {
+    en: "Portal",
+    he: "פורטל",
+  },
+  reqComposeTabWhatsApp: {
+    en: "WhatsApp",
+    he: "וואטסאפ",
+  },
+  reqComposeTabWorkerChat: {
+    en: "Worker chat",
+    he: "צ׳אט עובד",
+  },
+  reqComposeRecipientsFlash: {
+    en: "To: {to}",
+    he: "אל: {to}",
+  },
+  reqComposeCcFlash: {
+    en: "Cc: {cc}",
+    he: "עותק: {cc}",
+  },
+  reqComposeBccFlash: {
+    en: "Bcc: {bcc}",
+    he: "עותק מוסתר: {bcc}",
+  },
+  reqComposePhonesFlash: {
+    en: "WhatsApp: {phones}",
+    he: "וואטסאפ: {phones}",
+  },
+  taxReturnPreviewConfirm: {
+    en: "Confirm & send",
+    he: "אישור ושליחה",
   },
   taxReturnDocName: {
     en: "Document name",
@@ -5013,7 +5462,18 @@ const CRM_UI = {
     he: "פנסיה / טופס 867",
   },
   taxReturnDocTypeId: { en: "ID / passport", he: "ת.ז. / דרכון" },
+  taxReturnDocTypeDonations: { en: "Donations", he: "תרומות" },
   taxReturnDocTypeOther: { en: "Other supporting doc", he: "מסמך תומך אחר" },
+  taxReturnDocTypeCreate: {
+    en: "Create new type…",
+    he: "יצירת סוג חדש…",
+  },
+  taxReturnDocTypeCreatePh: {
+    en: "New document type name",
+    he: "שם סוג מסמך חדש",
+  },
+  taxReturnDocTypeCreateAdd: { en: "Add", he: "הוסף" },
+  taxReturnDocTypeCreateCancel: { en: "Cancel", he: "ביטול" },
   taxReturnSendPortal: {
     en: "Send to client portal",
     he: "שליחה לפורטל הלקוח",
@@ -5183,8 +5643,8 @@ const CRM_UI = {
     he: "נתיב",
   },
   taxReturnFolderViewList: {
-    en: "List",
-    he: "רשימה",
+    en: "Details",
+    he: "פרטים",
   },
   taxReturnFolderViewGrid: {
     en: "Grid",
@@ -5193,6 +5653,66 @@ const CRM_UI = {
   taxReturnFolderViewIcons: {
     en: "Icons",
     he: "סמלים",
+  },
+  taxReturnFolderUp: {
+    en: "Up",
+    he: "למעלה",
+  },
+  taxReturnFolderBack: {
+    en: "Back",
+    he: "חזרה",
+  },
+  taxReturnFolderForward: {
+    en: "Forward",
+    he: "קדימה",
+  },
+  taxReturnFolderRefresh: {
+    en: "Refresh",
+    he: "רענון",
+  },
+  taxReturnFolderSearch: {
+    en: "Search",
+    he: "חיפוש",
+  },
+  taxReturnFolderSortBy: {
+    en: "Sort by",
+    he: "מיון לפי",
+  },
+  taxReturnFolderSortAsc: {
+    en: "Ascending",
+    he: "סדר עולה",
+  },
+  taxReturnFolderSortDesc: {
+    en: "Descending",
+    he: "סדר יורד",
+  },
+  taxReturnFolderThisPc: {
+    en: "This PC",
+    he: "המחשב הזה",
+  },
+  taxReturnFolderCopyPath: {
+    en: "Copy path",
+    he: "העתק נתיב",
+  },
+  taxReturnFolderPathCopied: {
+    en: "Path copied",
+    he: "הנתיב הועתק",
+  },
+  taxReturnFolderStatusSelected: {
+    en: "{n} item selected",
+    he: "נבחר פריט אחד",
+  },
+  taxReturnFolderStatusSelectedPlural: {
+    en: "{n} items selected",
+    he: "נבחרו {n} פריטים",
+  },
+  taxReturnFolderStatusCount: {
+    en: "{n} items",
+    he: "{n} פריטים",
+  },
+  taxReturnFolderNavQuickAccess: {
+    en: "Quick access",
+    he: "גישה מהירה",
   },
   taxReturnFolderItems: {
     en: "Items",
@@ -5207,24 +5727,40 @@ const CRM_UI = {
     he: "פתיחה / הרחבה",
   },
   taxReturnFolderCtxOpenPreview: {
-    en: "Open / Preview",
-    he: "פתיחה / תצוגה מקדימה",
+    en: "Open (Windows default)",
+    he: "פתיחה (ברירת מחדל Windows)",
   },
-  taxReturnFolderCtxPinQuickAccess: {
-    en: "Pin to sidebar",
+  taxReturnFolderCtxPinSidebar: {
+    en: "Pin to Sidebar",
     he: "הצמדה לסרגל הצד",
   },
-  taxReturnFolderCtxUnpinQuickAccess: {
-    en: "Unpin from sidebar",
+  taxReturnFolderCtxUnpinSidebar: {
+    en: "Unpin from Sidebar",
     he: "ביטול הצמדה מסרגל הצד",
   },
+  taxReturnFolderCtxPinQuickAccess: {
+    en: "Pin to Quick Access",
+    he: "הצמדה לגישה מהירה",
+  },
+  taxReturnFolderCtxUnpinQuickAccess: {
+    en: "Unpin from Quick Access",
+    he: "ביטול הצמדה מגישה מהירה",
+  },
   taxReturnFolderPinFlash: {
-    en: "Pinned to sidebar",
+    en: "Pinned to Sidebar",
     he: "הוצמד לסרגל הצד",
   },
   taxReturnFolderUnpinFlash: {
-    en: "Removed from sidebar",
+    en: "Removed from Sidebar",
     he: "הוסר מסרגל הצד",
+  },
+  taxReturnFolderPinQuickAccessFlash: {
+    en: "Pinned to Quick Access",
+    he: "הוצמד לגישה מהירה",
+  },
+  taxReturnFolderUnpinQuickAccessFlash: {
+    en: "Removed from Quick Access",
+    he: "הוסר מגישה מהירה",
   },
   driveQuickAccess: {
     en: "Quick access",
@@ -5335,6 +5871,67 @@ const CRM_UI = {
     en: "Zip download started (demo) — {name}",
     he: "הורדת Zip החלה (דמו) — {name}",
   },
+
+  liveFileSave: { en: "Save", he: "שמירה" },
+  liveFileDownload: { en: "Download", he: "הורדה" },
+  liveFileClose: { en: "Close", he: "סגירה" },
+  liveFileDirty: { en: "Unsaved changes", he: "שינויים שלא נשמרו" },
+  liveFileSavedTo: {
+    en: "Saved to {path}",
+    he: "נשמר אל {path}",
+  },
+  liveFileDiscardPrompt: {
+    en: "You have unsaved edits. Save before closing?",
+    he: "יש עריכות שלא נשמרו. לשמור לפני סגירה?",
+  },
+  liveFileDiscard: { en: "Discard", he: "ביטול שינויים" },
+  liveFileKeepEditing: { en: "Keep editing", he: "המשך עריכה" },
+  liveFileExcelTitle: {
+    en: "Spreadsheet — live edit",
+    he: "גיליון — עריכה חיה",
+  },
+  liveFilePdfTitle: {
+    en: "PDF — in-app viewer",
+    he: "PDF — צופה באפליקציה",
+  },
+  liveFileOtherTitle: {
+    en: "File — in-app workspace",
+    he: "קובץ — סביבת עבודה באפליקציה",
+  },
+  liveFileAddRow: { en: "Add row", he: "הוסף שורה" },
+  liveFileTitleField: { en: "Document title", he: "כותרת מסמך" },
+  liveFileNotesField: { en: "Notes / annotations", he: "הערות / סימונים" },
+  liveFileNotesPh: {
+    en: "Type notes that save with this file…",
+    he: "כתבו הערות שיישמרו עם הקובץ…",
+  },
+  liveFileMarkRevised: {
+    en: "Mark content revised",
+    he: "סמן תוכן כעודכן",
+  },
+  liveFileContentRevised: {
+    en: "Content revised",
+    he: "תוכן עודכן",
+  },
+  liveFilePrevPage: { en: "Previous", he: "הקודם" },
+  liveFileNextPage: { en: "Next", he: "הבא" },
+  liveFileOpenEdit: {
+    en: "Open & edit in CRM",
+    he: "פתיחה ועריכה ב-CRM",
+  },
+  liveFileOpenWindowsDefault: {
+    en: "Open (Windows default)",
+    he: "פתיחה (ברירת מחדל Windows)",
+  },
+  liveFileOsOpenHint: {
+    en: "Click to preview · Double-click or right-click → Open for Windows",
+    he: "לחיצה לתצוגה מקדימה · לחיצה כפולה או ימנית → פתיחה ב-Windows",
+  },
+  liveFileOsOpeningToast: {
+    en: "Opening with default Windows app…",
+    he: "נפתח באפליקציית Windows ברירת המחדל…",
+  },
+
   taxReturnFolderRenamePh: {
     en: "New name",
     he: "שם חדש",
@@ -5464,6 +6061,18 @@ const CRM_UI = {
     en: "Completed",
     he: "הושלם",
   },
+  stageNavNext: {
+    en: "Next",
+    he: "הבא",
+  },
+  bananaWithinFlow: {
+    en: "Within Banana: Upload → Converter → Download",
+    he: "בתוך באננה: העלאה → ממיר → הורדה",
+  },
+  bananaConverterModuleNote: {
+    en: "Same Converter module as Tools — convert the bank statement PDF here. Stays on this Trust Banana stage.",
+    he: "אותו מודול ממיר כמו בכלים — המירו כאן את דף הבנק PDF. נשארים בשלב באננה בנאמנות.",
+  },
   stageNavCompletedFlashTitle: {
     en: "Stage completed",
     he: "השלב הושלם",
@@ -5493,8 +6102,97 @@ const CRM_UI = {
     he: "לקוח בפורטל",
   },
   trustDocRequestHint: {
-    en: "Request documents by Email, Portal, or WhatsApp. Rows expand after a request is sent.",
-    he: "בקשו מסמכים באימייל, בפורטל או בוואטסאפ. השורה נפתחת אחרי שליחת בקשה.",
+    en: "Choose Email, Portal, or WhatsApp to open a message popout. Send sets the row to Requested.",
+    he: "בחרו אימייל, פורטל או וואטסאפ לפתיחת חלון הודעה. שליחה מסמנת את השורה כהתבקש.",
+  },
+  trustDocChannelSentFlash: {
+    en: "Request sent via {channel} (demo log). Status set to Requested.",
+    he: "הבקשה נשלחה ב{channel} (יומן הדגמה). הסטטוס עודכן להתבקש.",
+  },
+
+  trustDocsTabRequests: {
+    en: "Requests",
+    he: "בקשות",
+  },
+  trustDocsTabReceived: {
+    en: "Docs received",
+    he: "מסמכים שהתקבלו",
+  },
+  docsReqTabForms: {
+    en: "Forms",
+    he: "טפסים",
+  },
+  docsReqFormsHint: {
+    en: "Forms and documents already in play for this period (uploaded / filed).",
+    he: "טפסים ומסמכים שכבר בטיפול לתקופה זו (הועלו / הוגשו).",
+  },
+  docsReqFormsEmpty: {
+    en: "No forms in play yet — upload or mark received from Requests.",
+    he: "אין עדיין טפסים בטיפול — העלו או סמנו שהתקבל מתוך בקשות.",
+  },
+  docReqFlowSent: {
+    en: "Sent",
+    he: "נשלח",
+  },
+  docReqFlowReceived: {
+    en: "Received",
+    he: "התקבל",
+  },
+  trustDocsReceivedHint: {
+    en: "Files that came back via email, portal, or WhatsApp after you requested them. Map each file to a request, then mark OK or Not OK.",
+    he: "קבצים שחזרו באימייל, פורטל או וואטסאפ אחרי הבקשה. שייכו כל קובץ לבקשה, ואז סמנו OK או לא OK.",
+  },
+  trustDocsPurposeLabel: {
+    en: "What is this doc for?",
+    he: "למה מיועד המסמך?",
+  },
+  trustDocsPurposePlaceholder: {
+    en: "Choose purpose…",
+    he: "בחרו מטרה…",
+  },
+  trustDocsReviewOk: {
+    en: "OK",
+    he: "OK",
+  },
+  trustDocsReviewNotOk: {
+    en: "Not OK",
+    he: "לא OK",
+  },
+  trustDocsReceivedEmpty: {
+    en: "No received documents yet for this period.",
+    he: "אין עדיין מסמכים שהתקבלו לתקופה זו.",
+  },
+  trustDocsResendFlash: {
+    en: "Resend sent via {channel} (demo log).",
+    he: "נשלחה בקשה מחדש ב{channel} (יומן הדגמה).",
+  },
+  trustDocsResentMessage: {
+    en: "Resent message",
+    he: "הודעה נשלחה מחדש",
+  },
+  trustDocsLinkedRequest: {
+    en: "Linked request",
+    he: "בקשה מקושרת",
+  },
+  stageNavUndoCompleted: {
+    en: "Undo completed",
+    he: "ביטול הושלם",
+  },
+  bkChannelRequestVia: {
+    en: "Send via channel…",
+    he: "שליחה בערוץ…",
+  },
+  bkChannelRequestedPill: {
+    en: "Requested",
+    he: "התבקש",
+  },
+  bkRequestPreviewPortal: {
+    en: "Portal notification",
+    he: "התראת פורטל",
+  },
+  bkRequestPreviewSubject: {
+    en: "Subject",
+    he: "נושא",
   },
   trustOpenCurrentStage: {
     en: "Open current stage",
@@ -5613,12 +6311,12 @@ const CRM_UI = {
     he: "תצוגת הודעת בקשה",
   },
   bkRequestPreviewEmail: {
-    en: "Recipient email",
-    he: "אימייל נמען",
+    en: "Recipient email(s)",
+    he: "אימייל(ים) לנמען",
   },
   bkRequestPreviewWhatsApp: {
-    en: "WhatsApp phone",
-    he: "טלפון וואטסאפ",
+    en: "WhatsApp phone(s)",
+    he: "טלפון(ים) וואטסאפ",
   },
   bkUploadManual: {
     en: "Upload manually (demo)",
@@ -10117,19 +10815,45 @@ const CRM_UI = {
   workerFilesUpload: { en: "Upload file", he: "העלאת קובץ" },
   workerFilesUploadTo: { en: "Upload to", he: "העלאה אל" },
   workerFilesRequestChecklist: {
-    en: "Request checklist from admin",
+    en: "Ask admin for a checklist",
     he: "בקשת רשימת מסמכים מהמנהל",
   },
   workerFilesRequestHint: {
-    en: "Workers request a document checklist; Admin / System Admin can mark requests done.",
-    he: "עובדים מבקשים רשימת מסמכים; מנהל / מנהל מערכת יכולים לסמן שבוצע.",
+    en: "Admin requests documents from this worker (channels → See message → send). Worker sees pending items and uploads into the folders above.",
+    he: "המנהל מבקש מסמכים מהעובד (ערוצים → הצג הודעה → שליחה). העובד רואה פריטים ממתינים ומעלה לתיקיות למעלה.",
   },
+  workerFilesRequestHintWorker: {
+    en: "Documents your admin asked you to upload. Use Upload above, then admin marks the request done.",
+    he: "מסמכים שהמנהל ביקש שתעלו. השתמשו בהעלאה למעלה, ואז המנהל מסמן שבוצע.",
+  },
+  workerFilesAdminComposeHint: {
+    en: "Describe the document, tick channel(s), then See message to preview and send.",
+    he: "תארו את המסמך, סמנו ערוץ/ים, ואז הצג הודעה לתצוגה ושליחה.",
+  },
+  workerFilesDocPlaceholder: {
+    en: "e.g. Updated Form 101 for 2026",
+    he: "לדוגמה: טופס 101 מעודכן ל־2026",
+  },
+  workerFilesPickChannel: {
+    en: "Select at least one channel (email, WhatsApp, or worker chat).",
+    he: "בחרו לפחות ערוץ אחד (אימייל, וואטסאפ או צ׳אט עובד).",
+  },
+  workerFilesSendEmail: { en: "Email", he: "אימייל" },
+  workerFilesSendWhatsApp: { en: "WhatsApp", he: "וואטסאפ" },
+  workerFilesSendWorkerChat: { en: "Worker chat", he: "צ׳אט עובד" },
   workerFilesChecklistPending: { en: "Pending", he: "ממתין" },
   workerFilesChecklistDone: { en: "Done", he: "בוצע" },
   workerFilesMarkDone: { en: "Mark done", he: "סמן בוצע" },
+  workerFilesOriginAdmin: { en: "From admin", he: "מהמנהל" },
+  workerFilesOriginWorker: { en: "Worker ask", he: "בקשת עובד" },
+  workerFilesChannelsCol: { en: "Channels", he: "ערוצים" },
+  workerFilesEmptyRequests: {
+    en: "No checklist requests yet.",
+    he: "אין עדיין בקשות רשימה.",
+  },
   workerFilesAdminWillSend: {
-    en: "Admin will send a checklist after reviewing your request.",
-    he: "המנהל ישלח רשימת מסמכים לאחר בדיקת הבקשה.",
+    en: "Use this only if you need admin to send you a blank checklist template.",
+    he: "השתמשו בזה רק אם אתם צריכים שהמנהל ישלח תבנית רשימה ריקה.",
   },
   workerFilesRequests: { en: "Checklist requests", he: "בקשות רשימה" },
   workerFilesColName: { en: "File", he: "קובץ" },
@@ -10142,6 +10866,12 @@ const CRM_UI = {
   workerFilesDemoAdded: {
     en: "Demo upload added to the list.",
     he: "קובץ דמו נוסף לרשימה.",
+  },
+  workerFilesViewFolders: { en: "Folders", he: "תיקיות" },
+  workerFilesFolderRoot: { en: "All folders", he: "כל התיקיות" },
+  workerFilesFolderItems: {
+    en: "files",
+    he: "קבצים",
   },
   filesRootTitle: { en: "Files root", he: "שורש קבצים" },
   filesRootHint: {
@@ -12922,6 +13652,21 @@ function newBkDocReqDraft(type = "bank"): BkDocReqDraft {
   return { id: `bk-draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: "", type };
 }
 
+/** Draft row in tax-return multi-document request composer. */
+type TaxReturnDocReqDraft = {
+  id: string;
+  name: string;
+  type: string;
+};
+
+function newTaxReturnDocReqDraft(type = "form-106"): TaxReturnDocReqDraft {
+  return {
+    id: `tr-draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: "",
+    type,
+  };
+}
+
 /** Normalize for matching Managed by → firm worker name / id. */
 function normalizePersonKey(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -13078,6 +13823,141 @@ function DocRequestEyeViewButton({
     </button>
   );
 }
+
+
+/** Sent (outbound) — blue / accent. Received (inbound) — green. Intentional color. */
+const DOC_REQ_SENT_COLOR = "#1A73E8";
+const DOC_REQ_RECEIVED_COLOR = "#1E8E3E";
+
+type DocRequestFlowKind = "sent" | "received";
+
+function docRequestFlowColor(kind: DocRequestFlowKind): string {
+  return kind === "sent" ? DOC_REQ_SENT_COLOR : DOC_REQ_RECEIVED_COLOR;
+}
+
+/** Paper-plane (sent) / inbox-down (received) — colored request-status glyphs. */
+function DocRequestFlowGlyph({
+  kind,
+  size = 14,
+  title,
+}: {
+  kind: DocRequestFlowKind;
+  size?: number;
+  title?: string;
+}) {
+  const color = docRequestFlowColor(kind);
+  const label =
+    title ??
+    (kind === "sent" ? "Sent" : "Received");
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color,
+      }}
+    >
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.85}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        style={{ display: "block" }}
+      >
+        {kind === "sent" ? (
+          <>
+            <path d="M22 2L11 13" />
+            <path d="M22 2L15 22l-4-9-9-4 20-7z" />
+          </>
+        ) : (
+          <>
+            <path d="M4 7.5h16v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-11z" />
+            <path d="M4 7.5l2.5-3.5h11L20 7.5" />
+            <path d="M12 11v6" />
+            <path d="M9.5 14.5L12 17l2.5-2.5" />
+          </>
+        )}
+      </svg>
+    </span>
+  );
+}
+
+function DocRequestFlowBadge({
+  kind,
+  uiLang,
+  size = "sm",
+  count,
+}: {
+  kind: DocRequestFlowKind;
+  uiLang: UiLang;
+  size?: "sm" | "md";
+  /** Optional round count pill (legend chips). */
+  count?: number;
+}) {
+  const color = docRequestFlowColor(kind);
+  const label =
+    kind === "sent"
+      ? t(uiLang, "docReqFlowSent")
+      : t(uiLang, "docReqFlowReceived");
+  const pad = size === "sm" ? "2px 6px" : "3px 8px";
+  const showCount = typeof count === "number" && Number.isFinite(count);
+  const countPx = size === "sm" ? 17 : 18;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: pad,
+        borderRadius: 999,
+        border: `1px solid ${color}`,
+        color,
+        background: "transparent",
+        fontSize: size === "sm" ? 11 : 12,
+        fontWeight: 600,
+        lineHeight: 1.2,
+        flexShrink: 0,
+      }}
+    >
+      <DocRequestFlowGlyph kind={kind} size={size === "sm" ? 12 : 14} title={label} />
+      {label}
+      {showCount ? (
+        <span
+          aria-label={`${label}: ${count}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minWidth: countPx,
+            height: countPx,
+            padding: count >= 10 ? "0 4px" : 0,
+            borderRadius: 999,
+            border: `1.5px solid ${color}`,
+            background: color,
+            color: "#fff",
+            fontSize: count >= 100 ? 9 : 10,
+            fontWeight: 700,
+            lineHeight: 1,
+            boxSizing: "border-box",
+            flexShrink: 0,
+          }}
+        >
+          {count}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 
 type TaxReturnFolderNode = {
   id: string;
@@ -13276,7 +14156,21 @@ function pinsForQuickAccessSidebar(
   pins: SidebarQuickAccessPin[],
   sidebar: QuickAccessSidebar,
 ): SidebarQuickAccessPin[] {
-  return pins.filter((p) => p.sidebar === sidebar);
+  return pins.filter(
+    (p) =>
+      p.sidebar === sidebar && (p.surface ?? "sidebar") === "sidebar",
+  );
+}
+
+/** Explorer left-rail Quick access — only explicit quickAccess-surface pins. */
+function pinsForExplorerQuickAccess(
+  pins: SidebarQuickAccessPin[],
+  sidebar: QuickAccessSidebar,
+): SidebarQuickAccessPin[] {
+  return pins.filter(
+    (p) =>
+      p.sidebar === sidebar && (p.surface ?? "sidebar") === "quickAccess",
+  );
 }
 
 function quickAccessPinMatches(
@@ -13284,11 +14178,15 @@ function quickAccessPinMatches(
   id: string,
   sidebar: QuickAccessSidebar,
   kind?: QuickAccessPinKind,
+  surface?: QuickAccessPinSurface,
 ): boolean {
   if (pin.id !== id || pin.sidebar !== sidebar) return false;
   const pinKind = pin.kind ?? "folder";
   const wantKind = kind ?? "folder";
-  return pinKind === wantKind;
+  if (pinKind !== wantKind) return false;
+  const pinSurface = pin.surface ?? "sidebar";
+  const wantSurface = surface ?? "sidebar";
+  return pinSurface === wantSurface;
 }
 
 function upsertWorkerQuickAccessPin(
@@ -13300,14 +14198,15 @@ function upsertWorkerQuickAccessPin(
   const wid = (workerId || "").trim() || "worker";
   const prev = workerQuickAccessPins(store, wid, lang);
   const kind = pin.kind ?? "folder";
+  const surface = pin.surface ?? "sidebar";
   if (
     prev.some((p) =>
-      quickAccessPinMatches(p, pin.id, pin.sidebar, kind),
+      quickAccessPinMatches(p, pin.id, pin.sidebar, kind, surface),
     )
   ) {
     return store;
   }
-  return { ...store, [wid]: [...prev, { ...pin, kind }] };
+  return { ...store, [wid]: [...prev, { ...pin, kind, surface }] };
 }
 
 function removeWorkerQuickAccessPin(
@@ -13317,13 +14216,14 @@ function removeWorkerQuickAccessPin(
   sidebar: QuickAccessSidebar,
   lang: UiLang,
   kind: QuickAccessPinKind = "folder",
+  surface: QuickAccessPinSurface = "sidebar",
 ): QuickAccessByWorker {
   const wid = (workerId || "").trim() || "worker";
   const prev = workerQuickAccessPins(store, wid, lang);
   return {
     ...store,
     [wid]: prev.filter(
-      (p) => !quickAccessPinMatches(p, folderId, sidebar, kind),
+      (p) => !quickAccessPinMatches(p, folderId, sidebar, kind, surface),
     ),
   };
 }
@@ -13337,6 +14237,7 @@ function renameWorkerQuickAccessPin(
   nextLabel: string,
   lang: UiLang,
   kind: QuickAccessPinKind = "folder",
+  surface: QuickAccessPinSurface = "sidebar",
 ): QuickAccessByWorker {
   const wid = (workerId || "").trim() || "worker";
   const label = nextLabel.trim();
@@ -13344,7 +14245,7 @@ function renameWorkerQuickAccessPin(
   const prev = workerQuickAccessPins(store, wid, lang);
   let changed = false;
   const next = prev.map((p) => {
-    if (!quickAccessPinMatches(p, pinId, sidebar, kind)) return p;
+    if (!quickAccessPinMatches(p, pinId, sidebar, kind, surface)) return p;
     if (p.label === label) return p;
     changed = true;
     return { ...p, label };
@@ -13397,6 +14298,48 @@ function folderExplorerDemoModifiedDate(label: string, lang: UiLang): string {
   }
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${day} ${months[month - 1]} ${y} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+type FolderExplorerSortKey = "name" | "date" | "type" | "size";
+
+/** Demo file size stub (folders blank). */
+function folderExplorerDemoSizeLabel(
+  node: TaxReturnFolderNode,
+): string {
+  if (node.kind === "folder") return "—";
+  return `${Math.max(1, node.label.length * 37)} KB`;
+}
+
+function folderExplorerDemoSizeBytes(node: TaxReturnFolderNode): number {
+  if (node.kind === "folder") return -1;
+  return Math.max(1, node.label.length * 37) * 1024;
+}
+
+function folderExplorerTypeLabel(
+  node: TaxReturnFolderNode,
+  lang: UiLang,
+): string {
+  if (node.kind === "folder") return t(lang, "taxReturnFolderTypeFolder");
+  const ext = folderExplorerFileExt(node.label);
+  if (!ext) return t(lang, "taxReturnFolderTypeFile");
+  return `${ext.toUpperCase()} ${t(lang, "taxReturnFolderTypeFile")}`;
+}
+
+/** Breadcrumb crumbs from root → node (inclusive). */
+function taxReturnFolderBreadcrumbCrumbs(
+  tree: TaxReturnFolderNode[],
+  id: string,
+): { id: string; label: string }[] {
+  const node = findTaxReturnFolderNode(tree, id);
+  if (!node) return [];
+  const ancestors = taxReturnFolderAncestorIds(tree, id).slice().reverse();
+  const crumbs: { id: string; label: string }[] = [];
+  for (const aid of ancestors) {
+    const n = findTaxReturnFolderNode(tree, aid);
+    if (n) crumbs.push({ id: n.id, label: n.label });
+  }
+  crumbs.push({ id: node.id, label: node.label });
+  return crumbs;
 }
 
 /** Demo overlay: hide deleted / cut-away nodes from the live tree. */
@@ -14411,6 +15354,7 @@ type TaxReturnDocTypeId =
   | "bank"
   | "pension"
   | "id"
+  | "donations"
   | "other";
 
 const TAX_RETURN_DOC_TYPE_IDS: TaxReturnDocTypeId[] = [
@@ -14418,18 +15362,86 @@ const TAX_RETURN_DOC_TYPE_IDS: TaxReturnDocTypeId[] = [
   "bank",
   "pension",
   "id",
+  "donations",
   "other",
 ];
 
+function isTaxReturnBuiltinDocType(
+  typeId: string,
+): typeId is TaxReturnDocTypeId {
+  return (TAX_RETURN_DOC_TYPE_IDS as readonly string[]).includes(typeId);
+}
+
+/** Resolve a draft/request type id against builtins + forever custom labels. */
+function resolveTaxReturnDocTypeId(
+  typeId: string,
+  customTypes: readonly string[] = [],
+): string {
+  if (isTaxReturnBuiltinDocType(typeId)) return typeId;
+  const hit = customTypes.find(
+    (c) => c === typeId || c.toLowerCase() === typeId.toLowerCase(),
+  );
+  return hit ?? typeId;
+}
+
 function taxReturnDocTypeLabel(
   lang: UiLang,
-  typeId: TaxReturnDocTypeId,
+  typeId: string,
+  customTypes: readonly string[] = [],
 ): string {
   if (typeId === "form-106") return t(lang, "taxReturnDocType106");
   if (typeId === "bank") return t(lang, "taxReturnDocTypeBank");
   if (typeId === "pension") return t(lang, "taxReturnDocTypePension");
   if (typeId === "id") return t(lang, "taxReturnDocTypeId");
-  return t(lang, "taxReturnDocTypeOther");
+  if (typeId === "donations") return t(lang, "taxReturnDocTypeDonations");
+  if (typeId === "other") return t(lang, "taxReturnDocTypeOther");
+  const hit = customTypes.find(
+    (c) => c === typeId || c.toLowerCase() === typeId.toLowerCase(),
+  );
+  return hit ?? typeId;
+}
+
+/** Built-ins + forever custom labels + trailing Create new type… */
+function taxReturnDocTypeOptions(
+  lang: UiLang,
+  customTypes: readonly string[] = [],
+): Array<{ value: string; label: string }> {
+  const builtins = TAX_RETURN_DOC_TYPE_IDS.map((id) => ({
+    value: id,
+    label: taxReturnDocTypeLabel(lang, id),
+  }));
+  const customs = customTypes.map((label) => ({ value: label, label }));
+  return [
+    ...builtins,
+    ...customs,
+    {
+      value: CRM_DOC_TYPE_CREATE_VALUE,
+      label: t(lang, "taxReturnDocTypeCreate"),
+    },
+  ];
+}
+
+/** Append a custom doc type forever (case-insensitive dedupe). Returns selected value. */
+function appendCustomDocType(
+  prev: readonly string[],
+  rawLabel: string,
+): { next: string[]; selected: string } | null {
+  const label = rawLabel.trim();
+  if (!label) return null;
+  const lower = label.toLowerCase();
+  // Prefer matching an existing custom entry.
+  const existingCustom = prev.find((c) => c.toLowerCase() === lower);
+  if (existingCustom) return { next: [...prev], selected: existingCustom };
+  // Prefer matching a builtin by id or localized label.
+  for (const id of TAX_RETURN_DOC_TYPE_IDS) {
+    if (id === lower) return { next: [...prev], selected: id };
+    for (const lang of ["en", "he"] as const) {
+      if (taxReturnDocTypeLabel(lang, id).toLowerCase() === lower) {
+        return { next: [...prev], selected: id };
+      }
+    }
+  }
+  return { next: [...prev, label], selected: label };
 }
 
 /** Template-inspired working tree for an Israeli personal tax return year. */
@@ -14472,6 +15484,28 @@ function buildTaxReturnWorkingFolder(
                 {
                   id: "file-106-placeholder",
                   label: `Form_106_${short}_${year}.pdf`,
+                  kind: "file",
+                },
+              ],
+            },
+            {
+              id: "cm-filer-forms",
+              label: lang === "he" ? "טפסי הגשה" : "Filer forms",
+              kind: "folder",
+              children: [
+                {
+                  id: "file-1327",
+                  label: `Form_1327_${year}.pdf`,
+                  kind: "file",
+                },
+                {
+                  id: "file-1322",
+                  label: `Form_1322_${year}.pdf`,
+                  kind: "file",
+                },
+                {
+                  id: "file-1324",
+                  label: `Form_1324_${year}.pdf`,
                   kind: "file",
                 },
               ],
@@ -14693,6 +15727,786 @@ function buildTaxReturnWorkingFolder(
     });
   }
   return roots;
+}
+
+/** Spreadsheet / workbook names — excluded from Tax Return Forms tab. */
+function isTaxReturnSpreadsheetLabel(label: string): boolean {
+  const ext = folderExplorerFileExt(label);
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") return true;
+  const lower = label.toLowerCase();
+  return (
+    lower.includes("spreadsheet") ||
+    /\bexcel\b/.test(lower) ||
+    /אקסל/.test(label)
+  );
+}
+
+/**
+ * Form-type document labels only (PDFs / form docs — not folders, banks, notes).
+ * Matches Form 106/867/1301, Annexes, Hebrew טופס/נספח.
+ */
+function isTaxReturnFormDocLabel(label: string): boolean {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.startsWith("(")) return false;
+  if (isTaxReturnSpreadsheetLabel(trimmed)) return false;
+  if (/טופס|נספח/.test(trimmed)) return true;
+  if (/\bannex\b/i.test(trimmed) || /^annex([_\s-]|$)/i.test(trimmed)) {
+    return true;
+  }
+  if (/\bform[_\s-]?\d+/i.test(trimmed) || /^form([_\s-]|$)/i.test(trimmed)) {
+    return true;
+  }
+  const kindish = trimmed.toLowerCase();
+  return kindish.includes("form 106") || kindish.includes("form 1301");
+}
+
+/**
+ * Flat this-year form docs from the working folder tree — files only, no folders/Excel.
+ * Year scope comes from the tree already built for `taxYear`.
+ */
+function collectTaxReturnFormFiles(
+  nodes: TaxReturnFolderNode[],
+): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  const walk = (list: TaxReturnFolderNode[]) => {
+    for (const n of list) {
+      if (n.kind === "folder") {
+        if (n.children?.length) walk(n.children);
+        continue;
+      }
+      if (!isTaxReturnFormDocLabel(n.label)) continue;
+      out.push({ id: n.id, label: n.label });
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/** Inbound channel for client-sent tax-year documents (Forms tab). */
+type ReceivedClientDocChannel = "email" | "whatsapp" | "portal";
+
+type ReceivedClientDocStatus = "received" | "reviewed" | "filed";
+
+type ReceivedClientDoc = {
+  id: string;
+  clientId: string;
+  taxYear: string;
+  name: string;
+  channel: ReceivedClientDocChannel;
+  /** ISO date (YYYY-MM-DD). */
+  receivedAt: string;
+  docType?: string;
+  status?: ReceivedClientDocStatus;
+  /** Trust / checklist request id this file fulfills (purpose mapping). */
+  purposeId?: string;
+  /** Optional link back to the outbound request row. */
+  linkedRequestId?: string;
+  /** Staff review: OK accepts; Not OK opens same-channel resend. */
+  reviewVerdict?: "" | "ok" | "not-ok";
+  /** Demo log of resend timestamps / channels. */
+  resendLog?: string[];
+};
+
+type TrustDocsTopTab = "requests" | "received";
+/** Tax/BK/Audit request-area tabs also include Forms. */
+
+function receivedClientDocChannelLabel(
+  lang: UiLang,
+  channel: ReceivedClientDocChannel,
+): string {
+  if (channel === "email") return t(lang, "taxReturnFormsChannelEmail");
+  if (channel === "whatsapp") return t(lang, "taxReturnFormsChannelWhatsApp");
+  return t(lang, "taxReturnFormsChannelPortal");
+}
+
+function receivedClientDocChannelTone(
+  channel: ReceivedClientDocChannel,
+): "info" | "success" | "warning" {
+  if (channel === "email") return "info";
+  if (channel === "whatsapp") return "success";
+  return "warning";
+}
+
+function receivedClientDocStatusLabel(
+  lang: UiLang,
+  status: ReceivedClientDocStatus | undefined,
+): string {
+  if (status === "reviewed") return t(lang, "taxReturnFormsStatusReviewed");
+  if (status === "filed") return t(lang, "taxReturnFormsStatusFiled");
+  return t(lang, "taxReturnFormsStatusReceived");
+}
+
+/** Seed inbox when no store / no portal uploads yet — one demo per channel for the year. */
+function seedReceivedClientDocs(
+  client: { id: string; name: string },
+  year: string,
+): ReceivedClientDoc[] {
+  const short = client.name.split(" ")[0] ?? client.name;
+  return [
+    {
+      id: `${client.id}-rcv-portal-1327-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Form_1327_${year}.pdf`,
+      channel: "portal",
+      receivedAt: `${year}-01-20`,
+      docType: "Form 1327",
+      status: "received",
+    },
+    {
+      id: `${client.id}-rcv-portal-1322-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Form_1322_${year}.pdf`,
+      channel: "portal",
+      receivedAt: `${year}-01-20`,
+      docType: "Form 1322",
+      status: "received",
+    },
+    {
+      id: `${client.id}-rcv-portal-1324-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Form_1324_${year}.pdf`,
+      channel: "portal",
+      receivedAt: `${year}-01-20`,
+      docType: "Form 1324",
+      status: "received",
+    },
+
+    {
+      id: `${client.id}-rcv-portal-106-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Form_106_${short}_${year}.pdf`,
+      channel: "portal",
+      receivedAt: `${year}-03-12`,
+      docType: "Form 106",
+      status: "received",
+    },
+    {
+      id: `${client.id}-rcv-email-bank-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Bank_statements_${year}.pdf`,
+      channel: "email",
+      receivedAt: `${year}-02-28`,
+      docType: "Bank",
+      status: "reviewed",
+    },
+    {
+      id: `${client.id}-rcv-wa-pension-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Pension_slip_${short}_${year}.jpg`,
+      channel: "whatsapp",
+      receivedAt: `${year}-04-03`,
+      docType: "Slip",
+      status: "received",
+    },
+  ];
+}
+
+/**
+ * Forms tab model: received-from-client docs for this year only.
+ * Merges seeded / stored inbox with portal uploads from document requests.
+ * Excludes staff workbooks and empty folders.
+ */
+
+/** Trust Documents → Docs received demo inbox (email / portal / WhatsApp). */
+function seedTrustReceivedClientDocs(
+  client: { id: string; name: string },
+  year: string,
+): ReceivedClientDoc[] {
+  const short = client.name.split(" ")[0] ?? client.name;
+  return [
+    {
+      id: `${client.id}-trust-rcv-email-bank-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Bank_statements_${short}_${year}.pdf`,
+      channel: "email",
+      receivedAt: `${year}-02-18`,
+      docType: "Bank statements",
+      linkedRequestId: "bank",
+      purposeId: "bank",
+      status: "received",
+      reviewVerdict: "",
+      resendLog: [],
+    },
+    {
+      id: `${client.id}-trust-rcv-portal-bank-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Bank_statements_portal_${year}.pdf`,
+      channel: "portal",
+      receivedAt: `${year}-03-02`,
+      docType: "Bank statements",
+      linkedRequestId: "bank",
+      purposeId: "",
+      status: "received",
+      reviewVerdict: "",
+      resendLog: [],
+    },
+    {
+      id: `${client.id}-trust-rcv-wa-portfolio-${year}`,
+      clientId: client.id,
+      taxYear: year,
+      name: `Portfolio_report_${short}_${year}.pdf`,
+      channel: "whatsapp",
+      receivedAt: `${year}-03-21`,
+      docType: "Portfolio",
+      linkedRequestId: "portfolio",
+      purposeId: "",
+      status: "received",
+      reviewVerdict: "",
+      resendLog: [],
+    },
+  ];
+}
+
+function collectReceivedClientDocs(
+  client: { id: string; name: string },
+  year: string,
+  portalUploaded: PortalDocRequest[],
+  stored: ReceivedClientDoc[] | null | undefined,
+): ReceivedClientDoc[] {
+  const fromStore = (stored ?? [])
+    .filter(
+      (d) =>
+        d &&
+        d.clientId === client.id &&
+        d.taxYear === year &&
+        (d.channel === "email" ||
+          d.channel === "whatsapp" ||
+          d.channel === "portal") &&
+        typeof d.name === "string" &&
+        d.name.trim().length > 0,
+    )
+    .map((d) => ({ ...d }));
+  const base =
+    fromStore.length > 0 ? fromStore : seedReceivedClientDocs(client, year);
+
+  const fromPortal: ReceivedClientDoc[] = portalUploaded
+    .filter(
+      (r) =>
+        r.status === "uploaded" &&
+        r.clientId === client.id &&
+        r.year === year,
+    )
+    .map((r) => ({
+      id: `portal-up-${r.id}`,
+      clientId: client.id,
+      taxYear: year,
+      name: (r.uploadedFileName ?? `${r.docName}.pdf`).trim(),
+      channel: "portal" as const,
+      receivedAt: (r.createdAt || `${year}-01-01`).slice(0, 10),
+      docType: r.docType || undefined,
+      status: "received" as const,
+    }));
+
+  const byKey = new Map<string, ReceivedClientDoc>();
+  for (const d of base) {
+    byKey.set(`${d.channel}::${d.name.toLowerCase()}`, d);
+  }
+  for (const d of fromPortal) {
+    const key = `${d.channel}::${d.name.toLowerCase()}`;
+    if (!byKey.has(key)) byKey.set(key, d);
+  }
+  return Array.from(byKey.values()).sort((a, b) =>
+    b.receivedAt.localeCompare(a.receivedAt),
+  );
+}
+
+
+type DocsReceivedTopTab = "requests" | "received";
+type DocsReceivedModuleScope = "trust" | "tax" | "bookkeeping" | "audit";
+
+type DocsReceivedResendPopoutState = {
+  channel: ReceivedClientDocChannel;
+  receivedDocId: string;
+  subject: string;
+  message: string;
+  contact: string;
+  contacts: string[];
+};
+
+type DocsReceivedPurposeOption = { value: string; label: string };
+
+/** Demo Docs-received inbox per module / client / year. */
+function seedModuleReceivedClientDocs(
+  module: DocsReceivedModuleScope,
+  client: { id: string; name: string },
+  year: string,
+): ReceivedClientDoc[] {
+  if (module === "trust") return seedTrustReceivedClientDocs(client, year);
+  const short = client.name.split(" ")[0] ?? client.name;
+  const tag =
+    module === "tax" ? "tax" : module === "bookkeeping" ? "bk" : "audit";
+  const mk = (
+    idBit: string,
+    name: string,
+    channel: ReceivedClientDocChannel,
+    receivedAt: string,
+    docType: string,
+  ): ReceivedClientDoc => ({
+    id: `${client.id}-${tag}-rcv-${idBit}-${year}`,
+    clientId: client.id,
+    taxYear: year,
+    name,
+    channel,
+    receivedAt,
+    docType,
+    purposeId: "",
+    linkedRequestId: "",
+    status: "received",
+    reviewVerdict: "",
+    resendLog: [],
+  });
+  if (module === "tax") {
+    return [
+      mk("email-106", `Form_106_${short}_${year}.pdf`, "email", `${year}-03-08`, "Form 106"),
+      mk("portal-bank", `Bank_statements_${year}.pdf`, "portal", `${year}-02-22`, "Bank"),
+      mk("wa-pension", `Pension_slip_${short}_${year}.jpg`, "whatsapp", `${year}-04-01`, "Slip"),
+    ];
+  }
+  if (module === "bookkeeping") {
+    return [
+      mk("email-bank", `Bank_feed_${short}_${year}.pdf`, "email", `${year}-01-18`, "Bank"),
+      mk("portal-inv", `Supplier_invoices_${year}.pdf`, "portal", `${year}-02-05`, "Invoice"),
+      mk("wa-receipt", `Receipt_${short}_${year}.jpg`, "whatsapp", `${year}-02-14`, "Receipt"),
+    ];
+  }
+  return [
+    mk("email-bankconf", `Bank_confirmation_${short}_${year}.pdf`, "email", `${year}-05-12`, "Bank confirm"),
+    mk("portal-eng", `Engagement_letter_${year}.pdf`, "portal", `${year}-04-28`, "Engagement"),
+    mk("wa-rep", `Representation_${short}_${year}.pdf`, "whatsapp", `${year}-06-03`, "Representation"),
+  ];
+}
+
+function composeReceivedDocResendMessage(
+  uiLang: UiLang,
+  client: DemoRow,
+  year: string,
+  fileName: string,
+  purposeLabel: string,
+  channel: ReceivedClientDocChannel,
+  scopeLabelEn: string,
+  scopeLabelHe: string,
+): { subject: string; message: string } {
+  const contactName = client.profile?.contactName?.trim();
+  const hello = contactName
+    ? uiLang === "he"
+      ? `שלום ${contactName}`
+      : `Hello ${contactName}`
+    : uiLang === "he"
+      ? "שלום"
+      : "Hello";
+  const purposeBit = purposeLabel || fileName;
+  const scope = uiLang === "he" ? scopeLabelHe : scopeLabelEn;
+  if (channel === "email") {
+    return {
+      subject:
+        uiLang === "he"
+          ? `מסמך לא תקין — ${purposeBit} (${year})`
+          : `Document not OK — ${purposeBit} (${year})`,
+      message:
+        uiLang === "he"
+          ? `${hello},\n\nהמסמך ששלחתם (${fileName}) אינו תקין עבור ${purposeBit}.\nנא להעלות / לשלוח מחדש קובץ מתוקן ל${scope} ${year}.\n\nתודה.`
+          : `${hello},\n\nThe document you sent (${fileName}) is not OK for ${purposeBit}.\nPlease re-upload / resend a corrected file for ${scope} ${year}.\n\nThank you.`,
+    };
+  }
+  if (channel === "portal") {
+    return {
+      subject:
+        uiLang === "he" ? "התראת פורטל — מסמך לא תקין" : "Portal — document not OK",
+      message:
+        uiLang === "he"
+          ? `${hello},\n\nהקובץ ${fileName} אינו תקין (${purposeBit}).\nנא להעלות מחדש בפורטל ל${scope} ${year}.`
+          : `${hello},\n\nFile ${fileName} is not OK (${purposeBit}).\nPlease re-upload in the portal for ${scope} ${year}.`,
+    };
+  }
+  return {
+    subject: "WhatsApp",
+    message:
+      uiLang === "he"
+        ? `${hello} — ${fileName} לא תקין עבור ${purposeBit}. נא לשלוח מחדש ל${scope} ${year}.`
+        : `${hello} — ${fileName} is not OK for ${purposeBit}. Please resend for ${scope} ${year}.`,
+  };
+}
+
+
+/** Pair / OK / reminder → mark request Received (uploaded); clears pending sent glyph + badge. */
+function markPortalRequestReceived(
+  r: PortalDocRequest,
+  opts?: { fileName?: string; previewText?: string; year?: string },
+): PortalDocRequest {
+  const yearBit = opts?.year ? `_${opts.year}` : "";
+  return {
+    ...r,
+    status: "uploaded",
+    uploadedFileName:
+      r.uploadedFileName ??
+      (opts?.fileName?.trim() ||
+        `${r.docName.replace(/\s+/g, "_")}${yearBit}.pdf`),
+    previewText: r.previewText ?? opts?.previewText,
+  };
+}
+
+/** Received docs still needing staff OK or a sent reminder — drives Documents corner badge. */
+function countReceivedDocsNeedingReview(files: ReceivedClientDoc[]): number {
+  return files.filter((f) => {
+    if (f.reviewVerdict === "ok") return false;
+    if (Array.isArray(f.resendLog) && f.resendLog.length > 0) return false;
+    return true;
+  }).length;
+}
+
+function receivedDocWasResent(file: ReceivedClientDoc): boolean {
+  return Array.isArray(file.resendLog) && file.resendLog.length > 0;
+}
+
+function DocsReceivedListPanel({
+  uiLang,
+  files,
+  purposeOptions,
+  onPatch,
+  onOk,
+  onNotOk,
+  linkedLabel,
+  folderPathPrefix,
+}: {
+  uiLang: UiLang;
+  files: ReceivedClientDoc[];
+  purposeOptions: DocsReceivedPurposeOption[];
+  onPatch: (id: string, partial: Partial<ReceivedClientDoc>) => void;
+  onOk: (file: ReceivedClientDoc) => void;
+  onNotOk: (file: ReceivedClientDoc) => void;
+  linkedLabel?: (file: ReceivedClientDoc) => string | null | undefined;
+  /** Optional breadcrumb prefix for LiveFileWorkspace header. */
+  folderPathPrefix?: string;
+}) {
+  const theme = useHostTheme();
+  const [, setLiveFileOpenDocs] = useCanvasState<LiveFileRef>(
+    CRM_LIVE_FILE_OPEN_KEY,
+    LIVE_FILE_CLOSED,
+  );
+  const [liveFileContentsDocs] = useCanvasState<LiveFileContentsStore>(
+    CRM_LIVE_FILE_CONTENTS_KEY,
+    {},
+  );
+  const [docsOsFlash, setDocsOsFlash] = useState("");
+  const [docsCtxMenu, setDocsCtxMenu] = useState<{
+    x: number;
+    y: number;
+    file: ReceivedClientDoc;
+  } | null>(null);
+
+  const openOsDocsFile = (file: ReceivedClientDoc) => {
+    setDocsOsFlash(
+      openWithOsDefault(
+        { id: file.id, name: file.name },
+        liveFileContentsDocs,
+      ),
+    );
+    setTimeout(() => setDocsOsFlash(""), 2200);
+  };
+
+  const openLiveDocsFile = (file: ReceivedClientDoc) => {
+    const channel = receivedClientDocChannelLabel(uiLang, file.channel);
+    const prefix = (folderPathPrefix ?? "").trim();
+    const folderPath = prefix
+      ? `${prefix} \\ ${file.name} · ${channel}`
+      : `${file.name} · ${channel}`;
+    setLiveFileOpenDocs({
+      id: file.id,
+      name: file.name,
+      folderPath,
+      source: "forms",
+    });
+  };
+
+  return (
+    <Stack gap={8}>
+      <ChromeText size="small" tone="secondary">
+        {t(uiLang, "trustDocsReceivedHint")}
+      </ChromeText>
+      <ChromeText size="small" tone="tertiary">
+        {t(uiLang, "liveFileOsOpenHint")}
+      </ChromeText>
+      {docsOsFlash ? (
+        <ChromeText size="small" tone="secondary">
+          {docsOsFlash}
+        </ChromeText>
+      ) : null}
+      {docsCtxMenu ? (
+        <>
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 9998,
+            }}
+            onClick={() => setDocsCtxMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setDocsCtxMenu(null);
+            }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: "fixed",
+              left: docsCtxMenu.x,
+              top: docsCtxMenu.y,
+              zIndex: 9999,
+              minWidth: 200,
+              padding: 4,
+              borderRadius: 8,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: CHROME_WHITE,
+            }}
+          >
+            <div
+              role="menuitem"
+              tabIndex={0}
+              onClick={() => {
+                openOsDocsFile(docsCtxMenu.file);
+                setDocsCtxMenu(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  openOsDocsFile(docsCtxMenu.file);
+                  setDocsCtxMenu(null);
+                }
+              }}
+              style={{
+                padding: "7px 10px",
+                borderRadius: 6,
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "liveFileOpenWindowsDefault")}
+              </ChromeText>
+            </div>
+          </div>
+        </>
+      ) : null}
+      {files.length === 0 ? (
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, "trustDocsReceivedEmpty")}
+        </ChromeText>
+      ) : (
+        <Stack
+          gap={0}
+          style={{
+            borderRadius: 10,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+            overflow: "hidden",
+          }}
+        >
+          {files.map((file, idx) => {
+            const purposeId = file.purposeId ?? "";
+            const verdict = file.reviewVerdict ?? "";
+            const linked = linkedLabel?.(file);
+            return (
+              <div
+                key={file.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => openLiveDocsFile(file)}
+                onDoubleClick={(e: {
+                  preventDefault?: () => void;
+                  stopPropagation?: () => void;
+                }) => {
+                  e.preventDefault?.();
+                  e.stopPropagation?.();
+                  openOsDocsFile(file);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDocsCtxMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    file,
+                  });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") openLiveDocsFile(file);
+                }}
+                style={{
+                  padding: "10px 12px",
+                  borderTop:
+                    idx === 0 ? undefined : `1px solid ${chromeBorder(theme)}`,
+                  background:
+                    verdict === "ok" ? chromeSoftFill(theme) : CHROME_WHITE,
+                  cursor: "pointer",
+                }}
+              >
+                <Stack gap={8}>
+                  <Row
+                    gap={8}
+                    align="center"
+                    style={{ width: "100%" }}
+                  >
+                    <Row
+                      gap={8}
+                      wrap
+                      align="center"
+                      style={{ flex: 1, minWidth: 0 }}
+                    >
+                      <DocRequestFlowGlyph kind="received" size={15} />
+                      <ChromeText
+                        weight="semibold"
+                        style={{ minWidth: 0, flexShrink: 1 }}
+                      >
+                        {file.name}
+                      </ChromeText>
+                      <DocRequestFlowBadge kind="received" uiLang={uiLang} />
+                      <Pill
+                        size="sm"
+                        tone={receivedClientDocChannelTone(file.channel)}
+                      >
+                        {receivedClientDocChannelLabel(uiLang, file.channel)}
+                      </Pill>
+                      <Pill size="sm" tone="neutral">
+                        {file.receivedAt}
+                      </Pill>
+                      {linked ? (
+                        <Pill size="sm" tone="neutral">
+                          {linked}
+                        </Pill>
+                      ) : null}
+                    </Row>
+                  </Row>
+                  {/* Native div — canvas Row drops onClick, so stopPropagation
+                      on <Row> was a no-op and one-click preview ate Select. */}
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: 8,
+                      width: "100%",
+                    }}
+                    onClick={(e: { stopPropagation?: () => void }) => {
+                      e.stopPropagation?.();
+                    }}
+                    onDoubleClick={(e: { stopPropagation?: () => void }) => {
+                      e.stopPropagation?.();
+                    }}
+                    onContextMenu={(e: { stopPropagation?: () => void }) => {
+                      e.stopPropagation?.();
+                    }}
+                  >
+                    <ChromeText size="small" tone="secondary">
+                      {t(uiLang, "trustDocsPurposeLabel")}
+                    </ChromeText>
+                    <Select
+                      value={purposeId}
+                      onChange={(value) =>
+                        onPatch(file.id, {
+                          purposeId: value,
+                          linkedRequestId: (value || "").trim(),
+                        })
+                      }
+                      options={purposeOptions}
+                      style={{ width: 220 }}
+                    />
+                    <DocsReceivedOkToggle
+                      verdict={
+                        verdict === "ok" || verdict === "not-ok"
+                          ? verdict
+                          : ""
+                      }
+                      okLabel={t(uiLang, "trustDocsReviewOk")}
+                      notOkLabel={t(uiLang, "trustDocsReviewNotOk")}
+                      onOk={() => onOk(file)}
+                      onNotOk={() => onNotOk(file)}
+                    />
+                    {receivedDocWasResent(file) ? (
+                      <ChromeText size="small" tone="secondary">
+                        {t(uiLang, "trustDocsResentMessage")}
+                      </ChromeText>
+                    ) : null}
+                  </div>
+                </Stack>
+              </div>
+            );
+          })}
+        </Stack>
+      )}
+    </Stack>
+  );
+}
+
+/** Requests | Docs received shell for document-request areas (no Forms top tab). */
+function DocsRequestsAreaShell({
+  uiLang,
+  ariaLabel,
+  topTab,
+  onTopTabChange,
+  requestsCount,
+  receivedCount,
+  requestsBody,
+  receivedBody,
+  overlay,
+}: {
+  uiLang: UiLang;
+  ariaLabel: string;
+  topTab: DocsReceivedTopTab;
+  onTopTabChange: (id: DocsReceivedTopTab) => void;
+  requestsCount: number;
+  receivedCount: number;
+  requestsBody: Parameters<typeof Stack>[0]["children"];
+  receivedBody: Parameters<typeof Stack>[0]["children"];
+  overlay?: Parameters<typeof Stack>[0]["children"];
+}) {
+  /** Migrate persisted "forms" (removed) → Docs received. */
+  const resolvedTab: DocsReceivedTopTab =
+    topTab === "received" || (topTab as string) === "forms"
+      ? "received"
+      : "requests";
+  const tabs: RaisedTabItem[] = [
+    {
+      id: "requests",
+      label: `${t(uiLang, "trustDocsTabRequests")} (${requestsCount})`,
+      flowGlyph: "sent",
+    },
+    {
+      id: "received",
+      label: `${t(uiLang, "trustDocsTabReceived")} (${receivedCount})`,
+      flowGlyph: "received",
+    },
+  ];
+  const body = resolvedTab === "requests" ? requestsBody : receivedBody;
+  return (
+    <Stack gap={8}>
+      <Row gap={8} align="center" wrap>
+        <DocRequestFlowBadge kind="sent" uiLang={uiLang} count={requestsCount} />
+        <DocRequestFlowBadge kind="received" uiLang={uiLang} count={receivedCount} />
+      </Row>
+      <RaisedTabBar
+        tabs={tabs}
+        activeId={resolvedTab}
+        onSelect={(id) => {
+          if (id === "requests" || id === "received") {
+            onTopTabChange(id);
+          }
+        }}
+        ariaLabel={ariaLabel}
+        variant="gmail"
+        compact
+      />
+      {body}
+      {overlay ?? null}
+    </Stack>
+  );
 }
 
 /**
@@ -15376,6 +17190,21 @@ function progressPctToWorkFlowStatus(pct: number): WorkFlowStatus {
   if (pct <= 0) return "not-started";
   if (pct >= 100) return "finished";
   return "in-process";
+}
+
+/** Checklist / boolean rows → tab mark (finished = green ✓, else red ✗ via StatusMark). */
+function checklistRowsToWorkFlowStatus(
+  rows: { done?: boolean }[],
+): WorkFlowStatus {
+  if (rows.length === 0) return "not-started";
+  const doneCount = rows.filter((r) => !!r.done).length;
+  return progressPctToWorkFlowStatus(
+    Math.round((doneCount / rows.length) * 100),
+  );
+}
+
+function boolToWorkFlowStatus(done: boolean): WorkFlowStatus {
+  return done ? "finished" : "not-started";
 }
 
 /** Worse of two statuses (not-started < in-process < finished) for attention dots. */
@@ -18590,23 +20419,353 @@ function OverallProgressBar({
  * In-module section nav. Default `layout="side"` = department side pane
  * (Bookkeeping / Audit / Tax). `layout="top"` = horizontal raised tabs
  * (Clients landing Inbox & tasks). ModuleSectionFrame always uses the side pane.
+ *
+ * Leading glyphs are monochrome stroke SVGs (`StageSectionIcon`) — never
+ * multi-color ModuleTileIcon / Tools PNG fills in the stage rail.
  */
-type ModuleSectionTabIconId = "settings" | "trust-calc";
+type ModuleSectionTabIconId =
+  | "overview"
+  | "checklist"
+  | "intake"
+  | "documents"
+  | "banana"
+  | "forms"
+  | "calculation"
+  | "trust-calc"
+  | "signature"
+  | "filing"
+  | "payment"
+  | "close"
+  | "settings"
+  | "vat"
+  | "advances"
+  | "salaries"
+  | "reconciliations"
+  | "requests"
+  | "files"
+  | "folder"
+  | "audit-prep"
+  | "comments"
+  | "konto"
+  | "shaam"
+  | "company-docs"
+  | "tasks"
+  | "staff"
+  | "whatsapp"
+  | "details"
+  | "clients"
+  | "companies"
+  | "bookkeeping"
+  | "workers"
+  | "billing"
+  | "trusts"
+  | "other";
 
 type ModuleSectionTabItem = {
   id: string;
   label: string;
   badge?: string;
-  /** Optional red/yellow/green status dot (e.g. Bookkeeping → VAT). */
-  status?: WorkFlowStatus;
   /**
-   * Optional leading glyph — settings gear, or Tools `trust-calc`
-   * ModuleTileIcon (document + calculator).
+   * ModuleCard-style count on the leading-icon corner (absolute top-right).
+   * Prefer for inbox/received counts (green). Avoid yellow `badge` Pills on
+   * Document requests — use `sentBadgeCount` on the trailing sent glyph instead.
    */
+  badgeCount?: number;
+  /** Tone for `badgeCount` / sent glyph overlays — green received, blue sent, red attention. */
+  badgeTone?: "red" | "green" | "blue";
+  /** Optional stage progress — colored check/arc/circle via ModuleSectionStatusMark. */
+  status?: WorkFlowStatus;
+  /** Optional leading thematic glyph (`StageSectionIcon`). */
   icon?: ModuleSectionTabIconId;
+  /** Trailing sent/received mini glyphs; prefer sent-only with `sentBadgeCount`. */
+  flowGlyphs?: DocRequestFlowKind[];
+  /** Pending/sent count pinned to the trailing sent paper-plane (blue corner chip). */
+  sentBadgeCount?: number;
 };
 
-/** Leading glyph for ModuleSectionTabs (settings gear or Tools trust-calc). */
+/** Fallback when a nav item omits `icon` — keyed by tab id. */
+const MODULE_SECTION_ICON_BY_ID: Record<string, ModuleSectionTabIconId> = {
+  overview: "overview",
+  checklist: "checklist",
+  intake: "intake",
+  documents: "documents",
+  banana: "banana",
+  forms: "forms",
+  calc: "calculation",
+  calculation: "calculation",
+  "trust-calc": "calculation",
+  signature: "signature",
+  filing: "filing",
+  payment: "payment",
+  close: "close",
+  settings: "settings",
+  vat: "vat",
+  advances: "advances",
+  salaries: "salaries",
+  reconciliations: "reconciliations",
+  requests: "requests",
+  files: "files",
+  folder: "folder",
+  "audit-prep": "audit-prep",
+  comments: "comments",
+  konto: "konto",
+  shaam: "shaam",
+  "company-docs": "company-docs",
+  tasks: "tasks",
+  staff: "staff",
+  whatsapp: "whatsapp",
+  details: "details",
+  clients: "clients",
+  companies: "companies",
+  bookkeeping: "bookkeeping",
+  workers: "workers",
+  billing: "billing",
+  trusts: "trusts",
+  other: "other",
+};
+
+function resolveModuleSectionTabIcon(
+  item: Pick<ModuleSectionTabItem, "id" | "icon">,
+): ModuleSectionTabIconId | undefined {
+  return item.icon ?? MODULE_SECTION_ICON_BY_ID[item.id];
+}
+
+/**
+ * Monochrome thematic glyph for ModuleSectionTabs (~14–16px).
+ * Single stroke / single tone via `color` or `currentColor`.
+ */
+function StageSectionIcon({
+  id,
+  color,
+  size = 14,
+}: {
+  id: ModuleSectionTabIconId;
+  color?: string;
+  size?: number;
+}) {
+  const stroke = color ?? "currentColor";
+  const resolved = id === "trust-calc" ? "calculation" : id;
+  if (resolved === "settings") {
+    return <ChromeSettingsGearGlyph size={size} color={stroke} />;
+  }
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none" as const,
+    stroke,
+    strokeWidth: 1.75,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+    style: { flexShrink: 0, display: "block" as const },
+  };
+  switch (resolved) {
+    case "overview":
+      return (
+        <svg {...common}>
+          <path d="M4 11.5L12 4.5l8 7" />
+          <path d="M6.5 10.5V19.5h4.2v-5.2h2.6v5.2H17.5V10.5" />
+        </svg>
+      );
+    case "checklist":
+      return (
+        <svg {...common}>
+          <path d="M9.5 6.5h10M9.5 12h10M9.5 17.5h10" />
+          <path d="M4.5 6.5l1.4 1.4L8.2 5.5" />
+          <path d="M4.5 12l1.4 1.4L8.2 11" />
+          <path d="M4.5 17.5l1.4 1.4L8.2 16.5" />
+        </svg>
+      );
+    case "intake":
+      return (
+        <svg {...common}>
+          <path d="M4.5 8.5h15v9.5a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2V8.5z" />
+          <path d="M4.5 8.5l2.2-3.5h10.6l2.2 3.5" />
+          <path d="M9.5 12.5h5" />
+          <path d="M12 10v5" />
+        </svg>
+      );
+    case "documents":
+    case "files":
+    case "company-docs":
+      return (
+        <svg {...common}>
+          <path d="M7 3.5h7.5L18.5 7.5V20.5H7z" />
+          <path d="M14.5 3.5V7.5H18.5" />
+          <path d="M9.5 11.5h5.5M9.5 14.5h5.5M9.5 17.5h3.5" />
+        </svg>
+      );
+    case "banana":
+      return (
+        <svg {...common}>
+          <path d="M7 5.5c4.5-1.5 9.5 1 10.5 6.2 1 5.2-2.2 8.8-6.8 8.8" />
+          <path d="M7 5.5c1.2 2.2 1.4 4.8.4 7.2-.9 2.2-2.6 3.8-4.4 4.6" />
+          <path d="M8.2 4.2l1.2 1.6" />
+        </svg>
+      );
+    case "forms":
+    case "details":
+      return (
+        <svg {...common}>
+          <path d="M6 3.5h12v17H6z" />
+          <path d="M9 8h6M9 12h6M9 16h4" />
+          <path d="M8 8h0.01M8 12h0.01M8 16h0.01" />
+        </svg>
+      );
+    case "calculation":
+      return (
+        <svg {...common}>
+          <path d="M6.5 3.5h11v17h-11z" />
+          <path d="M8.5 6.5h7v3.2h-7z" />
+          <path d="M9 13h1.2M12 13h1.2M15 13h1.2M9 16.2h1.2M12 16.2h1.2M15 16.2h1.2" />
+        </svg>
+      );
+    case "signature":
+      return (
+        <svg {...common}>
+          <path d="M5 18.5c2.2-3.2 4.4-5.2 6.2-5.8 1.4-.5 2.2.4 1.4 1.6-1.4 2.1.2 3.4 2.4 2.2 2.8-1.5 5.2-4.4 6.5-7" />
+          <path d="M14.5 5.5l4 4" />
+          <path d="M16.2 3.8l4 4-7.2 7.2H9v-4z" />
+        </svg>
+      );
+    case "filing":
+      return (
+        <svg {...common}>
+          <path d="M12 4.5v10" />
+          <path d="M8.5 8L12 4.5 15.5 8" />
+          <path d="M5 14.5v3.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3.5" />
+        </svg>
+      );
+    case "payment":
+    case "billing":
+      return (
+        <svg {...common}>
+          <path d="M5.5 7.5h13v11H5.5z" />
+          <path d="M5.5 10.5h13" />
+          <path d="M9 14.5h2.5M14.5 14.5h2" />
+          <circle cx="12" cy="5.5" r="1.6" />
+        </svg>
+      );
+    case "close":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M8.5 12.2l2.4 2.4 4.6-5.2" />
+        </svg>
+      );
+    case "vat":
+      return (
+        <svg {...common}>
+          <path d="M5 19.5L9.5 4.5h5L19 19.5" />
+          <path d="M7.8 13.5h8.4" />
+        </svg>
+      );
+    case "advances":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7.5v9" />
+          <path d="M9.2 10.2c.6-1.2 1.6-1.8 2.8-1.8 1.6 0 2.8 1 2.8 2.4 0 2.4-5.6 1.6-5.6 4.4 0 1.3 1.2 2.3 2.8 2.3 1.3 0 2.3-.7 2.8-1.7" />
+        </svg>
+      );
+    case "salaries":
+    case "staff":
+    case "workers":
+      return (
+        <svg {...common}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5" />
+          <circle cx="17" cy="9" r="2.2" />
+          <path d="M14.5 19c.35-2 1.6-3.2 3.2-3.2" />
+        </svg>
+      );
+    case "reconciliations":
+      return (
+        <svg {...common}>
+          <path d="M7 8.5h10.5" />
+          <path d="M14.5 5.5L17.5 8.5 14.5 11.5" />
+          <path d="M17 15.5H6.5" />
+          <path d="M9.5 12.5L6.5 15.5 9.5 18.5" />
+        </svg>
+      );
+    case "requests":
+      return (
+        <svg {...common}>
+          <path d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z" />
+          <path d="M9.5 10.5h5M9.5 13h3" />
+        </svg>
+      );
+    case "folder":
+      return (
+        <svg {...common}>
+          <path d="M3.5 8.5h6.2l1.4 1.8H20A1.5 1.5 0 0 1 21.5 11.8v6.2A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V10A1.5 1.5 0 0 1 4 8.5z" />
+        </svg>
+      );
+    case "audit-prep":
+    case "shaam":
+      return (
+        <svg {...common}>
+          <path d="M12 3.5l7.5 3.2v5.1c0 4.4-3 7.4-7.5 8.7-4.5-1.3-7.5-4.3-7.5-8.7V6.7z" />
+          <path d="M9 12.2l2.1 2.1 4.2-4.4" />
+        </svg>
+      );
+    case "comments":
+    case "whatsapp":
+      return (
+        <svg {...common}>
+          <path d="M5 17.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9l-4 2.5z" />
+        </svg>
+      );
+    case "konto":
+      return (
+        <svg {...common}>
+          <path d="M4.5 6.5h15v12h-15z" />
+          <path d="M4.5 10h15M9.5 6.5v12M14.5 6.5v12" />
+        </svg>
+      );
+    case "tasks":
+      return (
+        <svg {...common}>
+          <path d="M9.5 6.5h10M9.5 12h10M9.5 17.5h10" />
+          <path d="M4.5 6.5h2M4.5 12h2M4.5 17.5h2" />
+        </svg>
+      );
+    case "clients":
+    case "companies":
+      return (
+        <svg {...common}>
+          <path d="M4.5 19V7.5L12 4.5l7.5 3V19" />
+          <path d="M9 19v-5.5h6V19" />
+          <path d="M9 11h6" />
+        </svg>
+      );
+    case "bookkeeping":
+      return (
+        <svg {...common}>
+          <path d="M6 4.5h9l3 3V19.5H6z" />
+          <path d="M15 4.5V8h3.5" />
+          <path d="M9 11.5h6M9 14.5h6M9 17.5h4" />
+        </svg>
+      );
+    case "trusts":
+      return (
+        <svg {...common}>
+          <path d="M12 4.5l7 3.2v4.8c0 4.1-2.8 7-7 8.3-4.2-1.3-7-4.2-7-8.3V7.7z" />
+        </svg>
+      );
+    case "other":
+    default:
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="7.5" />
+          <path d="M12 9.5v0.01M12 12v4" />
+        </svg>
+      );
+  }
+}
+
+/** Leading glyph for ModuleSectionTabs — mono StageSectionIcon only. */
 function ModuleSectionTabLeadingIcon({
   icon,
   size = 14,
@@ -18614,28 +20773,123 @@ function ModuleSectionTabLeadingIcon({
   icon?: ModuleSectionTabIconId;
   size?: number;
 }) {
-  if (icon === "settings") return <ChromeSettingsGearGlyph size={size} />;
-  if (icon === "trust-calc") {
+  if (!icon) return null;
+  return <StageSectionIcon id={icon} size={size} />;
+}
+
+/**
+ * Colored stage status for ModuleSectionTabs. finished = green check; not finished =
+ * red X (not-started and in-process). Thematic StageSectionIcon glyphs stay mono.
+ */
+
+/** ModuleCard-style count badge pinned to the leading icon corner. */
+function ModuleSectionIconCornerBadge({
+  count,
+  tone = "red",
+}: {
+  count: number;
+  tone?: "red" | "green" | "blue";
+}) {
+  const theme = useHostTheme();
+  if (!count || count <= 0) return null;
+  const label = count > 99 ? "99+" : String(count);
+  const bg =
+    tone === "green"
+      ? theme.category.green
+      : tone === "blue"
+        ? DOC_REQ_SENT_COLOR
+        : theme.category.red;
+  /**
+   * Small ModuleCard-style chip (~14px) hung off the corner so the 13–14px
+   * StageSectionIcon stays readable underneath (not a full-size cover).
+   */
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: "absolute",
+        top: -7,
+        right: -8,
+        minWidth: 14,
+        height: 14,
+        padding: "0 3px",
+        borderRadius: 999,
+        background: bg,
+        color: theme.text.onAccent,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxSizing: "border-box",
+        border: `1.5px solid ${chromeCardBg(theme)}`,
+        fontSize: 9,
+        fontWeight: 700,
+        lineHeight: 1,
+        pointerEvents: "none",
+        zIndex: 1,
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
+function ModuleSectionStatusMark({
+  status,
+  size = 12,
+}: {
+  status: WorkFlowStatus;
+  size?: number;
+}) {
+  const theme = useHostTheme();
+  /** finished → green check; anything else → red X (same size/weight). */
+  const finished = status === "finished";
+  const color = finished ? theme.category.green : theme.category.red;
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 16 16",
+    fill: "none" as const,
+    stroke: color,
+    strokeWidth: 1.6,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+    style: {
+      flexShrink: 0,
+      display: "block" as const,
+    },
+  };
+  if (finished) {
     return (
-      <ModuleTileIcon
-        tileId="trust-calc"
-        color={TILE_ICON_COLORS["trust-calc"] ?? "#0D9488"}
-        size={size}
-      />
+      <svg {...common}>
+        <circle cx="8" cy="8" r="6" />
+        <path d="M5 8.2l2 2 4-4.2" />
+      </svg>
     );
   }
-  return null;
+  return (
+    <svg {...common}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" />
+    </svg>
+  );
 }
 
 /** Gmail-style settings gear — same path as rail User settings IconButton. */
-function ChromeSettingsGearGlyph({ size = 14 }: { size?: number }) {
+function ChromeSettingsGearGlyph({
+  size = 14,
+  color,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
       fill="none"
-      stroke="currentColor"
+      stroke={color ?? "currentColor"}
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -18824,7 +21078,10 @@ function ModuleSectionTabs({
   const dir = uiDir(uiLang);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const sectionItemsKey = items
-    .map((it) => `${it.id}:${it.label}:${it.badge ?? ""}`)
+    .map(
+      (it) =>
+        `${it.id}:${it.label}:${it.badge ?? ""}:${it.badgeCount ?? ""}:${it.badgeTone ?? ""}:${(it.flowGlyphs ?? []).join(",")}`,
+    )
     .join("|");
 
   /**
@@ -18944,6 +21201,7 @@ function ModuleSectionTabs({
           >
             {items.map((item) => {
               const active = activeId === item.id;
+              const tabIcon = resolveModuleSectionTabIcon(item);
               const face = raisedTabFaceStyle(theme, active, {
                 variant: "raised",
               });
@@ -18976,10 +21234,25 @@ function ModuleSectionTabs({
                     font: "inherit",
                   }}
                 >
-                  <ModuleSectionTabLeadingIcon icon={item.icon} size={13} />
-                  {item.status ? (
-                    <StatusBlob status={item.status} size={8} />
-                  ) : null}
+                  <span
+                    style={{
+                      position: "relative",
+                      display: "inline-flex",
+                      flexShrink: 0,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "visible",
+                      lineHeight: 0,
+                    }}
+                  >
+                    <ModuleSectionTabLeadingIcon icon={tabIcon} size={13} />
+                    {item.badgeCount != null && item.badgeCount > 0 ? (
+                      <ModuleSectionIconCornerBadge
+                        count={item.badgeCount}
+                        tone={item.badgeTone ?? "red"}
+                      />
+                    ) : null}
+                  </span>
                   <span
                     style={{
                       color: active ? accent : chromeReadableIdle(theme),
@@ -18990,6 +21263,33 @@ function ModuleSectionTabs({
                   >
                     {item.label}
                   </span>
+                  {item.status ? (
+                    <ModuleSectionStatusMark status={item.status} size={11} />
+                  ) : null}
+                  {(item.flowGlyphs ?? []).map((kind) => (
+                    <span
+                      key={kind}
+                      style={{
+                        position: "relative",
+                        display: "inline-flex",
+                        flexShrink: 0,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        overflow: "visible",
+                        lineHeight: 0,
+                      }}
+                    >
+                      <DocRequestFlowGlyph kind={kind} size={12} />
+                      {kind === "sent" &&
+                      item.sentBadgeCount != null &&
+                      item.sentBadgeCount > 0 ? (
+                        <ModuleSectionIconCornerBadge
+                          count={item.sentBadgeCount}
+                          tone="blue"
+                        />
+                      ) : null}
+                    </span>
+                  ))}
                   {item.badge ? (
                     <Pill size="sm" tone="warning">
                       {item.badge}
@@ -19061,6 +21361,7 @@ function ModuleSectionTabs({
         >
           {items.map((item) => {
             const active = activeId === item.id;
+            const tabIcon = resolveModuleSectionTabIcon(item);
             return (
               <button
                 key={item.id}
@@ -19119,10 +21420,25 @@ function ModuleSectionTabs({
                   userSelect: "none",
                 }}
               >
-                <ModuleSectionTabLeadingIcon icon={item.icon} size={14} />
-                {item.status ? (
-                  <StatusBlob status={item.status} size={8} />
-                ) : null}
+                <span
+                  style={{
+                    position: "relative",
+                    display: "inline-flex",
+                    flexShrink: 0,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "visible",
+                    lineHeight: 0,
+                  }}
+                >
+                  <ModuleSectionTabLeadingIcon icon={tabIcon} size={14} />
+                  {item.badgeCount != null && item.badgeCount > 0 ? (
+                    <ModuleSectionIconCornerBadge
+                      count={item.badgeCount}
+                      tone={item.badgeTone ?? "red"}
+                    />
+                  ) : null}
+                </span>
                 <span
                   style={{
                     flex: 1,
@@ -19135,6 +21451,33 @@ function ModuleSectionTabs({
                 >
                   {item.label}
                 </span>
+                {item.status ? (
+                  <ModuleSectionStatusMark status={item.status} size={12} />
+                ) : null}
+                {(item.flowGlyphs ?? []).map((kind) => (
+                  <span
+                    key={kind}
+                    style={{
+                      position: "relative",
+                      display: "inline-flex",
+                      flexShrink: 0,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "visible",
+                      lineHeight: 0,
+                    }}
+                  >
+                    <DocRequestFlowGlyph kind={kind} size={12} />
+                    {kind === "sent" &&
+                    item.sentBadgeCount != null &&
+                    item.sentBadgeCount > 0 ? (
+                      <ModuleSectionIconCornerBadge
+                        count={item.sentBadgeCount}
+                        tone="blue"
+                      />
+                    ) : null}
+                  </span>
+                ))}
                 {item.badge ? (
                   <Pill size="sm" tone="warning">
                     {item.badge}
@@ -19314,6 +21657,1013 @@ function StageCompleteSuccessPopout({
   );
 }
 
+
+/** Copy for StageCompleteSuccessPopout — identical chrome app-wide. */
+type StageCompletePopoutArgs = {
+  stageLabel: string;
+  module?: string;
+  clientName?: string;
+};
+
+function stageCompletedPopoutCopy(
+  uiLang: UiLang,
+  args: StageCompletePopoutArgs,
+): { title: string; body: string } {
+  return {
+    title: t(uiLang, "stageNavCompletedFlashTitle"),
+    body: t(uiLang, "stageNavCompletedFlashBody").replace(
+      "{stage}",
+      args.stageLabel,
+    ),
+  };
+}
+
+/**
+ * Shared stage-completed flash. Call showStageCompletedPopout({ module, stageLabel, clientName })
+ * from any ProcessStageNavFooter Completed handler (Trust / BK / Tax / Audit / Banana).
+ */
+function useStageCompleteSuccessPopout(uiLang: UiLang) {
+  const [flash, setFlash] = useState<{ title: string; body: string } | null>(
+    null,
+  );
+  const clearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const advanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clearRef.current != null) clearTimeout(clearRef.current);
+      if (advanceRef.current != null) clearTimeout(advanceRef.current);
+    };
+  }, []);
+
+  const showStageCompletedPopout = (
+    args: StageCompletePopoutArgs & {
+      advanceAfterMs?: number;
+      onAdvance?: () => void;
+    },
+  ) => {
+    setFlash(stageCompletedPopoutCopy(uiLang, args));
+    if (clearRef.current != null) clearTimeout(clearRef.current);
+    clearRef.current = setTimeout(() => {
+      setFlash(null);
+      clearRef.current = null;
+    }, 2200);
+    if (advanceRef.current != null) clearTimeout(advanceRef.current);
+    if (args.onAdvance) {
+      const ms = args.advanceAfterMs ?? 450;
+      advanceRef.current = setTimeout(() => {
+        advanceRef.current = null;
+        args.onAdvance?.();
+      }, ms);
+    } else {
+      advanceRef.current = null;
+    }
+  };
+
+  const stageCompletePopout = flash ? (
+    <StageCompleteSuccessPopout
+      title={flash.title}
+      body={flash.body}
+      onDismiss={() => setFlash(null)}
+    />
+  ) : null;
+
+  return { showStageCompletedPopout, stageCompletePopout };
+}
+
+/** Fixed request-message popout — StageCompleteSuccessPopout / TempTabPopup chrome (zIndex 10000). */
+type RequestMessageAnchorRect = {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+  width: number;
+  height: number;
+};
+
+/** Place request-message popout below See message; horizontally center/clamp on-screen. */
+/** Viewport-center request-message popout (ignore anchor). Taller → higher. */
+function computeRequestMessagePopoutBase(
+  _anchorRect?: RequestMessageAnchorRect | null,
+  panelHeight?: number,
+  panelWidth?: number,
+): { top: number; left: number; width: number } {
+  const margin = 16;
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const width = Math.min(
+    panelWidth && panelWidth > 0 ? panelWidth : REQ_COMPOSE_MAX_WIDTH,
+    REQ_COMPOSE_MAX_WIDTH,
+    Math.max(200, vw - margin * 2),
+  );
+  const maxH = Math.min(Math.round(vh * 0.7), vh - margin * 2);
+  const estH =
+    panelHeight && panelHeight > 0
+      ? Math.min(panelHeight, maxH)
+      : Math.min(Math.round(vh * 0.55), 420, maxH);
+  // True viewport center — when estH grows, top drops so the panel stays centered.
+  let left = Math.round((vw - width) / 2);
+  let top = Math.round((vh - estH) / 2);
+  left = Math.max(margin, Math.min(left, vw - margin - width));
+  top = Math.max(margin, Math.min(top, vh - margin - Math.min(estH, 80)));
+  return { top, left, width };
+}
+
+/** Fixed request-message popout — StageCompleteSuccessPopout / TempTabPopup chrome (zIndex 10000). */
+
+const REQ_COMPOSE_FROM_DEMO = "requests@intertax.example";
+const REQ_COMPOSE_MAX_WIDTH = 640;
+
+type ReqComposeChannelId = "email" | "portal" | "whatsapp" | "workerChat";
+
+function reqComposeNormalizeList(values: string[], minCount: number): string[] {
+  const cleaned = values.length > 0 ? [...values] : [];
+  while (cleaned.length < minCount) cleaned.push("");
+  return cleaned.length > 0 ? cleaned : minCount > 0 ? [""] : [];
+}
+
+function reqComposeSetAt(values: string[], idx: number, value: string, minCount: number): string[] {
+  const base = reqComposeNormalizeList(values, minCount);
+  base[idx] = value;
+  return base;
+}
+
+function reqComposeAdd(values: string[], minCount: number): string[] {
+  return [...reqComposeNormalizeList(values, minCount), ""];
+}
+
+function reqComposeRemove(values: string[], idx: number, minCount: number): string[] {
+  const base = reqComposeNormalizeList(values, minCount);
+  if (base.length <= minCount) return base;
+  return base.filter((_, i) => i !== idx);
+}
+
+function RequestRecipientRows({
+  label,
+  values,
+  onChange,
+  addLabel,
+  placeholder,
+  minCount,
+  showAdd = true,
+}: {
+  label: string;
+  values: string[];
+  onChange: (next: string[]) => void;
+  addLabel: string;
+  placeholder: string;
+  minCount: number;
+  /** When false, parent owns Add buttons (email To/Cc/Bcc chrome). */
+  showAdd?: boolean;
+}) {
+  const rows = reqComposeNormalizeList(values, minCount);
+  if (rows.length === 0 && !showAdd) return null;
+  return (
+    <Stack gap={4}>
+      <ChromeText size="small" tone="secondary">
+        {label}
+      </ChromeText>
+      {rows.map((row, idx) => (
+        <Row key={`${label}-${idx}`} gap={6} align="center">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <ChromeTextInput
+              value={row}
+              onChange={(v) => onChange(reqComposeSetAt(values, idx, v, minCount))}
+              placeholder={placeholder}
+            />
+          </div>
+          {rows.length > minCount ? (
+            <GmailButton
+              size="compact"
+              variant="text"
+              onClick={() => onChange(reqComposeRemove(values, idx, minCount))}
+            >
+              ×
+            </GmailButton>
+          ) : null}
+        </Row>
+      ))}
+      {showAdd ? (
+        <div>
+          <GmailButton
+            size="compact"
+            variant="secondary"
+            onClick={() => onChange(reqComposeAdd(values, minCount))}
+          >
+            {addLabel}
+          </GmailButton>
+        </div>
+      ) : null}
+    </Stack>
+  );
+}
+
+function RequestRichBodyEditor({
+  uiLang,
+  value,
+  onChange,
+  minHeight = 120,
+}: {
+  uiLang: UiLang;
+  value: string;
+  onChange: (html: string) => void;
+  minHeight?: number;
+}) {
+  const theme = useHostTheme();
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const seededRef = useRef(false);
+  /** Survives toolbar mousedown so Bold/Italic/Color can still see the range. */
+  const savedRangeRef = useRef<Range | null>(null);
+
+  const saveSelection = () => {
+    const el = editorRef.current;
+    if (!el || typeof window === "undefined" || !window.getSelection) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return;
+    savedRangeRef.current = range.cloneRange();
+  };
+
+  const restoreSelection = () => {
+    const el = editorRef.current;
+    const range = savedRangeRef.current;
+    if (!el || !range || typeof window === "undefined" || !window.getSelection) {
+      return false;
+    }
+    el.focus();
+    const sel = window.getSelection();
+    if (!sel) return false;
+    try {
+      sel.removeAllRanges();
+      sel.addRange(range.cloneRange());
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    // Seed once; do not clobber live edits (toolbar formats) from parent echo.
+    if (!seededRef.current) {
+      el.innerHTML = value || "";
+      seededRef.current = true;
+      return;
+    }
+    if (document.activeElement === el) return;
+    if ((value || "") !== el.innerHTML) {
+      el.innerHTML = value || "";
+    }
+  }, [value]);
+
+  const emitHtml = () => {
+    const el = editorRef.current;
+    if (el) onChange(el.innerHTML);
+  };
+
+  /** Keep selection: buttons steal focus on mousedown before click/execCommand. */
+  const keepSelectionMouseDown = (
+    e: { preventDefault: () => void; stopPropagation?: () => void },
+  ) => {
+    e.preventDefault();
+    e.stopPropagation?.();
+    saveSelection();
+  };
+
+  const wrapSelectionFallback = (tag: "b" | "i" | "span", color?: string) => {
+    const el = editorRef.current;
+    if (!el || typeof window === "undefined" || !window.getSelection) return false;
+    restoreSelection();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    let range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return false;
+    // Collapsed caret: apply to the current word so a click still shows a change.
+    if (range.collapsed) {
+      const node = range.startContainer;
+      if (node.nodeType === Node.TEXT_NODE && node.textContent) {
+        const text = node.textContent;
+        let start = range.startOffset;
+        let end = range.startOffset;
+        while (start > 0 && /\S/.test(text[start - 1]!)) start -= 1;
+        while (end < text.length && /\S/.test(text[end]!)) end += 1;
+        if (end > start) {
+          range = document.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, end);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    }
+    if (range.collapsed) return false;
+    const wrapper = document.createElement(tag);
+    if (tag === "span" && color) wrapper.style.color = color;
+    try {
+      range.surroundContents(wrapper);
+    } catch {
+      const frag = range.extractContents();
+      wrapper.appendChild(frag);
+      range.insertNode(wrapper);
+    }
+    sel.removeAllRanges();
+    const next = document.createRange();
+    next.selectNodeContents(wrapper);
+    sel.addRange(next);
+    savedRangeRef.current = next.cloneRange();
+    return true;
+  };
+
+  const runCmd = (cmd: string, arg?: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    restoreSelection();
+    const before = el.innerHTML;
+    // Canvas host often reports execCommand success with no DOM change — wrap first.
+    let applied = false;
+    if (cmd === "bold") applied = wrapSelectionFallback("b");
+    else if (cmd === "italic") applied = wrapSelectionFallback("i");
+    else if (cmd === "foreColor" && arg) applied = wrapSelectionFallback("span", arg);
+
+    if (!applied || el.innerHTML === before) {
+      try {
+        if (cmd === "foreColor") {
+          try {
+            document.execCommand("styleWithCSS", false, "true");
+          } catch {
+            /* ignore */
+          }
+        }
+        document.execCommand(cmd, false, arg);
+      } catch {
+        /* ignore */
+      }
+      // If still unchanged, last-ditch wrap again after execCommand focus quirks.
+      if (el.innerHTML === before) {
+        if (cmd === "bold") wrapSelectionFallback("b");
+        else if (cmd === "italic") wrapSelectionFallback("i");
+        else if (cmd === "foreColor" && arg) wrapSelectionFallback("span", arg);
+      }
+    }
+    saveSelection();
+    emitHtml();
+  };
+
+  // Hex swatches — theme tokens can be CSS vars that foreColor/style reject.
+  const colors = [
+    { id: "default", color: "#1a1a1a" },
+    { id: "blue", color: "#1a56db" },
+    { id: "red", color: "#c0266b" },
+    { id: "green", color: "#0f766e" },
+  ];
+
+  const toolBtnStyle = {
+    all: "unset" as const,
+    boxSizing: "border-box" as const,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 28,
+    paddingInline: 10,
+    borderRadius: 8,
+    border: `1px solid ${chromeBorder(theme)}`,
+    background: chromeSelectedFill(theme),
+    color: theme.text.primary,
+    font: "inherit",
+    fontSize: 12,
+    fontWeight: 600,
+  };
+
+  return (
+    <Stack gap={6}>
+      <Row gap={4} wrap align="center">
+        <button
+          type="button"
+          title={t(uiLang, "reqComposeBold")}
+          onMouseDown={keepSelectionMouseDown}
+          onClick={() => runCmd("bold")}
+          style={toolBtnStyle}
+        >
+          {t(uiLang, "reqComposeBold")}
+        </button>
+        <button
+          type="button"
+          title={t(uiLang, "reqComposeItalic")}
+          onMouseDown={keepSelectionMouseDown}
+          onClick={() => runCmd("italic")}
+          style={toolBtnStyle}
+        >
+          {t(uiLang, "reqComposeItalic")}
+        </button>
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, "reqComposeColor")}
+        </ChromeText>
+        {colors.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            title={c.id}
+            onMouseDown={keepSelectionMouseDown}
+            onClick={() => runCmd("foreColor", c.color)}
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: 4,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: c.color,
+              cursor: "pointer",
+              padding: 0,
+            }}
+          />
+        ))}
+      </Row>
+      <div
+        ref={editorRef}
+        contentEditable
+        role="textbox"
+        aria-multiline={true}
+        suppressContentEditableWarning
+        onMouseUp={saveSelection}
+        onKeyUp={saveSelection}
+        onSelect={saveSelection}
+        onBlur={saveSelection}
+        onInput={() => {
+          saveSelection();
+          emitHtml();
+        }}
+        style={{
+          minHeight,
+          padding: "10px 12px",
+          borderRadius: 8,
+          border: `1px solid ${CHROME_BORDER_BLUE}`,
+          background: CHROME_WHITE,
+          color: theme.text.primary,
+          font: "inherit",
+          lineHeight: 1.45,
+          outline: "none",
+          overflow: "auto",
+          whiteSpace: "pre-wrap",
+        }}
+      />
+      {value && /<(?:b|strong|i|em|span|font)\b/i.test(value) ? (
+        <Stack
+          gap={4}
+          style={{
+            padding: 8,
+            borderRadius: 8,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: chromeSoftFill(theme),
+          }}
+        >
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "colPreview")}
+          </ChromeText>
+          <div
+            dangerouslySetInnerHTML={{ __html: value }}
+            style={{
+              color: theme.text.primary,
+              font: "inherit",
+              lineHeight: 1.45,
+              whiteSpace: "pre-wrap",
+            }}
+          />
+        </Stack>
+      ) : null}
+    </Stack>
+  );
+}
+
+function RequestComposeChannelTabs({
+  uiLang,
+  channels,
+  active,
+  onChange,
+}: {
+  uiLang: UiLang;
+  channels: ReqComposeChannelId[];
+  active: ReqComposeChannelId;
+  onChange: (id: ReqComposeChannelId) => void;
+}) {
+  const theme = useHostTheme();
+  if (channels.length <= 1) return null;
+  const labelFor = (id: ReqComposeChannelId): string => {
+    if (id === "email") return t(uiLang, "reqComposeTabEmail");
+    if (id === "portal") return t(uiLang, "reqComposeTabPortal");
+    if (id === "whatsapp") return t(uiLang, "reqComposeTabWhatsApp");
+    return t(uiLang, "reqComposeTabWorkerChat");
+  };
+  return (
+    <Row gap={6} wrap>
+      {channels.map((id) => {
+        const selected = id === active;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onChange(id)}
+            style={{
+              all: "unset",
+              cursor: "pointer",
+              boxSizing: "border-box",
+              padding: "6px 12px",
+              borderRadius: 8,
+              border: selected
+                ? `1px solid ${CHROME_BORDER_BLUE}`
+                : `1px solid ${chromeBorder(theme)}`,
+              background: selected
+                ? chromeSelectedFill(theme)
+                : chromeSoftFill(theme),
+              color: theme.text.primary,
+              font: "inherit",
+              fontSize: 12,
+              fontWeight: selected ? 600 : 500,
+            }}
+          >
+            {labelFor(id)}
+          </button>
+        );
+      })}
+    </Row>
+  );
+}
+
+function RequestEmailStandardCompose({
+  uiLang,
+  fromAddress,
+  toEmails,
+  onToChange,
+  ccEmails,
+  onCcChange,
+  bccEmails,
+  onBccChange,
+  subject,
+  onSubjectChange,
+  bodyHtml,
+  onBodyHtmlChange,
+}: {
+  uiLang: UiLang;
+  fromAddress: string;
+  toEmails: string[];
+  onToChange: (next: string[]) => void;
+  ccEmails: string[];
+  onCcChange: (next: string[]) => void;
+  bccEmails: string[];
+  onBccChange: (next: string[]) => void;
+  subject: string;
+  onSubjectChange: (v: string) => void;
+  bodyHtml: string;
+  onBodyHtmlChange: (v: string) => void;
+}) {
+  const theme = useHostTheme();
+  const signature =
+    uiLang === "he"
+      ? t(uiLang, "reqComposeSignatureHe")
+      : t(uiLang, "reqComposeSignatureEn");
+  return (
+    <Stack
+      gap={8}
+      style={{
+        padding: 10,
+        borderRadius: 10,
+        border: `1px solid ${chromeBorder(theme)}`,
+        background: chromeSoftFill(theme),
+      }}
+    >
+      <Row
+        gap={6}
+        align="center"
+        wrap
+        style={{ width: "100%", justifyContent: "flex-end" }}
+        data-chrome={`req-add-row-${GMAIL_DUAL_NAV_BUILD}`}
+      >
+        <GmailButton
+          size="compact"
+          variant="secondary"
+          onClick={() => onToChange(reqComposeAdd(toEmails, 1))}
+        >
+          {t(uiLang, "taxReturnAddEmail")}
+        </GmailButton>
+        <GmailButton
+          size="compact"
+          variant="secondary"
+          onClick={() => onCcChange(reqComposeAdd(ccEmails, 0))}
+        >
+          {t(uiLang, "reqComposeAddCc")}
+        </GmailButton>
+        <GmailButton
+          size="compact"
+          variant="secondary"
+          onClick={() => onBccChange(reqComposeAdd(bccEmails, 0))}
+        >
+          {t(uiLang, "reqComposeAddBcc")}
+        </GmailButton>
+      </Row>
+      <Stack gap={2}>
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "reqComposeFrom")}
+        </ChromeText>
+        <ChromeText size="small" weight="semibold">
+          {fromAddress}
+        </ChromeText>
+      </Stack>
+      <Stack gap={8} data-chrome={`req-recipients-${GMAIL_DUAL_NAV_BUILD}`}>
+        <RequestRecipientRows
+          label={t(uiLang, "reqComposeTo")}
+          values={toEmails}
+          onChange={onToChange}
+          addLabel={t(uiLang, "taxReturnAddEmail")}
+          placeholder="email@example.com"
+          minCount={1}
+          showAdd={false}
+        />
+        {reqComposeNormalizeList(ccEmails, 0).length > 0 ? (
+          <Stack
+            gap={4}
+            style={{
+              paddingTop: 8,
+              borderTop: `1px solid ${chromeBorder(theme)}`,
+            }}
+          >
+            <RequestRecipientRows
+              label={t(uiLang, "reqComposeCc")}
+              values={ccEmails}
+              onChange={onCcChange}
+              addLabel={t(uiLang, "reqComposeAddCc")}
+              placeholder="cc@example.com"
+              minCount={0}
+              showAdd={false}
+            />
+          </Stack>
+        ) : null}
+        {reqComposeNormalizeList(bccEmails, 0).length > 0 ? (
+          <Stack
+            gap={4}
+            style={{
+              paddingTop: 8,
+              borderTop: `1px solid ${chromeBorder(theme)}`,
+            }}
+          >
+            <RequestRecipientRows
+              label={t(uiLang, "reqComposeBcc")}
+              values={bccEmails}
+              onChange={onBccChange}
+              addLabel={t(uiLang, "reqComposeAddBcc")}
+              placeholder="bcc@example.com"
+              minCount={0}
+              showAdd={false}
+            />
+          </Stack>
+        ) : null}
+      </Stack>
+      <Stack gap={4}>
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "bkRequestPreviewSubject")}
+        </ChromeText>
+        <ChromeTextInput value={subject} onChange={onSubjectChange} />
+      </Stack>
+      <Stack gap={4}>
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "reqComposeBody")}
+        </ChromeText>
+        <RequestRichBodyEditor
+          uiLang={uiLang}
+          value={bodyHtml}
+          onChange={onBodyHtmlChange}
+          minHeight={130}
+        />
+      </Stack>
+      <Stack
+        gap={2}
+        style={{
+          paddingTop: 6,
+          borderTop: `1px solid ${chromeBorder(theme)}`,
+        }}
+      >
+        <ChromeText size="small" tone="tertiary">
+          {t(uiLang, "reqComposeSignature")}
+        </ChromeText>
+        <ChromeText size="small" tone="secondary" style={{ whiteSpace: "pre-wrap" }}>
+          {signature}
+        </ChromeText>
+      </Stack>
+    </Stack>
+  );
+}
+
+function RequestWhatsAppCompose({
+  uiLang,
+  phones,
+  onPhonesChange,
+  bodyText,
+  onBodyTextChange,
+  phonePlaceholder,
+}: {
+  uiLang: UiLang;
+  phones: string[];
+  onPhonesChange: (next: string[]) => void;
+  bodyText: string;
+  onBodyTextChange: (v: string) => void;
+  phonePlaceholder: string;
+}) {
+  const theme = useHostTheme();
+  return (
+    <Stack gap={8}>
+      <RequestRecipientRows
+        label={t(uiLang, "reqComposeWhatsAppTo")}
+        values={phones}
+        onChange={onPhonesChange}
+        addLabel={t(uiLang, "reqComposeAddWhatsApp")}
+        placeholder={phonePlaceholder}
+        minCount={1}
+      />
+      <Stack
+        gap={6}
+        style={{
+          padding: 10,
+          borderRadius: 12,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: chromeSoftFill(theme),
+        }}
+      >
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "reqComposeWhatsAppPreview")}
+        </ChromeText>
+        <div
+          style={{
+            alignSelf: "flex-start",
+            maxWidth: "100%",
+            padding: "10px 12px",
+            borderRadius: "12px 12px 12px 4px",
+            background: CHROME_WHITE,
+            border: `1px solid ${chromeBorder(theme)}`,
+          }}
+        >
+          <TextArea
+            value={bodyText}
+            onChange={onBodyTextChange}
+            style={{
+              width: "100%",
+              minHeight: 96,
+              border: "none",
+              background: "transparent",
+              resize: "vertical",
+            }}
+          />
+        </div>
+      </Stack>
+    </Stack>
+  );
+}
+
+function RequestPortalCompose({
+  uiLang,
+  clientName,
+  bodyText,
+  onBodyTextChange,
+}: {
+  uiLang: UiLang;
+  clientName: string;
+  bodyText: string;
+  onBodyTextChange: (v: string) => void;
+}) {
+  const theme = useHostTheme();
+  return (
+    <Stack gap={8}>
+      <Stack
+        gap={2}
+        style={{
+          padding: "6px 10px",
+          borderRadius: 8,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: chromeSoftFill(theme),
+        }}
+      >
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "bkRequestPreviewPortal")}
+        </ChromeText>
+        <ChromeText weight="semibold">{clientName}</ChromeText>
+      </Stack>
+      <TextArea
+        value={bodyText}
+        onChange={onBodyTextChange}
+        style={{ width: "100%", minHeight: 110 }}
+      />
+    </Stack>
+  );
+}
+
+
+function RequestMessagePopout({
+  title,
+  closeLabel,
+  onClose,
+  children,
+  anchorRect = null,
+}: {
+  title: string;
+  closeLabel: string;
+  onClose: () => void;
+  children: Parameters<typeof Stack>[0]["children"];
+  /** Kept for call-site compat; placement is always viewport-centered. */
+  anchorRect?: RequestMessageAnchorRect | null;
+}) {
+  const [offset, setOffset] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [base, setBase] = useState(() =>
+    computeRequestMessagePopoutBase(null),
+  );
+
+  useEffect(() => {
+    setOffset({ x: 0, y: 0 });
+    const measure = () => {
+      const el = panelRef.current;
+      setBase(
+        computeRequestMessagePopoutBase(
+          null,
+          el?.offsetHeight,
+          el?.offsetWidth,
+        ),
+      );
+    };
+    measure();
+    const id =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame(() => {
+            measure();
+            requestAnimationFrame(measure);
+          })
+        : null;
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && panelRef.current) {
+      ro = new ResizeObserver(() => measure());
+      ro.observe(panelRef.current);
+    }
+    const onWin = () => measure();
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", onWin);
+    }
+    return () => {
+      if (id != null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(id);
+      }
+      ro?.disconnect();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("resize", onWin);
+      }
+    };
+  }, [
+    // Anchor ignored for placement; listed so reopen still resets drag offset.
+    anchorRect?.top,
+    anchorRect?.left,
+    anchorRect?.bottom,
+    anchorRect?.right,
+    anchorRect?.width,
+    anchorRect?.height,
+  ]);
+
+  return (
+    <div
+      data-chrome="request-message-popout-scrim"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 10000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        boxSizing: "border-box",
+        pointerEvents: "none",
+      }}
+    >
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-label={title}
+      data-chrome="request-message-popout"
+      style={{
+        pointerEvents: "auto",
+        position: "relative",
+        // Flex centers; drag offset + measure width. Taller panels sit higher via flex.
+        transform:
+          offset.x || offset.y
+            ? `translate(${offset.x}px, ${offset.y}px)`
+            : undefined,
+        width: base.width,
+        maxWidth: `min(${REQ_COMPOSE_MAX_WIDTH}px, calc(100vw - 32px))`,
+        maxHeight: "min(70vh, calc(100vh - 32px))",
+        overflow: "auto",
+        boxSizing: "border-box",
+        padding: 14,
+        borderRadius: 10,
+        border: `1px solid ${CHROME_BORDER_BLUE}`,
+        background: CHROME_WHITE,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        margin: "auto",
+      }}
+    >
+      <div
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          const target = e.target as HTMLElement | null;
+          if (target?.closest?.("button")) return;
+          dragRef.current = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            origX: offset.x,
+            origY: offset.y,
+          };
+          try {
+            (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          } catch {
+            /* ignore */
+          }
+        }}
+        onPointerMove={(e) => {
+          const d = dragRef.current;
+          if (!d || d.pointerId !== e.pointerId) return;
+          setOffset({
+            x: d.origX + (e.clientX - d.startX),
+            y: d.origY + (e.clientY - d.startY),
+          });
+        }}
+        onPointerUp={(e) => {
+          if (dragRef.current?.pointerId === e.pointerId) {
+            dragRef.current = null;
+          }
+        }}
+        onPointerCancel={(e) => {
+          if (dragRef.current?.pointerId === e.pointerId) {
+            dragRef.current = null;
+          }
+        }}
+        style={{
+          cursor: "grab",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          userSelect: "none",
+        }}
+      >
+        <ChromeText weight="semibold" style={{ flex: 1, minWidth: 0 }}>
+          {title}
+        </ChromeText>
+        <GmailButton variant="text" onClick={onClose}>
+          {closeLabel}
+        </GmailButton>
+      </div>
+      {children}
+    </div>
+    </div>
+  );
+}
+
+
+
+/**
+ * ModuleSectionTabs that must never show Back / Completed / Forward.
+ * Working folder, files browse, comments, overview, settings, checklist,
+ * and company-docs are not process stages. Tax/Audit "requests" is a
+ * compose tab (hidden); BK "requests" is a pipeline stop — pass
+ * treatRequestsAsStage: true to keep its footer.
+ */
+function sectionHidesProcessStageNavFooter(
+  section: string,
+  opts?: { treatRequestsAsStage?: boolean },
+): boolean {
+  if (
+    section === "overview" ||
+    section === "comments" ||
+    section === "folder" ||
+    section === "files" ||
+    section === "settings" ||
+    section === "checklist" ||
+    section === "company-docs"
+  ) {
+    return true;
+  }
+  if (section === "requests") return !opts?.treatRequestsAsStage;
+  return false;
+}
+
 /**
  * Back / Forward / Completed footer inside ModuleSectionFrame stage bodies
  * (Trust pipeline from Intake, BK month panels, Audit stage chain).
@@ -19325,7 +22675,10 @@ function ProcessStageNavFooter({
   onBack,
   onForward,
   onCompleted,
+  onUndoCompleted,
+  completedActive = false,
   completedDisabled = false,
+  showCompleted = true,
 }: {
   uiLang: UiLang;
   backDisabled: boolean;
@@ -19333,9 +22686,16 @@ function ProcessStageNavFooter({
   onBack: () => void;
   onForward: () => void;
   onCompleted: () => void;
+  /** When set with completedActive, Completed toggles to Undo completed. */
+  onUndoCompleted?: () => void;
+  /** True when the current stage checklist is already marked done. */
+  completedActive?: boolean;
   completedDisabled?: boolean;
+  /** When false, omit Completed (e.g. Banana Upload/Converter — only on Download). */
+  showCompleted?: boolean;
 }) {
   const theme = useHostTheme();
+  const canUndo = completedActive && typeof onUndoCompleted === "function";
   return (
     <div
       dir={uiDir(uiLang)}
@@ -19354,13 +22714,19 @@ function ProcessStageNavFooter({
       <Button variant="secondary" disabled={backDisabled} onClick={onBack}>
         {`${navBackArrow(uiLang)} ${t(uiLang, "stageNavBack")}`}
       </Button>
-      <Button
-        variant="primary"
-        disabled={completedDisabled}
-        onClick={onCompleted}
-      >
-        {t(uiLang, "stageNavCompleted")}
-      </Button>
+      {showCompleted ? (
+        <Button
+          variant={canUndo ? "secondary" : "primary"}
+          disabled={canUndo ? false : completedDisabled}
+          onClick={canUndo ? onUndoCompleted : onCompleted}
+        >
+          {canUndo
+            ? t(uiLang, "stageNavUndoCompleted")
+            : t(uiLang, "stageNavCompleted")}
+        </Button>
+      ) : (
+        <span style={{ flex: 1, minWidth: 8 }} aria-hidden />
+      )}
       <Button
         variant="secondary"
         disabled={forwardDisabled}
@@ -19381,6 +22747,8 @@ type RaisedTabItem = {
   status?: WorkFlowStatus;
   /** Important process mark (!). */
   important?: boolean;
+  /** Sent (blue) / Received (green) doc-flow glyph beside the label. */
+  flowGlyph?: DocRequestFlowKind;
 };
 
 type GmailTabItem = RaisedTabItem & {
@@ -19555,6 +22923,9 @@ function RaisedTabBar({
                 >
                   !
                 </ChromeText>
+              ) : null}
+              {tab.flowGlyph ? (
+                <DocRequestFlowGlyph kind={tab.flowGlyph} size={compact ? 12 : 14} />
               ) : null}
               <ChromeText
                 as="span"
@@ -20553,6 +23924,7 @@ const DEMO_STAFF_PHOTO_SEED: Record<string, string> = {
   "staff-billing": demoStaffPhotoDataUrl("MB", "#52B896", "#2E8A6C"),
   "staff-audit": demoStaffPhotoDataUrl("EA", "#8B6FC0", "#5E4490"),
   "staff-secretariat": demoStaffPhotoDataUrl("RO", "#D4707A", "#A84852"),
+  "staff-sumit": demoStaffPhotoDataUrl("SU", "#2F6FED", "#1B4F82"),
 };
 
 function normalizeFirmWorker(w: {
@@ -20708,6 +24080,17 @@ const DEMO_STAFF: FirmWorker[] = normalizeFirmWorkers([
     emailSignatureName: "Rina Office",
     emailSignatureBody:
       "Rina Office\nSecretariat · Intertax\nrina.office@intertax.example\n+972-3-000-0016",
+  },
+  {
+    id: "staff-sumit",
+    name: "Sumit",
+    nameHe: "סאמיט",
+    deptId: "reportDeptAccounting",
+    employeeTag: "17",
+    email: "sumit@intertax.example",
+    emailSignatureName: "Sumit",
+    emailSignatureBody:
+      "Sumit\nAccounting · Intertax\nsumit@intertax.example\n+972-3-000-0017",
   },
 ]);
 
@@ -23524,7 +26907,11 @@ const SYSTEM_TILES: ModuleTile[] = [
 ];
 
 
-/** Always-visible modules — never hide Systemadmin shell or this settings screen. */
+/**
+ * Firm catalog always-included (cannot turn Off on Company tab).
+ * Does NOT blanket-grant shell visibility — see isModuleVisibleForViewer
+ * (parent `systemadmin` only) and categoryGrantedByWorkerOverride.
+ */
 const ALWAYS_ON_COMPANY_MODULE_IDS = new Set(["systemadmin", "company-modules"]);
 
 type CompanyModuleGroup = "primary" | "admin" | "systemadmin";
@@ -23785,7 +27172,13 @@ function isModuleVisibleForViewer(
   companyEnabled: Record<string, boolean>,
   workerEnabled: Record<string, boolean>,
 ): boolean {
-  if (ALWAYS_ON_COMPANY_MODULE_IDS.has(moduleId)) return true;
+  /**
+   * Parent `systemadmin` stays visible for parent-chain checks so an explicitly
+   * granted Systemadmin *tile* can show. Catalog always-on tiles like
+   * `company-modules` must NOT blanket-grant shell visibility — they follow
+   * normal worker Visible (default Off for Worker / Manager).
+   */
+  if (moduleId === "systemadmin") return true;
   if (!isCompanyModuleIncluded(moduleId, companyEnabled)) return false;
   if (workerEnabled[moduleId] === false) return false;
   const parentId = companyModuleParentId(moduleId);
@@ -23820,7 +27213,8 @@ function defaultNonAdminWorkerModuleOffIds(
 ): string[] {
   const off: string[] = [];
   for (const mod of COMPANY_MODULE_CATALOG) {
-    if (ALWAYS_ON_COMPANY_MODULE_IDS.has(mod.id)) continue;
+    /** Parent rail anchor only — not a grantable tile. */
+    if (mod.id === "systemadmin") continue;
     if (NON_ADMIN_WORKER_KEEP_ON_MODULE_IDS.has(mod.id)) continue;
 
     if (mod.group === "admin" || mod.id === "admin" || mod.parentId === "admin") {
@@ -23829,9 +27223,9 @@ function defaultNonAdminWorkerModuleOffIds(
     }
     if (
       mod.group === "systemadmin" ||
-      mod.id === "systemadmin" ||
       mod.parentId === "systemadmin"
     ) {
+      /** Includes catalog always-on `company-modules` — Off until explicit Visible. */
       off.push(mod.id);
       continue;
     }
@@ -23850,18 +27244,39 @@ function defaultNonAdminWorkerModuleOffIds(
   return off;
 }
 
+/** Manager: keep Admin/Workers defaults On; Systemadmin tiles Off until granted. */
+function defaultManagerSystemAdminModuleOffIds(): string[] {
+  const off: string[] = [];
+  for (const mod of COMPANY_MODULE_CATALOG) {
+    if (mod.id === "systemadmin") continue;
+    if (
+      mod.group === "systemadmin" ||
+      mod.parentId === "systemadmin"
+    ) {
+      off.push(mod.id);
+    }
+  }
+  return off;
+}
+
 /**
- * Fill missing per-worker keys with non-admin role defaults.
- * Explicit true/false always wins. Admin / System Admin: no fill (missing = on).
+ * Fill missing per-worker keys with role defaults.
+ * Explicit true/false always wins.
+ * Worker: Admin / Workers / Systemadmin Off (dual-homed template tiles stay On).
+ * Manager: Systemadmin tiles Off until Company modules / Assign grant.
+ * System Admin: no fill (missing = on).
  */
 function withWorkerModuleRoleDefaults(
   workerEnabled: Record<string, boolean>,
   role: Role,
   deptIds: string | string[],
 ): Record<string, boolean> {
-  if (isAdminLike(role)) return workerEnabled;
+  if (isSystemAdmin(role)) return workerEnabled;
   const out = { ...workerEnabled };
-  for (const id of defaultNonAdminWorkerModuleOffIds(deptIds)) {
+  const offIds = isManager(role)
+    ? defaultManagerSystemAdminModuleOffIds()
+    : defaultNonAdminWorkerModuleOffIds(deptIds);
+  for (const id of offIds) {
     if (!Object.prototype.hasOwnProperty.call(out, id)) {
       out[id] = false;
     }
@@ -32395,7 +35810,17 @@ function categoryGrantedByWorkerOverride(
       ADMIN_TILES.some((tile) => moduleVisible(tile.id))
     );
   }
-  return SYSTEM_TILES.some((tile) => moduleVisible(tile.id));
+  /**
+   * System Admin rail only when a real Systemadmin *tile* is Visible.
+   * Exclude catalog always-on (`company-modules`) and dual-homed Worker tiles
+   * (template-settings) — those must not piggyback the System Admin category.
+   */
+  return SYSTEM_TILES.some(
+    (tile) =>
+      !ALWAYS_ON_COMPANY_MODULE_IDS.has(tile.id) &&
+      !NON_ADMIN_WORKER_KEEP_ON_MODULE_IDS.has(tile.id) &&
+      moduleVisible(tile.id),
+  );
 }
 
 function categoryIdsForUser(
@@ -37207,6 +40632,61 @@ function Button({
     >
       {label}
     </GmailButton>
+  );
+}
+
+/**
+ * Compact OK review control — same ChromeToggle (pill track + knob) as
+ * System Admin → Company modules Visible grants. ON = OK, OFF = Not OK.
+ */
+function DocsReceivedOkToggle({
+  verdict,
+  okLabel,
+  notOkLabel,
+  onOk,
+  onNotOk,
+}: {
+  verdict: "" | "ok" | "not-ok";
+  okLabel: string;
+  notOkLabel: string;
+  onOk: () => void;
+  onNotOk: () => void;
+}) {
+  const theme = useHostTheme();
+  const checked = verdict === "ok";
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        width: "auto",
+        flexShrink: 0,
+      }}
+      onClick={(e: { stopPropagation?: () => void }) => {
+        e.stopPropagation?.();
+      }}
+    >
+      <ChromeToggle
+        checked={checked}
+        onChange={(next) => {
+          if (next) onOk();
+          else onNotOk();
+        }}
+      />
+      <ChromeText
+        size="small"
+        style={{
+          color: checked ? theme.accent.primary : CHROME_INK_MUTED,
+          fontWeight: checked ? 600 : 500,
+          minWidth: 48,
+          flexShrink: 0,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {checked ? okLabel : notOkLabel}
+      </ChromeText>
+    </div>
   );
 }
 
@@ -42660,6 +46140,8 @@ function ChecklistBlock({
   onToggle,
   onRename,
   onAdd,
+  onOpen,
+  canOpen,
 }: {
   items: WorkspaceChecklistItem[];
   /** Highlight the checklist row for the focused process stage. */
@@ -42670,6 +46152,10 @@ function ChecklistBlock({
   onRename?: (id: string, label: string) => void;
   /** Optional — append a custom checklist row. */
   onAdd?: (label: string) => void;
+  /** Optional — jump to the workspace section for this checklist row. */
+  onOpen?: (id: string) => void;
+  /** When set with onOpen, only show Open for ids that return true. */
+  canOpen?: (id: string) => boolean;
 }) {
   const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
@@ -42741,7 +46227,14 @@ function ChecklistBlock({
             "{app}",
             doneInLabel,
           );
-          const showActions = !!(onRename || onToggle || item.doneInApp);
+          const openAvailable =
+            !!onOpen && (!canOpen || canOpen(item.id));
+          const showActions = !!(
+            onRename ||
+            onToggle ||
+            item.doneInApp ||
+            openAvailable
+          );
           const isPicking = pickingDoneInId === item.id;
           return (
             <div key={item.id} data-stage={item.stageId ?? undefined}>
@@ -42842,6 +46335,14 @@ function ChecklistBlock({
                       lineHeight: 1,
                     }}
                   >
+                    {openAvailable ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => onOpen?.(item.id)}
+                      >
+                        {t(uiLang, "bkStageOpen")}
+                      </Button>
+                    ) : null}
                     {onRename ? (
                       <button
                         type="button"
@@ -42998,8 +46499,8 @@ type TrustCaseState = {
   showOptional: boolean;
   docs: TrustDoc[];
   bananaFormat: string;
-  /** Demo bank-statement PDF uploaded on the Banana stage. */
-  bananaPdfName: string;
+  /** Demo bank-statement PDF(s) uploaded on the Banana stage (multi-file). */
+  bananaPdfNames: string[];
   /** Demo Excel prepared for Banana (clipboard / CSV-style import). */
   bananaExcelName: string;
   bananaImported: boolean;
@@ -43038,8 +46539,78 @@ type TrustCalcState = {
 };
 
 const TRUST_SHAAM_URL = "https://www.gov.il/en/service/connect-to-shaam";
-const TRUST_CORE_FORMS = ["1327", "1322", "1324", "151ח"] as const;
+/** Filer return forms — single choice only (1327 / 1322 / 1324). */
+const TRUST_EXCLUSIVE_FORMS = ["1327", "1322", "1324"] as const;
+type TrustExclusiveFormId = (typeof TRUST_EXCLUSIVE_FORMS)[number];
+/** Always-independent core form (checkbox). */
+const TRUST_FORM_151 = "151ח";
+const TRUST_CORE_FORMS = [...TRUST_EXCLUSIVE_FORMS, TRUST_FORM_151] as const;
 const TRUST_OPTIONAL_FORMS = ["141", "142", "143", "144", "147", "148", "149"];
+
+/** Keep at most one of 1327/1322/1324 true (first in list order wins). */
+function normalizeTrustExclusiveForms(
+  forms: Record<string, boolean>,
+): Record<string, boolean> {
+  const next = { ...forms };
+  let kept: TrustExclusiveFormId | null = null;
+  for (const id of TRUST_EXCLUSIVE_FORMS) {
+    if (next[id]) {
+      if (kept == null) kept = id;
+      else next[id] = false;
+    }
+  }
+  return next;
+}
+
+function trustExclusiveFormSelected(
+  forms: Record<string, boolean>,
+): TrustExclusiveFormId | null {
+  for (const id of TRUST_EXCLUSIVE_FORMS) {
+    if (forms[id]) return id;
+  }
+  return null;
+}
+
+/** Select one exclusive form (or clear all when id is null). */
+function withTrustExclusiveForm(
+  forms: Record<string, boolean>,
+  id: TrustExclusiveFormId | null,
+): Record<string, boolean> {
+  const next = { ...forms };
+  for (const fid of TRUST_EXCLUSIVE_FORMS) next[fid] = fid === id;
+  return next;
+}
+
+/** Demo LiveFile / Forms assets for exclusive filer forms (1327 / 1322 / 1324). */
+type TrustExclusiveFormLiveDoc = { id: string; name: string };
+
+function trustExclusiveFormDemoDoc(
+  formId: TrustExclusiveFormId,
+  client: { id: string; name: string },
+  year: string,
+): TrustExclusiveFormLiveDoc {
+  return {
+    id: `${client.id}-trust-form-${formId}-${year}`,
+    name: `Form_${formId}_${year}.pdf`,
+  };
+}
+
+/** Prefer an existing received / year form whose name or type mentions the form #. */
+function resolveTrustExclusiveFormLiveDoc(
+  formId: TrustExclusiveFormId,
+  client: { id: string; name: string },
+  year: string,
+  received: ReceivedClientDoc[] | null | undefined,
+): TrustExclusiveFormLiveDoc {
+  const needle = formId;
+  for (const file of received ?? []) {
+    const hay = `${file.name} ${file.docType ?? ""}`;
+    if (hay.includes(needle)) {
+      return { id: file.id, name: file.name };
+    }
+  }
+  return trustExclusiveFormDemoDoc(formId, client, year);
+}
 
 function trustTr(lang: UiLang, en: string, he: string): string {
   return lang === "he" ? he : en;
@@ -43131,11 +46702,30 @@ function normalizeTrustCase(
     ...base,
     ...raw,
     intakeConfirmed: !!raw.intakeConfirmed,
-    bananaPdfName:
-      typeof raw.bananaPdfName === "string" ? raw.bananaPdfName : "",
+    bananaPdfNames: (() => {
+      const legacy =
+        typeof (raw as { bananaPdfName?: unknown }).bananaPdfName === "string"
+          ? String((raw as { bananaPdfName?: string }).bananaPdfName).trim()
+          : "";
+      const arr = Array.isArray(
+        (raw as { bananaPdfNames?: unknown }).bananaPdfNames,
+      )
+        ? ((raw as { bananaPdfNames: unknown[] }).bananaPdfNames as unknown[])
+            .filter((n): n is string => typeof n === "string" && n.trim() !== "")
+            .map((n) => n.trim())
+        : [];
+      if (arr.length) return arr;
+      return legacy ? [legacy] : [];
+    })(),
     bananaExcelName:
       typeof raw.bananaExcelName === "string" ? raw.bananaExcelName : "",
     docs: docs.length ? docs : base.docs,
+    forms: normalizeTrustExclusiveForms({
+      ...base.forms,
+      ...(raw.forms && typeof raw.forms === "object"
+        ? (raw.forms as Record<string, boolean>)
+        : {}),
+    }),
   };
 }
 
@@ -43153,7 +46743,7 @@ function trustDefaultCase(year: string): TrustCaseState {
     showOptional: false,
     docs: trustDefaultDocs(),
     bananaFormat: "",
-    bananaPdfName: "",
+    bananaPdfNames: [],
     bananaExcelName: "",
     bananaImported: false,
     bananaApproved: false,
@@ -43396,7 +46986,10 @@ function trustDocsDone(trustCase: TrustCaseState): boolean {
 }
 
 function trustFormsDone(trustCase: TrustCaseState): boolean {
-  return TRUST_CORE_FORMS.every((id) => trustCase.forms[id]);
+  return (
+    trustExclusiveFormSelected(trustCase.forms) != null &&
+    !!trustCase.forms[TRUST_FORM_151]
+  );
 }
 
 function trustCanClose(trustCase: TrustCaseState): boolean {
@@ -43439,8 +47032,10 @@ function markTrustStageChecklistDone(
       patch({ bananaImported: true, bananaApproved: true });
       break;
     case "forms": {
-      const forms = { ...trustCase.forms };
-      for (const id of TRUST_CORE_FORMS) forms[id] = true;
+      const picked =
+        trustExclusiveFormSelected(trustCase.forms) ?? TRUST_EXCLUSIVE_FORMS[0];
+      let forms = withTrustExclusiveForm(trustCase.forms, picked);
+      forms[TRUST_FORM_151] = true;
       if (trustCase.showOptional) {
         for (const id of TRUST_OPTIONAL_FORMS) forms[id] = true;
       }
@@ -43474,6 +47069,67 @@ function markTrustStageChecklistDone(
       break;
     case "close":
       patch({ closed: true });
+      break;
+    default:
+      break;
+  }
+}
+
+
+/** Undo Completed — revert checklist rows for a Trust pipeline stage. */
+function unmarkTrustStageChecklistDone(
+  stage: TrustProcessStage,
+  trustCase: TrustCaseState,
+  patch: (partial: Partial<TrustCaseState>) => void,
+): void {
+  switch (stage) {
+    case "intake":
+      patch({ intakeConfirmed: false });
+      break;
+    case "documents":
+      patch({
+        docs: trustCase.docs.map((doc) =>
+          doc.status === "received" || doc.status === "reviewed"
+            ? {
+                ...doc,
+                status: (doc.requestDate
+                  ? "requested"
+                  : "not-requested") as TrustDocStatus,
+              }
+            : doc,
+        ),
+      });
+      break;
+    case "banana":
+      patch({ bananaImported: false, bananaApproved: false });
+      break;
+    case "forms": {
+      const forms = { ...trustCase.forms };
+      for (const id of TRUST_CORE_FORMS) forms[id] = false;
+      if (trustCase.showOptional) {
+        for (const id of TRUST_OPTIONAL_FORMS) forms[id] = false;
+      }
+      patch({ forms });
+      break;
+    }
+    case "signature":
+      patch({ signature: "none", signatureException: "" });
+      break;
+    case "filing":
+      patch({ filingRef: "" });
+      break;
+    case "payment":
+      patch({
+        payPath: "",
+        channelSent: false,
+        clientPaid: false,
+        bankDetailsSent: false,
+        paymentReceived: false,
+        shaamOpened: false,
+      });
+      break;
+    case "close":
+      patch({ closed: false });
       break;
     default:
       break;
@@ -43516,13 +47172,24 @@ function demoTrustChecklist(
       stageId: "banana",
       doneInApp: "banana" as ChecklistDoneInAppId,
     },
-    ...TRUST_CORE_FORMS.map((id) => ({
-      id: `trust-form-${id}`,
-      label: id,
-      done: !!trustCase.forms[id],
+    {
+      id: "trust-form-exclusive",
+      label: trustTr(
+        lang,
+        "Choose one: 1327 / 1322 / 1324",
+        "בחרו אחד: 1327 / 1322 / 1324",
+      ),
+      done: trustExclusiveFormSelected(trustCase.forms) != null,
       stageId: "forms" as const,
       doneInApp: "excel" as ChecklistDoneInAppId,
-    })),
+    },
+    {
+      id: `trust-form-${TRUST_FORM_151}`,
+      label: TRUST_FORM_151,
+      done: !!trustCase.forms[TRUST_FORM_151],
+      stageId: "forms" as const,
+      doneInApp: "excel" as ChecklistDoneInAppId,
+    },
     {
       id: "trust-c-signature",
       label: trustTr(lang, "Signed or manager exception", "נחתם או חריג מנהל"),
@@ -43953,24 +47620,6 @@ function TrustReportingWorkspace({
 }) {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const theme = useHostTheme();
-  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
-  const [, setSelectedCategory] = useCanvasState(
-    SELECTED_CATEGORY_STATE_KEY,
-    DEFAULT_PRIMARY_CATEGORY,
-  );
-  const [, setToolsModule] = useCanvasState<ToolsModuleId>(
-    "toolsModule.v1",
-    "catalog",
-  );
-  const [toolsSumitUpload, setToolsSumitUpload] = useCanvasState(
-    "toolsSumitUpload.v1",
-    "",
-  );
-  const [, setToolsSumitParsed] = useCanvasState("toolsSumitParsed.v1", false);
-  const [toolsSumitExport, setToolsSumitExport] = useCanvasState(
-    "toolsSumitExport.v1",
-    "",
-  );
   const [services] = useCanvasState<string[]>("services", DEFAULT_SERVICES);
   const [added, setAdded] = useCanvasState<string[]>(
     `trustAddedServices.v1:${client.id}`,
@@ -43984,6 +47633,10 @@ function TrustReportingWorkspace({
     trustDefaultCase(year),
   );
   const trustCase = normalizeTrustCase(trustCaseRaw, year);
+  /** Docs already requested (pending outbound) — sent corner badge on Documents tab. */
+  const trustRequestedCount = trustCase.docs.filter(
+    (d) => d.status === "requested",
+  ).length;
   const [, setPortalNotice] = useCanvasState(
     `trustPortalNotice.v1:${client.id}`,
     false,
@@ -43992,16 +47645,55 @@ function TrustReportingWorkspace({
     `trustProcessStage.v1:${yearScope}`,
     "",
   );
-  const [stageCompleteFlash, setStageCompleteFlash] = useState<{
-    title: string;
-    body: string;
-  } | null>(null);
-  const stageCompleteAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
+  /** Banana import sub-flow: Upload → Converter → Download (+ checklist). */
+  type BananaImportStep = "upload" | "converter" | "download";
+  const bananaImportSteps: BananaImportStep[] = [
+    "upload",
+    "converter",
+    "download",
+  ];
+  const [bananaImportStepRaw, setBananaImportStep] = useCanvasState<string>(
+    `trustBananaImportStep.v1:${yearScope}`,
+    "upload",
   );
-  const stageCompleteClearRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
+  const bananaImportStep: BananaImportStep =
+    bananaImportStepRaw === "converter" || bananaImportStepRaw === "download"
+      ? bananaImportStepRaw
+      : "upload";
+  const [trustDocsTopTab, setTrustDocsTopTab] = useCanvasState<TrustDocsTopTab>(
+    `trustDocsTopTab.v1:${yearScope}`,
+    "requests",
   );
+  const [trustReceivedDocs, setTrustReceivedDocs] = useCanvasState<
+    ReceivedClientDoc[]
+  >(
+    `trustReceivedDocs.v1:${yearScope}`,
+    seedTrustReceivedClientDocs(client, year),
+  );
+  const trustReceivedList =
+    trustReceivedDocs && trustReceivedDocs.length > 0
+      ? trustReceivedDocs
+      : seedTrustReceivedClientDocs(client, year);
+  const { showStageCompletedPopout, stageCompletePopout } =
+    useStageCompleteSuccessPopout(uiLang);
+  type TrustChannelPopoutState = {
+    docId: string;
+    channel: Exclude<TrustDocChannel, "">;
+    message: string;
+    contact: string;
+    contacts: string[];
+    ccEmails: string[];
+    bccEmails: string[];
+    subject: string;
+    bodyHtml: string;
+    /** Optional period shown/edited in the request popout (not on the list row). */
+    period: string;
+    mode?: "request" | "resend";
+    receivedDocId?: string;
+  };
+  const [trustChannelPopout, setTrustChannelPopout] =
+    useState<TrustChannelPopoutState | null>(null);
+  const [trustChannelFlash, setTrustChannelFlash] = useState("");
   type TrustSection =
     | "overview"
     | "checklist"
@@ -44038,6 +47730,34 @@ function TrustReportingWorkspace({
       ? (sectionStored as TrustSection)
       : "overview";
 
+  const exclusiveFormSelected = trustExclusiveFormSelected(trustCase.forms);
+  const [, setLiveFileOpenTrustForm] = useCanvasState<LiveFileRef>(
+    CRM_LIVE_FILE_OPEN_KEY,
+    LIVE_FILE_CLOSED,
+  );
+
+  const openTrustExclusiveFormLive = (formId: TrustExclusiveFormId) => {
+    const doc = resolveTrustExclusiveFormLiveDoc(
+      formId,
+      client,
+      year,
+      trustReceivedList,
+    );
+    setLiveFileOpenTrustForm({
+      id: doc.id,
+      name: doc.name,
+      folderPath: `${client.name} \\ ${year} \\ Forms \\ ${doc.name}`,
+      source: "trust",
+    });
+  };
+
+  /** Entering Forms (or changing 1327/1322/1324) opens the matching form PDF. */
+  useEffect(() => {
+    if (section !== "forms") return;
+    if (!exclusiveFormSelected) return;
+    openTrustExclusiveFormLive(exclusiveFormSelected);
+  }, [section, exclusiveFormSelected, client.id, year]);
+
   const jumpToStage = (stage: TrustProcessStage) => {
     setProcessStageStored(stage);
     setSection(stage);
@@ -44059,7 +47779,8 @@ function TrustReportingWorkspace({
         ? section
         : ("" as TrustProcessStage | "calc"),
   );
-  const showStageFooter = footerNavIdx >= 0;
+  const showStageFooter =
+    footerNavIdx >= 0 && !sectionHidesProcessStageNavFooter(section);
   const footerPrev =
     footerNavIdx > 0 ? (TRUST_STAGE_NAV_CHAIN[footerNavIdx - 1] ?? null) : null;
   const footerNext =
@@ -44073,16 +47794,11 @@ function TrustReportingWorkspace({
         ? section
         : null;
 
-  useEffect(() => {
-    return () => {
-      if (stageCompleteAdvanceRef.current != null) {
-        clearTimeout(stageCompleteAdvanceRef.current);
-      }
-      if (stageCompleteClearRef.current != null) {
-        clearTimeout(stageCompleteClearRef.current);
-      }
-    };
-  }, []);
+  const footerStageDone =
+    !!completeFooterStage &&
+    checklist
+      .filter((item) => item.stageId === completeFooterStage)
+      .every((item) => item.done);
 
   const markCurrentStageCompleted = () => {
     if (!completeFooterStage) return;
@@ -44095,28 +47811,20 @@ function TrustReportingWorkspace({
       year,
     );
     const stageLabel = trustProcessLabel(uiLang, completedStage);
-    setStageCompleteFlash({
-      title: t(uiLang, "stageNavCompletedFlashTitle"),
-      body: t(uiLang, "stageNavCompletedFlashBody").replace(
-        "{stage}",
-        stageLabel,
-      ),
+    showStageCompletedPopout({
+      module: "trust",
+      stageLabel,
+      clientName: client.name,
+      advanceAfterMs: 450,
+      onAdvance: () => {
+        if (footerNext) jumpToNavSection(footerNext);
+      },
     });
-    if (stageCompleteClearRef.current != null) {
-      clearTimeout(stageCompleteClearRef.current);
-    }
-    stageCompleteClearRef.current = setTimeout(() => {
-      setStageCompleteFlash(null);
-      stageCompleteClearRef.current = null;
-    }, 2200);
-    if (stageCompleteAdvanceRef.current != null) {
-      clearTimeout(stageCompleteAdvanceRef.current);
-    }
-    // Brief pause so strikethrough paints before advancing.
-    stageCompleteAdvanceRef.current = setTimeout(() => {
-      stageCompleteAdvanceRef.current = null;
-      if (footerNext) jumpToNavSection(footerNext);
-    }, 450);
+  };
+
+  const undoCurrentStageCompleted = () => {
+    if (!completeFooterStage) return;
+    unmarkTrustStageChecklistDone(completeFooterStage, trustCase, patch);
   };
 
   const patchTrustDoc = (docId: string, partial: Partial<TrustDoc>) => {
@@ -44127,9 +47835,56 @@ function TrustReportingWorkspace({
     });
   };
 
-  const requestTrustDocVia = (docId: string, channel: TrustDocChannel) => {
+  const composeTrustChannelMessage = (
+    doc: TrustDoc,
+    channel: Exclude<TrustDocChannel, "">,
+  ): { subject: string; message: string } => {
+    const contactName = client.profile?.contactName?.trim();
+    const hello = contactName
+      ? uiLang === "he"
+        ? `שלום ${contactName}`
+        : `Hello ${contactName}`
+      : uiLang === "he"
+        ? "שלום"
+        : "Hello";
+    const docLabel = doc.label;
+    const period = doc.period.trim();
+    const docLine = period ? `${docLabel} (${period})` : docLabel;
+    if (channel === "email") {
+      const subject =
+        uiLang === "he"
+          ? `בקשת מסמך — ${docLabel} (${year})`
+          : `Document request — ${docLabel} (${year})`;
+      const message =
+        uiLang === "he"
+          ? `${hello},\n\nנא לשלוח / להעלות את המסמך הבא לדיווח הנאמנות ${year}:\n• ${docLine}\n\nתודה.`
+          : `${hello},\n\nPlease send or upload the following document for trust reporting ${year}:\n• ${docLine}\n\nThank you.`;
+      return { subject, message };
+    }
+    if (channel === "portal") {
+      const subject =
+        uiLang === "he" ? "התראת פורטל" : "Portal notification";
+      const message =
+        uiLang === "he"
+          ? `${hello},\n\nנוספה בקשה בפורטל הלקוח:\n• ${docLine}\nשנת נאמנות ${year}.\n\nאנא העלו את הקובץ בפורטל.`
+          : `${hello},\n\nA new request was added in the client portal:\n• ${docLine}\nTrust year ${year}.\n\nPlease upload the file in the portal.`;
+      return { subject, message };
+    }
+    const subject = "WhatsApp";
+    const message =
+      uiLang === "he"
+        ? `${hello} — נא לשלוח את ${docLine} לנאמנות ${year}. תודה.`
+        : `${hello} — please send ${docLine} for trust ${year}. Thanks.`;
+    return { subject, message };
+  };
+
+  const openTrustDocChannelPopout = (
+    docId: string,
+    channel: TrustDocChannel,
+  ) => {
     if (!channel) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const doc = trustCase.docs.find((row) => row.id === docId);
+    if (!doc) return;
     const phones = clientPhonesForDemo(client, uiLang);
     const emails = clientEmailsForTools(client);
     const contactPrefill =
@@ -44137,17 +47892,261 @@ function TrustReportingWorkspace({
         ? phones[0]?.value || client.phone || ""
         : channel === "email"
           ? emails[0] || client.email || ""
-          : channel === "portal"
-            ? displayClientName(client, uiLang)
-            : "";
-    patchTrustDoc(docId, {
-      status: "requested",
-      requestDate: today,
-      sendEmail: channel === "email",
-      sendPortal: channel === "portal",
-      sendWhatsApp: channel === "whatsapp",
+          : displayClientName(client, uiLang);
+    const composed = composeTrustChannelMessage(doc, channel);
+    const message = composed.message;
+    setTrustChannelFlash("");
+    const contactList =
+      channel === "portal"
+        ? [contactPrefill]
+        : channel === "email"
+          ? (emails.length ? emails : [contactPrefill]).filter(Boolean)
+          : (phones.map((p) => p.value).filter(Boolean).length
+              ? phones.map((p) => p.value)
+              : [contactPrefill]
+            ).filter(Boolean);
+    setTrustChannelPopout({
+      docId,
+      channel,
+      message,
       contact: contactPrefill,
+      contacts: contactList.length ? contactList : [contactPrefill],
+      ccEmails: [],
+      bccEmails: [],
+      subject: composed.subject,
+      bodyHtml: message
+        .split("\n")
+        .map((line) => line || " ")
+        .join("<br/>"),
+      period: doc.period,
     });
+  };
+
+  const sendTrustChannelRequest = () => {
+    if (!trustChannelPopout) return;
+    const {
+      docId,
+      channel,
+      message,
+      contact,
+      contacts,
+      ccEmails,
+      bccEmails,
+      subject,
+      period,
+      mode,
+      receivedDocId,
+    } = trustChannelPopout;
+    const today = new Date().toISOString().slice(0, 10);
+    const toList = (contacts?.length ? contacts : [contact])
+      .map((c) => c.trim())
+      .filter(Boolean);
+    const primaryContact = toList[0] || contact;
+    const ccList = (ccEmails ?? []).map((e) => e.trim()).filter(Boolean);
+    const bccList = (bccEmails ?? []).map((e) => e.trim()).filter(Boolean);
+    const finalMessage =
+      channel === "email" && subject.trim()
+        ? `Subject: ${subject.trim()}\n\n${message}`
+        : message;
+    const isResend = mode === "resend";
+    if (docId) {
+      const existing = trustCase.docs.find((row) => row.id === docId);
+      patchTrustDoc(docId, {
+        // Reminder / not-OK resend: stay Received so sent message glyph clears.
+        // Fresh channel send: Requested (pending outbound).
+        status: isResend ? "received" : "requested",
+        requestDate: today,
+        sendEmail: channel === "email" || !!existing?.sendEmail,
+        sendPortal: channel === "portal" || !!existing?.sendPortal,
+        sendWhatsApp: channel === "whatsapp" || !!existing?.sendWhatsApp,
+        contact: primaryContact,
+        message: finalMessage,
+        period: period ?? "",
+      });
+    }
+    if (isResend && receivedDocId) {
+      setTrustReceivedDocs((prev) => {
+        const base =
+          prev && prev.length > 0
+            ? prev
+            : seedTrustReceivedClientDocs(client, year);
+        return base.map((row) =>
+          row.id === receivedDocId
+            ? {
+                ...row,
+                reviewVerdict: "not-ok" as const,
+                resendLog: [
+                  ...(row.resendLog ?? []),
+                  `${today} · ${channel}`,
+                ],
+                status: "received" as const,
+              }
+            : row,
+        );
+      });
+    }
+    if (channel === "portal") setPortalNotice(true);
+    const channelLabel =
+      channel === "email"
+        ? t(uiLang, "taxReturnSendEmail")
+        : channel === "portal"
+          ? t(uiLang, "taxReturnSendPortal")
+          : t(uiLang, "taxReturnSendWhatsApp");
+    const trustRecipientBits = [
+      channel === "email" && toList.length
+        ? t(uiLang, "reqComposeRecipientsFlash").replace(
+            "{to}",
+            toList.join(", "),
+          )
+        : "",
+      channel === "email" && ccList.length
+        ? t(uiLang, "reqComposeCcFlash").replace("{cc}", ccList.join(", "))
+        : "",
+      channel === "email" && bccList.length
+        ? t(uiLang, "reqComposeBccFlash").replace("{bcc}", bccList.join(", "))
+        : "",
+      channel === "whatsapp" && toList.length
+        ? t(uiLang, "reqComposePhonesFlash").replace(
+            "{phones}",
+            toList.join(", "),
+          )
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    setTrustChannelFlash(
+      ((isResend
+        ? t(uiLang, "trustDocsResendFlash")
+        : t(uiLang, "trustDocChannelSentFlash")
+      ).replace("{channel}", channelLabel)) +
+        (trustRecipientBits ? ` · ${trustRecipientBits}` : ""),
+    );
+    setTrustChannelPopout(null);
+  };
+
+  const patchTrustReceivedDoc = (
+    id: string,
+    partial: Partial<ReceivedClientDoc>,
+  ) => {
+    setTrustReceivedDocs((prev) => {
+      const base =
+        prev && prev.length > 0
+          ? prev
+          : seedTrustReceivedClientDocs(client, year);
+      return base.map((row) => (row.id === id ? { ...row, ...partial } : row));
+    });
+  };
+
+  const composeTrustResendMessage = (
+    fileName: string,
+    purposeLabel: string,
+    channel: Exclude<TrustDocChannel, "">,
+  ): { subject: string; message: string } => {
+    const contactName = client.profile?.contactName?.trim();
+    const hello = contactName
+      ? uiLang === "he"
+        ? `שלום ${contactName}`
+        : `Hello ${contactName}`
+      : uiLang === "he"
+        ? "שלום"
+        : "Hello";
+    const purposeBit = purposeLabel || fileName;
+    if (channel === "email") {
+      const subject =
+        uiLang === "he"
+          ? `מסמך לא תקין — ${purposeBit} (${year})`
+          : `Document not OK — ${purposeBit} (${year})`;
+      const message =
+        uiLang === "he"
+          ? `${hello},\n\nהמסמך ששלחתם (${fileName}) אינו תקין עבור ${purposeBit}.\nנא להעלות / לשלוח מחדש קובץ מתוקן לדיווח הנאמנות ${year}.\n\nתודה.`
+          : `${hello},\n\nThe document you sent (${fileName}) is not OK for ${purposeBit}.\nPlease re-upload / resend a corrected file for trust reporting ${year}.\n\nThank you.`;
+      return { subject, message };
+    }
+    if (channel === "portal") {
+      const subject =
+        uiLang === "he" ? "התראת פורטל — מסמך לא תקין" : "Portal — document not OK";
+      const message =
+        uiLang === "he"
+          ? `${hello},\n\nהקובץ ${fileName} אינו תקין (${purposeBit}).\nנא להעלות מחדש בפורטל לנאמנות ${year}.`
+          : `${hello},\n\nFile ${fileName} is not OK (${purposeBit}).\nPlease re-upload in the portal for trust ${year}.`;
+      return { subject, message };
+    }
+    const subject = "WhatsApp";
+    const message =
+      uiLang === "he"
+        ? `${hello} — ${fileName} לא תקין עבור ${purposeBit}. נא לשלוח מחדש לנאמנות ${year}.`
+        : `${hello} — ${fileName} is not OK for ${purposeBit}. Please resend for trust ${year}.`;
+    return { subject, message };
+  };
+
+  const openTrustReceivedResendPopout = (received: ReceivedClientDoc) => {
+    const channel = received.channel as Exclude<TrustDocChannel, "">;
+    const purposeId = (received.purposeId || received.linkedRequestId || "").trim();
+    const purposeDoc =
+      trustCase.docs.find((d) => d.id === purposeId) ??
+      trustCase.docs.find((d) => d.id === "bank") ??
+      trustCase.docs[0];
+    const docId = purposeDoc?.id ?? "bank";
+    const purposeLabel = purposeDoc?.label ?? received.docType ?? received.name;
+    const phones = clientPhonesForDemo(client, uiLang);
+    const emails = clientEmailsForTools(client);
+    const contactPrefill =
+      channel === "whatsapp"
+        ? phones[0]?.value || client.phone || ""
+        : channel === "email"
+          ? emails[0] || client.email || ""
+          : displayClientName(client, uiLang);
+    const composed = composeTrustResendMessage(
+      received.name,
+      purposeLabel,
+      channel,
+    );
+    patchTrustReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    setTrustChannelFlash("");
+    const contactList =
+      channel === "portal"
+        ? [contactPrefill]
+        : channel === "email"
+          ? (emails.length ? emails : [contactPrefill]).filter(Boolean)
+          : (phones.map((p) => p.value).filter(Boolean).length
+              ? phones.map((p) => p.value)
+              : [contactPrefill]
+            ).filter(Boolean);
+    setTrustChannelPopout({
+      docId,
+      channel,
+      message: composed.message,
+      contact: contactPrefill,
+      contacts: contactList.length ? contactList : [contactPrefill],
+      ccEmails: [],
+      bccEmails: [],
+      subject: composed.subject,
+      bodyHtml: composed.message
+        .split("\n")
+        .map((line) => line || " ")
+        .join("<br/>"),
+      period: purposeDoc?.period ?? "",
+      mode: "resend",
+      receivedDocId: received.id,
+    });
+  };
+
+  const openTrustSeeMessage = (docId: string) => {
+    const doc = trustCase.docs.find((row) => row.id === docId);
+    if (!doc) return;
+    const channel: TrustDocChannel = doc.sendEmail
+      ? "email"
+      : doc.sendPortal
+        ? "portal"
+        : doc.sendWhatsApp
+          ? "whatsapp"
+          : "";
+    if (!channel) {
+      setTrustChannelFlash(t(uiLang, "taxReturnPickChannel"));
+      return;
+    }
+    setTrustChannelFlash("");
+    openTrustDocChannelPopout(docId, channel);
   };
 
   const toggleChecklistItem = (id: string) => {
@@ -44226,24 +48225,66 @@ function TrustReportingWorkspace({
     }
   };
 
+  const trustStageIcon = (
+    stage: TrustProcessStage | "overview" | "checklist" | "calc",
+  ): ModuleSectionTabIconId => {
+    if (stage === "calc") return "calculation";
+    if (stage === "payment") return "payment";
+    return stage;
+  };
   const navItems: {
     id: TrustSection;
     label: string;
     status?: WorkFlowStatus;
     icon?: ModuleSectionTabIconId;
+    badgeCount?: number;
+    badgeTone?: "red" | "green" | "blue";
+    flowGlyphs?: DocRequestFlowKind[];
+    sentBadgeCount?: number;
   }[] = [
-    { id: "overview", label: trustTr(uiLang, "Overview", "סקירה") },
-    { id: "checklist", label: trustTr(uiLang, "Checklist", "רשימת בדיקה") },
+    {
+      id: "overview",
+      label: trustTr(uiLang, "Overview", "סקירה"),
+      icon: "overview",
+    },
+    {
+      id: "checklist",
+      label: trustTr(uiLang, "Checklist", "רשימת בדיקה"),
+      icon: "checklist",
+    },
     ...TRUST_PROCESS_STEPS.flatMap((stage) => {
       const rows = checklist.filter((item) => item.stageId === stage);
-      const fill =
-        rows.length === 0
-          ? 0
-          : rows.filter((item) => item.done).length / rows.length;
+      const trustDocsReviewPending =
+        stage === "documents"
+          ? countReceivedDocsNeedingReview(trustReceivedList)
+          : 0;
+      const stageStatus =
+        stage === "documents"
+          ? trustRequestedCount + trustDocsReviewPending === 0
+            ? ("finished" as const)
+            : ("in-process" as const)
+          : checklistRowsToWorkFlowStatus(rows);
       const stageTab = {
         id: stage as TrustSection,
         label: trustProcessLabel(uiLang, stage),
-        status: progressPctToWorkFlowStatus(Math.round(fill * 100)),
+        status: stageStatus,
+        icon: trustStageIcon(stage),
+        ...(stage === "documents"
+          ? {
+              ...(trustDocsReviewPending > 0
+                ? {
+                    badgeCount: trustDocsReviewPending,
+                    badgeTone: "red" as const,
+                  }
+                : {}),
+              ...(trustRequestedCount > 0
+                ? {
+                    flowGlyphs: ["sent"] as DocRequestFlowKind[],
+                    sentBadgeCount: trustRequestedCount,
+                  }
+                : {}),
+            }
+          : {}),
       };
       if (stage !== "forms") return [stageTab];
       return [
@@ -44251,7 +48292,9 @@ function TrustReportingWorkspace({
         {
           id: "calc" as TrustSection,
           label: trustTr(uiLang, "Calculation", "חישוב"),
-          icon: "trust-calc" as const,
+          /** Same completion as Forms — Calculation is a sibling process stage. */
+          status: stageStatus,
+          icon: "calculation" as const,
         },
       ];
     }),
@@ -44293,407 +48336,593 @@ function TrustReportingWorkspace({
       );
     }
     if (stage === "documents") {
+      /** Requests / Sent = docs already requested (not the full checklist length). */
+      const docsTopTabs: RaisedTabItem[] = [
+        {
+          id: "requests",
+          label: `${t(uiLang, "trustDocsTabRequests")} (${trustRequestedCount})`,
+          flowGlyph: "sent",
+        },
+        {
+          id: "received",
+          label: `${t(uiLang, "trustDocsTabReceived")} (${trustReceivedList.length})`,
+          flowGlyph: "received",
+        },
+      ];
+      const purposeOptions = [
+        { value: "", label: t(uiLang, "trustDocsPurposePlaceholder") },
+        ...trustCase.docs.map((d) => ({ value: d.id, label: d.label })),
+      ];
       return (
         <Stack gap={8}>
           <H3>{trustTr(uiLang, "Documents", "מסמכים")}</H3>
-          <ChromeText size="small" tone="secondary">
-            {t(uiLang, "trustDocRequestHint")}
-          </ChromeText>
-          <Stack
-            gap={0}
-            style={{
-              borderRadius: 10,
-              border: `1px solid ${chromeBorder(theme)}`,
-              background: CHROME_WHITE,
-              overflow: "hidden",
+          <Row gap={8} align="center" wrap>
+            <DocRequestFlowBadge
+              kind="sent"
+              uiLang={uiLang}
+              count={trustRequestedCount}
+            />
+            <DocRequestFlowBadge
+              kind="received"
+              uiLang={uiLang}
+              count={trustReceivedList.length}
+            />
+          </Row>
+          <RaisedTabBar
+            tabs={docsTopTabs}
+            activeId={trustDocsTopTab}
+            onSelect={(id) => {
+              if (id === "requests" || id === "received") setTrustDocsTopTab(id);
             }}
-          >
-            {trustCase.docs.map((doc, idx) => {
-              const docDone =
-                doc.status === "received" || doc.status === "reviewed";
-              const expanded = doc.status !== "not-requested";
-              const channelValue: TrustDocChannel = doc.sendEmail
-                ? "email"
-                : doc.sendPortal
-                  ? "portal"
-                  : doc.sendWhatsApp
-                    ? "whatsapp"
-                    : "";
-              return (
-                <Stack
-                  key={doc.id}
-                  gap={8}
-                  style={{
-                    padding: expanded ? "10px 12px" : "8px 12px",
-                    borderTop:
-                      idx === 0
-                        ? undefined
-                        : `1px solid ${chromeBorder(theme)}`,
-                    background: docDone
-                      ? chromeSoftFill(theme)
-                      : CHROME_WHITE,
-                  }}
-                >
-                  <Row gap={8} wrap align="center">
-                    <ChromeText
-                      weight="semibold"
-                      tone={docDone ? "secondary" : "primary"}
+            ariaLabel={trustTr(uiLang, "Documents", "מסמכים")}
+            variant="gmail"
+            compact
+          />
+          {trustDocsTopTab === "requests" ? (
+            <Stack gap={8}>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "trustDocRequestHint")}
+              </ChromeText>
+              <Stack
+                gap={0}
+                style={{
+                  borderRadius: 10,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                  background: CHROME_WHITE,
+                  overflow: "hidden",
+                }}
+              >
+                {trustCase.docs.map((doc, idx) => {
+                  const docDone =
+                    doc.status === "received" || doc.status === "reviewed";
+                  const expanded = doc.status !== "not-requested";
+                  return (
+                    <Stack
+                      key={doc.id}
+                      gap={8}
                       style={{
-                        flex: 1,
-                        minWidth: 140,
-                        ...(docDone
-                          ? { textDecoration: "line-through" }
-                          : {}),
+                        padding: expanded ? "10px 12px" : "8px 12px",
+                        borderTop:
+                          idx === 0
+                            ? undefined
+                            : `1px solid ${chromeBorder(theme)}`,
+                        background: docDone
+                          ? chromeSoftFill(theme)
+                          : CHROME_WHITE,
                       }}
                     >
-                      {doc.label}
-                    </ChromeText>
-                    <Select
-                      value={doc.status}
-                      onChange={(value) =>
-                        patchTrustDoc(doc.id, {
-                          status: value as TrustDocStatus,
-                        })
-                      }
-                      options={TRUST_DOC_STATUSES.map((status) => ({
-                        value: status,
-                        label: trustDocStatusLabel(uiLang, status),
-                      }))}
-                      style={{ width: 150 }}
-                    />
-                    <Select
-                      value={channelValue}
-                      onChange={(value) =>
-                        requestTrustDocVia(
-                          doc.id,
-                          value as TrustDocChannel,
-                        )
-                      }
-                      placeholder={t(uiLang, "trustDocRequestVia")}
-                      options={[
-                        {
-                          value: "email",
-                          label: t(uiLang, "taxReturnSendEmail"),
-                        },
-                        {
-                          value: "portal",
-                          label: t(uiLang, "taxReturnSendPortal"),
-                        },
-                        {
-                          value: "whatsapp",
-                          label: t(uiLang, "taxReturnSendWhatsApp"),
-                        },
-                      ]}
-                      style={{ width: 140 }}
-                    />
-                  </Row>
-                  {expanded ? (
-                    <Stack gap={8}>
-                      <Row gap={8} wrap>
-                        {channelValue === "portal" ? (
-                          <Stack
-                            gap={2}
-                            style={{
-                              flex: 1,
-                              minWidth: 180,
-                              padding: "6px 10px",
-                              borderRadius: 8,
-                              border: `1px solid ${chromeBorder(theme)}`,
-                              background: chromeSoftFill(theme),
-                            }}
-                          >
-                            <ChromeText size="small" tone="secondary">
-                              {t(uiLang, "trustDocPortalClient")}
-                            </ChromeText>
-                            <ChromeText weight="semibold">
-                              {displayClientName(client, uiLang)}
-                            </ChromeText>
-                            <ChromeText size="small" tone="tertiary">
-                              {[client.email, client.id]
-                                .filter((v) => (v ?? "").trim())
-                                .join(" · ")}
-                            </ChromeText>
-                          </Stack>
-                        ) : (
-                          <TextInput
-                            type={
-                              channelValue === "email" ? "email" : "text"
-                            }
-                            value={
-                              doc.contact.trim()
-                                ? doc.contact
-                                : channelValue === "whatsapp"
-                                  ? clientPhonesForDemo(client, uiLang)[0]
-                                      ?.value ||
-                                    client.phone ||
-                                    ""
-                                  : channelValue === "email"
-                                    ? clientEmailsForTools(client)[0] ||
-                                      client.email ||
-                                      ""
-                                    : doc.contact
-                            }
-                            placeholder={
-                              channelValue === "whatsapp"
-                                ? t(uiLang, "trustDocPhonePlaceholder")
-                                : channelValue === "email"
-                                  ? t(uiLang, "trustDocEmailPlaceholder")
-                                  : trustTr(
-                                      uiLang,
-                                      "Contact",
-                                      "איש קשר",
-                                    )
-                            }
-                            onChange={(value) =>
-                              patchTrustDoc(doc.id, { contact: value })
-                            }
-                          />
-                        )}
-                        <TextInput
-                          value={doc.period}
-                          placeholder={trustTr(
-                            uiLang,
-                            "Period",
-                            "תקופה",
-                          )}
+                      <Row gap={8} wrap align="center">
+                        {doc.status !== "not-requested" ? (
+                          <>
+                            <DocRequestFlowGlyph
+                              kind={
+                                doc.status === "received" ||
+                                doc.status === "reviewed"
+                                  ? "received"
+                                  : "sent"
+                              }
+                              size={15}
+                            />
+                            <DocRequestFlowBadge
+                              kind={
+                                doc.status === "received" ||
+                                doc.status === "reviewed"
+                                  ? "received"
+                                  : "sent"
+                              }
+                              uiLang={uiLang}
+                            />
+                          </>
+                        ) : null}
+                        <ChromeText
+                          weight="semibold"
+                          tone={docDone ? "secondary" : "primary"}
+                          style={{
+                            flex: 1,
+                            minWidth: 140,
+                            ...(docDone
+                              ? { textDecoration: "line-through" }
+                              : {}),
+                          }}
+                        >
+                          {doc.label}
+                        </ChromeText>
+                        <Select
+                          value={doc.status}
                           onChange={(value) =>
-                            patchTrustDoc(doc.id, { period: value })
+                            patchTrustDoc(doc.id, {
+                              status: value as TrustDocStatus,
+                            })
                           }
+                          options={TRUST_DOC_STATUSES.map((status) => ({
+                            value: status,
+                            label: trustDocStatusLabel(uiLang, status),
+                          }))}
+                          style={{ width: 150 }}
                         />
                       </Row>
-                      <TextInput
-                        value={doc.message}
-                        placeholder={t(uiLang, "trustDocMessage")}
-                        onChange={(value) =>
-                          patchTrustDoc(doc.id, { message: value })
-                        }
-                      />
-                      <ChromeText size="small" tone="tertiary">
-                        {[
-                          doc.sendEmail
-                            ? t(uiLang, "taxReturnSendEmail")
-                            : null,
-                          doc.sendPortal
-                            ? t(uiLang, "taxReturnSendPortal")
-                            : null,
-                          doc.sendWhatsApp
-                            ? t(uiLang, "taxReturnSendWhatsApp")
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ") || "—"}
-                        {doc.requestDate
-                          ? ` · ${doc.requestDate}`
-                          : ""}
-                      </ChromeText>
+                      <Row gap={12} wrap align="center">
+                        <Checkbox
+                          checked={!!doc.sendPortal}
+                          onChange={(v) =>
+                            patchTrustDoc(doc.id, { sendPortal: v })
+                          }
+                          label={t(uiLang, "taxReturnSendPortal")}
+                        />
+                        <Checkbox
+                          checked={!!doc.sendEmail}
+                          onChange={(v) =>
+                            patchTrustDoc(doc.id, { sendEmail: v })
+                          }
+                          label={t(uiLang, "taxReturnSendEmail")}
+                        />
+                        <Checkbox
+                          checked={!!doc.sendWhatsApp}
+                          onChange={(v) =>
+                            patchTrustDoc(doc.id, { sendWhatsApp: v })
+                          }
+                          label={t(uiLang, "taxReturnSendWhatsApp")}
+                        />
+                        <Button
+                          variant="primary"
+                          onClick={() => openTrustSeeMessage(doc.id)}
+                        >
+                          {t(uiLang, "bkSeeMessage")}
+                        </Button>
+                      </Row>
+                      {expanded ? (
+                        <ChromeText size="small" tone="tertiary">
+                          {[
+                            doc.sendEmail
+                              ? t(uiLang, "taxReturnSendEmail")
+                              : null,
+                            doc.sendPortal
+                              ? t(uiLang, "taxReturnSendPortal")
+                              : null,
+                            doc.sendWhatsApp
+                              ? t(uiLang, "taxReturnSendWhatsApp")
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                          {doc.requestDate ? ` · ${doc.requestDate}` : ""}
+                        </ChromeText>
+                      ) : null}
                     </Stack>
-                  ) : null}
-                </Stack>
-              );
-            })}
-          </Stack>
+                  );
+                })}
+              </Stack>
+            </Stack>
+          ) : (
+            <DocsReceivedListPanel
+              uiLang={uiLang}
+              files={trustReceivedList}
+              purposeOptions={purposeOptions}
+              onPatch={(id, partial) => {
+                patchTrustReceivedDoc(id, partial);
+                if (partial.purposeId !== undefined) {
+                  const pid = (partial.purposeId || "").trim();
+                  if (pid) {
+                    patchTrustDoc(pid, { status: "received" });
+                  }
+                }
+              }}
+              onOk={(file) => {
+                const purposeId = (file.purposeId ?? "").trim();
+                patchTrustReceivedDoc(file.id, {
+                  reviewVerdict: "ok",
+                  status: "reviewed",
+                });
+                const pid = (purposeId || file.linkedRequestId || "").trim();
+                if (pid) {
+                  patchTrustDoc(pid, { status: "reviewed" });
+                }
+              }}
+              onNotOk={openTrustReceivedResendPopout}
+              linkedLabel={(file) => {
+                const linked = trustCase.docs.find(
+                  (d) =>
+                    d.id === (file.linkedRequestId || file.purposeId || ""),
+                );
+                return linked
+                  ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.label}`
+                  : null;
+              }}
+            />
+          )}
         </Stack>
       );
     }
+
     if (stage === "banana") {
-      const pdfName = trustCase.bananaPdfName.trim();
-      const preparedExcel = (
-        trustCase.bananaExcelName.trim() ||
-        (pdfName && toolsSumitExport.trim() ? toolsSumitExport.trim() : "")
-      ).trim();
+      const pdfNames = (trustCase.bananaPdfNames ?? []).filter((n) =>
+        String(n).trim(),
+      );
+      const pdfName = pdfNames[0] ?? "";
+      const preparedExcel = trustCase.bananaExcelName.trim();
+      const stepIdx = Math.max(0, bananaImportSteps.indexOf(bananaImportStep));
+      const bananaStepLabel = (id: BananaImportStep) => {
+        if (id === "upload") {
+          return trustTr(uiLang, "Upload", "העלאה");
+        }
+        if (id === "converter") {
+          return trustTr(uiLang, "Converter", "ממיר");
+        }
+        return trustTr(uiLang, "Download", "הורדה");
+      };
+      const canEnterConverter = pdfNames.length > 0;
+      const canEnterDownload = !!preparedExcel;
+      const goBananaStep = (id: BananaImportStep) => {
+        if (id === "converter" && !canEnterConverter) return;
+        if (id === "download" && !canEnterDownload) return;
+        setBananaImportStep(id);
+      };
       const uploadBananaPdf = () => {
-        const name = "demo-trust-bank-statement.pdf";
+        const nextName = `demo-trust-bank-statement-${pdfNames.length + 1}.pdf`;
         patch({
-          bananaPdfName: name,
+          bananaPdfNames: [...pdfNames, nextName],
           bananaExcelName: "",
           bananaFormat: trustCase.bananaFormat || "Excel (clipboard)",
         });
-        setToolsSumitUpload(name);
-        setToolsSumitParsed(false);
-        setToolsSumitExport("");
+        setBananaImportStep("upload");
       };
-      const openSumitConverter = () => {
-        const name = pdfName || "demo-trust-bank-statement.pdf";
-        if (!pdfName) {
-          patch({
-            bananaPdfName: name,
-            bananaFormat: trustCase.bananaFormat || "Excel (clipboard)",
-          });
-        }
-        setToolsSumitUpload(name);
-        setSelectedCategory("tools");
-        setToolsModule("sumit-dapi");
-        setScreen("tools");
+      const removeBananaPdf = (name: string) => {
+        const next = pdfNames.filter((n) => n !== name);
+        patch({
+          bananaPdfNames: next,
+          bananaExcelName: next.length ? trustCase.bananaExcelName : "",
+        });
       };
-      const prepareExcelDemo = () => {
-        const name = pdfName || "demo-trust-bank-statement.pdf";
+      const prepareBananaExcel = () => {
+        const name = pdfName || "demo-trust-bank-statement-1.pdf";
         const excelName = "Banana-import-demo.xlsx";
-        if (!pdfName) {
-          patch({ bananaPdfName: name });
-          setToolsSumitUpload(name);
+        if (pdfNames.length === 0) {
+          patch({ bananaPdfNames: [name] });
         }
-        setToolsSumitParsed(true);
-        setToolsSumitExport(excelName);
         patch({
           bananaExcelName: excelName,
           bananaFormat: trustCase.bananaFormat || "Excel (clipboard)",
         });
       };
-      return (
-        <Stack gap={12}>
-          <H3>{trustTr(uiLang, "Banana import", "ייבוא לבאננה")}</H3>
-          <ChromeText size="small" tone="secondary">
+      const goBananaNext = () => {
+        if (bananaImportStep === "upload") {
+          if (pdfNames.length === 0) {
+            uploadBananaPdf();
+          }
+          setBananaImportStep("converter");
+          return;
+        }
+        if (bananaImportStep === "converter") {
+          if (!preparedExcel) {
+            prepareBananaExcel();
+          }
+          setBananaImportStep("download");
+        }
+      };
+      const goBananaBack = () => {
+        if (bananaImportStep === "download") {
+          setBananaImportStep("converter");
+          return;
+        }
+        if (bananaImportStep === "converter") {
+          setBananaImportStep("upload");
+        }
+      };
+      const uploadSection = (
+        <Stack
+          gap={10}
+          style={{
+            padding: 12,
+            borderRadius: 10,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: chromeSoftFill(theme),
+          }}
+        >
+          <ChromeText size="small" weight="semibold">
             {trustTr(
               uiLang,
-              "Banana Accounting imports bank transactions from Excel (clipboard) or CSV — not raw PDF. Upload the statement PDF, prepare Excel in Tools → Preparation for Sumit Dapi Bank, then import into Banana and record approval.",
-              "באננה מייבאת תנועות בנק מאקסל (לוח העתקה) או CSV — לא מ־PDF. העלו את דף הבנק, הכינו Excel בכלים → הכנה לדפי בנק Sumit, ואז ייבאו לבאננה ורשמו אישור.",
+              "1. Upload bank statement PDF(s)",
+              "1. העלאת דפי בנק PDF",
             )}
           </ChromeText>
-          <Stack
-            gap={10}
-            style={{
-              padding: 12,
-              borderRadius: 10,
-              border: `1px solid ${chromeBorder(theme)}`,
-              background: chromeSoftFill(theme),
-            }}
-          >
-            <ChromeText size="small" weight="semibold">
-              {trustTr(
-                uiLang,
-                "1. Upload PDF → prepare Excel",
-                "1. העלאת PDF → הכנת Excel",
-              )}
-            </ChromeText>
+          <Row gap={8} wrap>
             <Button variant="primary" onClick={uploadBananaPdf}>
               {trustTr(uiLang, "Upload PDF", "העלאת PDF")}
             </Button>
-            {pdfName ? (
-              <Stack gap={8}>
-                <ExplorerFileNameCell label={pdfName} kind="file" semibold />
-                <ChromeText size="small" tone="secondary">
-                  {trustTr(
-                    uiLang,
-                    "Next: run the bank-statement converter in Tools to produce Excel for Banana.",
-                    "הבא: הריצו את ממיר דפי הבנק בכלים כדי להפיק Excel לבאננה.",
-                  )}
-                </ChromeText>
-                <Row gap={8} wrap>
-                  <Button variant="primary" onClick={openSumitConverter}>
-                    {trustTr(
-                      uiLang,
-                      "Open in converter",
-                      "פתיחה בממיר",
-                    )}
-                  </Button>
-                  <Button variant="secondary" onClick={prepareExcelDemo}>
-                    {trustTr(
-                      uiLang,
-                      "Prepare Excel (demo)",
-                      "הכנת Excel (דמו)",
-                    )}
+            {pdfNames.length > 0 ? (
+              <Pill size="sm" tone="neutral">
+                {pdfNames.length}
+              </Pill>
+            ) : null}
+          </Row>
+          {pdfNames.length > 0 ? (
+            <Stack gap={6}>
+              {pdfNames.map((name) => (
+                <Row key={name} gap={8} wrap align="center">
+                  <ExplorerFileNameCell label={name} kind="file" semibold />
+                  <Button
+                    variant="ghost"
+                    onClick={() => removeBananaPdf(name)}
+                  >
+                    {trustTr(uiLang, "Remove", "הסרה")}
                   </Button>
                 </Row>
-              </Stack>
-            ) : (
-              <ChromeText size="small" tone="tertiary">
-                {trustTr(
-                  uiLang,
-                  "Demo file picker — loads a sample bank statement PDF.",
-                  "בורר קבצים לדמו — טוען דף בנק PDF לדוגמה.",
-                )}
-              </ChromeText>
-            )}
+              ))}
+            </Stack>
+          ) : (
+            <ChromeText size="small" tone="tertiary">
+              {trustTr(
+                uiLang,
+                "Demo file picker — add one or more sample bank statement PDFs.",
+                "בורר קבצים לדמו — הוסיפו דף בנק PDF אחד או יותר לדוגמה.",
+              )}
+            </ChromeText>
+          )}
+        </Stack>
+      );
+      const bananaStepBody =
+        bananaImportStep === "upload" ? null : bananaImportStep === "converter" ? (
+          <Stack gap={10}>
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "bananaConverterModuleNote")}
+            </ChromeText>
+            <ConverterToolsPanel
+              uiLang={uiLang}
+              seedUploadName={pdfName || undefined}
+              onResult={(name) => {
+                patch({
+                  bananaExcelName: name,
+                  bananaFormat:
+                    trustCase.bananaFormat || "Excel (clipboard)",
+                });
+              }}
+            />
             {preparedExcel ? (
-              <Stack
-                gap={8}
-                style={{
-                  padding: 10,
-                  borderRadius: 8,
-                  border: `1px solid ${chromeBorder(theme)}`,
-                  background: CHROME_WHITE,
-                }}
+              <Callout
+                tone="success"
+                title={trustTr(
+                  uiLang,
+                  "Prepared Excel for Banana",
+                  "Excel מוכן לבאננה",
+                )}
               >
-                <ChromeText size="small" weight="semibold">
-                  {trustTr(
-                    uiLang,
-                    "Prepared Excel for Banana",
-                    "Excel מוכן לבאננה",
-                  )}
-                </ChromeText>
                 <ExplorerFileNameCell
                   label={preparedExcel}
                   kind="file"
                   semibold
                 />
-                <ChromeText size="small" tone="secondary">
-                  {trustTr(
-                    uiLang,
-                    "In Banana: Actions → Import into accounting → Import transactions, or copy from Excel and use “Import data from clipboard”.",
-                    "בבאננה: פעולות → ייבוא להנה״ח → ייבוא תנועות, או העתקה מאקסל ו״ייבוא מלוח ההעתקה״.",
-                  )}
-                </ChromeText>
-                <Row gap={8} wrap>
-                  <Button variant="secondary" onClick={() => {}}>
+              </Callout>
+            ) : null}
+          </Stack>
+        ) : (
+          <Stack gap={12}>
+            <Stack
+              gap={8}
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                border: `1px solid ${chromeBorder(theme)}`,
+                background: chromeSoftFill(theme),
+              }}
+            >
+              <ChromeText size="small" weight="semibold">
+                {trustTr(
+                  uiLang,
+                  "3. Download Excel",
+                  "3. הורדת Excel",
+                )}
+              </ChromeText>
+              {preparedExcel ? (
+                <>
+                  <ExplorerFileNameCell
+                    label={preparedExcel}
+                    kind="file"
+                    semibold
+                  />
+                  <ChromeText size="small" tone="secondary">
+                    {trustTr(
+                      uiLang,
+                      "In Banana: Actions → Import into accounting → Import transactions, or copy from Excel and use “Import data from clipboard”.",
+                      "בבאננה: פעולות → ייבוא להנה״ח → ייבוא תנועות, או העתקה מאקסל ו״ייבוא מלוח ההעתקה״.",
+                    )}
+                  </ChromeText>
+                  <Button variant="primary" onClick={() => {}}>
                     {trustTr(
                       uiLang,
                       "Download Excel (demo)",
                       "הורדת Excel (דמו)",
                     )}
                   </Button>
-                  <Button variant="secondary" onClick={openSumitConverter}>
-                    {trustTr(
-                      uiLang,
-                      "Open in converter",
-                      "פתיחה בממיר",
-                    )}
-                  </Button>
-                </Row>
-              </Stack>
-            ) : pdfName && toolsSumitUpload === pdfName ? (
-              <Callout
-                tone="info"
-                title={trustTr(uiLang, "Tools converter", "ממיר בכלים")}
-              >
+                </>
+              ) : (
+                <Callout tone="warning">
+                  {trustTr(
+                    uiLang,
+                    "Prepare Excel on the Converter tab first.",
+                    "הכינו Excel בלשונית הממיר קודם.",
+                  )}
+                </Callout>
+              )}
+            </Stack>
+            <Stack gap={8}>
+              <ChromeText size="small" weight="semibold" tone="secondary">
                 {trustTr(
                   uiLang,
-                  "PDF is queued for Preparation for Sumit Dapi Bank. Open the converter to parse and export Excel.",
-                  "ה־PDF בתור להכנה לדפי בנק Sumit. פתחו את הממיר לפענוח ולייצוא Excel.",
+                  "Checklist — record in Banana",
+                  "צ׳קליסט — רישום בבאננה",
                 )}
-              </Callout>
-            ) : null}
+              </ChromeText>
+              <TextInput
+                value={trustCase.bananaFormat}
+                placeholder={trustTr(uiLang, "Statement format", "פורמט הדף")}
+                onChange={(value) => patch({ bananaFormat: value })}
+              />
+              <Checkbox
+                checked={trustCase.bananaImported}
+                onChange={(checked) => patch({ bananaImported: checked })}
+                label={trustTr(uiLang, "Imported in Banana", "יובא לבאננה")}
+              />
+              <Checkbox
+                checked={trustCase.bananaApproved}
+                onChange={(checked) => patch({ bananaApproved: checked })}
+                label={trustTr(
+                  uiLang,
+                  "Person approved the reconciliation",
+                  "אדם אישר את ההתאמה",
+                )}
+              />
+            </Stack>
           </Stack>
-          <Stack gap={8}>
-            <ChromeText size="small" weight="semibold" tone="secondary">
-              {trustTr(
-                uiLang,
-                "2. Record in Banana",
-                "2. רישום בבאננה",
-              )}
+        );
+      return (
+        <Stack gap={10}>
+          <H3>{trustTr(uiLang, "Banana", "באננה")}</H3>
+          <ChromeText size="small" tone="secondary">
+            {trustTr(
+              uiLang,
+              "Banana imports bank transactions from Excel (clipboard) or CSV — not from PDF. Upload statement PDF(s), convert here, download Excel, then tick import and approval.",
+              "באננה מייבאת תנועות בנק מאקסל (לוח העתקה) או CSV — לא מ־PDF. העלו את הדף/ים, המירו כאן, הורידו Excel, ואז סמנו ייבוא ואישור.",
+            )}
+          </ChromeText>
+          {uploadSection}
+          {bananaStepBody}
+          <Stack
+            gap={8}
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: chromeSoftFill(theme),
+            }}
+          >
+            <ChromeText size="small" weight="semibold">
+              {t(uiLang, "bananaWithinFlow")}
             </ChromeText>
-            <TextInput
-              value={trustCase.bananaFormat}
-              placeholder={trustTr(uiLang, "Statement format", "פורמט הדף")}
-              onChange={(value) => patch({ bananaFormat: value })}
-            />
-            <Checkbox
-              checked={trustCase.bananaImported}
-              onChange={(checked) => patch({ bananaImported: checked })}
-              label={trustTr(uiLang, "Imported in Banana", "יובא לבאננה")}
-            />
-            <Checkbox
-              checked={trustCase.bananaApproved}
-              onChange={(checked) => patch({ bananaApproved: checked })}
-              label={trustTr(
-                uiLang,
-                "Person approved the reconciliation",
-                "אדם אישר את ההתאמה",
+            <ChromeText size="small" tone="secondary">
+              {`${trustTr(uiLang, "Step", "שלב")} ${stepIdx + 1} / ${bananaImportSteps.length} · ${bananaStepLabel(bananaImportStep)}`}
+            </ChromeText>
+            <Row gap={6} wrap align="center">
+              {bananaImportSteps.map((id, i) => {
+                const active = i === stepIdx;
+                const done = i < stepIdx;
+                const locked =
+                  (id === "converter" && !canEnterConverter) ||
+                  (id === "download" && !canEnterDownload);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    disabled={locked && !active}
+                    onClick={() => goBananaStep(id)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: active ? 700 : 500,
+                      cursor: locked && !active ? "not-allowed" : "pointer",
+                      color:
+                        active || done
+                          ? theme.text.primary
+                          : CHROME_INK_MUTED,
+                      background: active
+                        ? CHROME_WHITE
+                        : "transparent",
+                      border: `1px solid ${
+                        active || done
+                          ? theme.accent.primary
+                          : chromeBorder(theme)
+                      }`,
+                      opacity: locked && !active ? 0.45 : done && !active ? 0.75 : 1,
+                    }}
+                  >
+                    {i + 1}. {bananaStepLabel(id)}
+                  </button>
+                );
+              })}
+            </Row>
+            <div
+              style={{
+                height: 6,
+                borderRadius: 999,
+                background: chromeBorder(theme),
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${
+                    bananaImportSteps.length <= 1
+                      ? 100
+                      : (stepIdx / (bananaImportSteps.length - 1)) * 100
+                  }%`,
+                  background: theme.accent.primary,
+                  borderRadius: 999,
+                  transition: "width 160ms ease",
+                }}
+              />
+            </div>
+            <Row gap={8} wrap align="center">
+              <Button
+                variant="secondary"
+                onClick={goBananaBack}
+                disabled={bananaImportStep === "upload"}
+              >
+                {`${navBackArrow(uiLang)} ${t(uiLang, "stageNavBack")}`}
+              </Button>
+              <Spacer />
+              {bananaImportStep !== "download" ? (
+                <Button
+                  variant="primary"
+                  onClick={goBananaNext}
+                  disabled={
+                    bananaImportStep === "upload"
+                      ? false
+                      : bananaImportStep === "converter" &&
+                        pdfNames.length === 0 &&
+                        !preparedExcel
+                  }
+                >
+                  {`${t(uiLang, "stageNavNext")} ${flowArrow(uiLang)}`}
+                </Button>
+              ) : (
+                <ChromeText size="small" tone="tertiary">
+                  {trustTr(
+                    uiLang,
+                    "Last Banana step — use Completed below when done.",
+                    "שלב באננה אחרון — השתמשו ב״הושלם״ למטה כשסיימתם.",
+                  )}
+                </ChromeText>
               )}
-            />
+            </Row>
           </Stack>
         </Stack>
       );
     }
+
     if (stage === "forms") {
       return (
         <Stack gap={8}>
@@ -44721,16 +48950,84 @@ function TrustReportingWorkspace({
               onChange={(value) => patch({ formVersion: value })}
             />
           ) : null}
-          {TRUST_CORE_FORMS.map((id) => (
-            <Checkbox
-              key={id}
-              checked={!!trustCase.forms[id]}
-              onChange={(checked) =>
-                patch({ forms: { ...trustCase.forms, [id]: checked } })
-              }
-              label={id}
-            />
-          ))}
+          <ChromeText size="small" tone="secondary">
+            {trustTr(uiLang, "Choose one", "בחרו אחד")}
+          </ChromeText>
+          <div
+            role="radiogroup"
+            aria-label={trustTr(uiLang, "Choose one", "בחרו אחד")}
+            style={{ display: "flex", flexDirection: "column", gap: 6 }}
+          >
+            {TRUST_EXCLUSIVE_FORMS.map((id) => {
+              const selected = !!trustCase.forms[id];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => {
+                    const nextId = selected ? null : id;
+                    patch({
+                      forms: withTrustExclusiveForm(trustCase.forms, nextId),
+                    });
+                    if (nextId) openTrustExclusiveFormLive(nextId);
+                  }}
+                  style={{
+                    all: "unset",
+                    boxSizing: "border-box",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    color: theme.text.primary,
+                    fontSize: 13,
+                    lineHeight: "18px",
+                    width: "fit-content",
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 14,
+                      height: 14,
+                      borderRadius: 999,
+                      border: `2px solid ${
+                        selected ? theme.accent.primary : theme.stroke.primary
+                      }`,
+                      background: CHROME_WHITE,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    {selected ? (
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 999,
+                          background: theme.accent.primary,
+                        }}
+                      />
+                    ) : null}
+                  </span>
+                  {id}
+                </button>
+              );
+            })}
+          </div>
+          <Checkbox
+            checked={!!trustCase.forms[TRUST_FORM_151]}
+            onChange={(checked) =>
+              patch({
+                forms: { ...trustCase.forms, [TRUST_FORM_151]: checked },
+              })
+            }
+            label={TRUST_FORM_151}
+          />
           <Checkbox
             checked={trustCase.showOptional}
             onChange={(checked) => patch({ showOptional: checked })}
@@ -45173,12 +49470,178 @@ function TrustReportingWorkspace({
         />
       </div>
 
-      {stageCompleteFlash ? (
-        <StageCompleteSuccessPopout
-          title={stageCompleteFlash.title}
-          body={stageCompleteFlash.body}
-          onDismiss={() => setStageCompleteFlash(null)}
-        />
+      {stageCompletePopout}
+      {trustChannelFlash ? (
+        <Callout
+          tone={
+            trustChannelFlash === t(uiLang, "taxReturnPickChannel")
+              ? "warning"
+              : "success"
+          }
+          title={t(uiLang, "taxReturnSendRequest")}
+        >
+          {trustChannelFlash}
+        </Callout>
+      ) : null}
+      {trustChannelPopout ? (
+        <RequestMessagePopout
+          title={
+            trustChannelPopout.channel === "email"
+              ? t(uiLang, "taxReturnSendEmail")
+              : trustChannelPopout.channel === "portal"
+                ? t(uiLang, "bkRequestPreviewPortal")
+                : t(uiLang, "taxReturnSendWhatsApp")
+          }
+          closeLabel={t(uiLang, "taxReturnClosePreview")}
+          onClose={() => setTrustChannelPopout(null)}
+          anchorRect={null}
+        >
+          <Stack gap={10}>
+            {trustChannelPopout.mode !== "resend" ? (
+              <TextInput
+                value={trustChannelPopout.period}
+                placeholder={trustTr(uiLang, "Period", "תקופה")}
+                onChange={(value) => {
+                  setTrustChannelPopout((prev) => {
+                    if (!prev || prev.mode === "resend") return prev;
+                    const doc = trustCase.docs.find(
+                      (row) => row.id === prev.docId,
+                    );
+                    if (!doc) return { ...prev, period: value };
+                    const composed = composeTrustChannelMessage(
+                      { ...doc, period: value },
+                      prev.channel,
+                    );
+                    return {
+                      ...prev,
+                      period: value,
+                      message: composed.message,
+                      subject: composed.subject,
+                      bodyHtml: composed.message
+                        .split("\n")
+                        .map((line) => line || " ")
+                        .join("<br/>"),
+                    };
+                  });
+                }}
+              />
+            ) : null}
+            {trustChannelPopout.channel === "email" ? (
+              <RequestEmailStandardCompose
+                uiLang={uiLang}
+                fromAddress={REQ_COMPOSE_FROM_DEMO}
+                toEmails={
+                  trustChannelPopout.contacts?.length
+                    ? trustChannelPopout.contacts
+                    : [trustChannelPopout.contact || client.email || ""]
+                }
+                onToChange={(next) =>
+                  setTrustChannelPopout((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          contacts: next,
+                          contact: next[0] || prev.contact,
+                        }
+                      : prev,
+                  )
+                }
+                ccEmails={trustChannelPopout.ccEmails ?? []}
+                onCcChange={(next) =>
+                  setTrustChannelPopout((prev) =>
+                    prev ? { ...prev, ccEmails: next } : prev,
+                  )
+                }
+                bccEmails={trustChannelPopout.bccEmails ?? []}
+                onBccChange={(next) =>
+                  setTrustChannelPopout((prev) =>
+                    prev ? { ...prev, bccEmails: next } : prev,
+                  )
+                }
+                subject={trustChannelPopout.subject}
+                onSubjectChange={(v) =>
+                  setTrustChannelPopout((prev) =>
+                    prev ? { ...prev, subject: v } : prev,
+                  )
+                }
+                bodyHtml={
+                  trustChannelPopout.bodyHtml ||
+                  trustChannelPopout.message
+                    .split("\n")
+                    .map((line) => line || " ")
+                    .join("<br/>")
+                }
+                onBodyHtmlChange={(v) =>
+                  setTrustChannelPopout((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          bodyHtml: v,
+                          message: v
+                            .replace(/<br\s*\/?\s*>/gi, "\n")
+                            .replace(/<[^>]+>/g, ""),
+                        }
+                      : prev,
+                  )
+                }
+              />
+            ) : null}
+            {trustChannelPopout.channel === "whatsapp" ? (
+              <RequestWhatsAppCompose
+                uiLang={uiLang}
+                phones={
+                  trustChannelPopout.contacts?.length
+                    ? trustChannelPopout.contacts
+                    : [trustChannelPopout.contact || client.phone || ""]
+                }
+                onPhonesChange={(next) =>
+                  setTrustChannelPopout((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          contacts: next,
+                          contact: next[0] || prev.contact,
+                        }
+                      : prev,
+                  )
+                }
+                bodyText={trustChannelPopout.message}
+                onBodyTextChange={(v) =>
+                  setTrustChannelPopout((prev) =>
+                    prev ? { ...prev, message: v } : prev,
+                  )
+                }
+                phonePlaceholder={client.phone || "+972..."}
+              />
+            ) : null}
+            {trustChannelPopout.channel === "portal" ? (
+              <RequestPortalCompose
+                uiLang={uiLang}
+                clientName={
+                  trustChannelPopout.contact ||
+                  displayClientName(client, uiLang)
+                }
+                bodyText={trustChannelPopout.message}
+                onBodyTextChange={(v) =>
+                  setTrustChannelPopout((prev) =>
+                    prev ? { ...prev, message: v } : prev,
+                  )
+                }
+              />
+            ) : null}
+            <Row gap={8} wrap>
+              <Button variant="primary" onClick={sendTrustChannelRequest}>
+                {t(uiLang, "taxReturnPreviewConfirm")}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setTrustChannelPopout(null)}
+              >
+                {t(uiLang, "taxReturnClosePreview")}
+              </Button>
+            </Row>
+          </Stack>
+        </RequestMessagePopout>
       ) : null}
       <ModuleSectionFrame
         ariaLabel={trustTr(uiLang, "Trust reporting", "דיווח נאמנות")}
@@ -45217,6 +49680,11 @@ function TrustReportingWorkspace({
               if (footerNext) jumpToNavSection(footerNext);
             }}
             onCompleted={markCurrentStageCompleted}
+            onUndoCompleted={undoCurrentStageCompleted}
+            completedActive={footerStageDone}
+            showCompleted={
+              section !== "banana" || bananaImportStep === "download"
+            }
           />
         ) : null}
       </ModuleSectionFrame>
@@ -45386,6 +49854,110 @@ function GenericServiceWorkspace({
   );
 }
 
+/** Which bookkeeping side tab owns a pipeline step. Receive and capture stay on requests and the folder. */
+function bkScreenForCheck(
+  id: string,
+):
+  | "requests"
+  | "folder"
+  | "vat"
+  | "advances"
+  | "salaries"
+  | "reconciliations"
+  | null {
+  if (id === BK_CHECK_EXP_RECEIVE || id === BK_CHECK_INC_RECEIVE) return "requests";
+  if (id === BK_CHECK_EXP_CAPTURE || id === BK_CHECK_INC_CAPTURE) return "folder";
+  if (id === BK_CHECK_VAT_REPORT || id === BK_CHECK_VAT_PAY) return "vat";
+  if (id === BK_CHECK_ADV_REPORT || id === BK_CHECK_ADV_PAY) return "advances";
+  if (
+    id === BK_CHECK_PAY_PREPARE ||
+    id === BK_CHECK_PAY_TRANSFER ||
+    id === BK_CHECK_AUTH_REPORT ||
+    id === BK_CHECK_AUTH_PAY
+  ) {
+    return "salaries";
+  }
+  if (
+    id === BK_CHECK_RECON_BANKS ||
+    id === BK_CHECK_RECON_CARDS ||
+    id === BK_CHECK_RECON_SUPPLIERS ||
+    id === BK_CHECK_RECON_CUSTOMERS
+  ) {
+    return "reconciliations";
+  }
+  return null;
+}
+
+type BkPipelineStop = {
+  screen:
+    | "requests"
+    | "folder"
+    | "vat"
+    | "advances"
+    | "salaries"
+    | "reconciliations";
+  ids: string[];
+};
+
+/** One stop per screen, in pipeline order. Applicable ids only (bimonthly off-months omitted). */
+function bkPipelineStops(
+  settings: BkClientSettings,
+  month: string,
+): BkPipelineStop[] {
+  const merged: BkPipelineStop[] = [];
+  for (const id of bkMonthChecklistIds(settings, month)) {
+    const screen = bkScreenForCheck(id);
+    if (!screen) continue;
+    const existing = merged.find((stop) => stop.screen === screen);
+    if (existing) {
+      if (!existing.ids.includes(id)) existing.ids.push(id);
+    } else {
+      merged.push({ screen, ids: [id] });
+    }
+  }
+  return merged;
+}
+
+/**
+ * ModuleSectionTabs status for a BK pipeline screen — same checklistDone keys
+ * that Completed / Undo completed and the month progress bar already use.
+ */
+function bkPipelineScreenWorkFlowStatus(
+  screen: BkPipelineStop["screen"],
+  settings: BkClientSettings,
+  month: string,
+  checklistDone: Record<string, boolean>,
+): WorkFlowStatus {
+  const stop = bkPipelineStops(settings, month).find((s) => s.screen === screen);
+  if (!stop || stop.ids.length === 0) return "not-started";
+  const doneCount = stop.ids.filter(
+    (id) => !!checklistDone[bkChecklistDoneKey(month, id)],
+  ).length;
+  const pct = Math.round((doneCount / stop.ids.length) * 100);
+  return progressPctToWorkFlowStatus(pct);
+}
+
+function BkStageChecks({
+  steps,
+  onToggle,
+}: {
+  steps: { id: string; label: string; done: boolean }[];
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <Stack gap={8}>
+      {steps.map((step) => (
+        <Checkbox
+          key={step.id}
+          checked={step.done}
+          onChange={() => onToggle(step.id)}
+          label={step.label}
+        />
+      ))}
+    </Stack>
+  );
+}
+
 function BookkeepingWorkspace({
   client,
   draft,
@@ -45402,6 +49974,18 @@ function BookkeepingWorkspace({
 }) {
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const theme = useHostTheme();
+  const { showStageCompletedPopout, stageCompletePopout } =
+    useStageCompleteSuccessPopout(uiLang);
+  const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
+  const [, setSelectedCategory] = useCanvasState(
+    SELECTED_CATEGORY_STATE_KEY,
+    DEFAULT_PRIMARY_CATEGORY,
+  );
+  const [, setToolsModule] = useCanvasState<ToolsModuleId>(
+    "toolsModule.v1",
+    "catalog",
+  );
+  const [, setToolsNav] = useCanvasState<ToolsNavId>("toolsNav.v1", "prepare");
   const [sharedYear, setSharedYear] = useCanvasState<string>(
     clientBkAuditYearKey(client.id),
     "",
@@ -45453,6 +50037,10 @@ function BookkeepingWorkspace({
     `bkMonthChecklist.v2:${yearScope}`,
     defaultBkMonthChecklistDone(client.id, bkYear, bkSettingsDefault),
   );
+  const [stageNotes, setStageNotes] = useCanvasState<Record<string, string>>(
+    `bkStageNotes.v1:${yearScope}`,
+    {},
+  );
   const [bkCustomChecklist, setBkCustomChecklist] = useCanvasState<
     { id: string; label: string; monthKey: string }[]
   >(`bkCustomChecklist.v1:${yearScope}`, []);
@@ -45490,9 +50078,6 @@ function BookkeepingWorkspace({
     `auditBkUnlockFlash.v1:${yearScope}`,
     "",
   );
-  const [workStatusOverrides] = useCanvasState<
-    Partial<Record<string, WorkFlowStatus>>
-  >(`clientWorkStatus.v1:${client.id}`, {});
   const monthlyPct = bookkeepingAllMonthsPct(
     checklistDone,
     bkCustomChecklist,
@@ -45501,15 +50086,29 @@ function BookkeepingWorkspace({
   const yearAvg = auditMonthlyYearAverage(monthlyPct);
   const monthPct = monthlyPct[activeMonth] ?? 0;
   const status = progressPctToWorkFlowStatus(monthPct);
-  const vatStatus = resolveClientWorkStatus(
-    client.id,
-    "stream-vat",
-    workStatusOverrides,
+  const vatStatus = bkPipelineScreenWorkFlowStatus(
+    "vat",
+    bkSettings,
+    activeMonth,
+    checklistDone,
   );
-  const salariesStatus = resolveClientWorkStatus(
-    client.id,
-    "stream-payroll",
-    workStatusOverrides,
+  const advancesStatus = bkPipelineScreenWorkFlowStatus(
+    "advances",
+    bkSettings,
+    activeMonth,
+    checklistDone,
+  );
+  const salariesStatus = bkPipelineScreenWorkFlowStatus(
+    "salaries",
+    bkSettings,
+    activeMonth,
+    checklistDone,
+  );
+  const reconciliationsStatus = bkPipelineScreenWorkFlowStatus(
+    "reconciliations",
+    bkSettings,
+    activeMonth,
+    checklistDone,
   );
   const monthCustom = bkCustomChecklist.filter((c) => c.monthKey === activeMonth);
   const checklist = applyChecklistLabelOverrides(
@@ -45529,6 +50128,8 @@ function BookkeepingWorkspace({
     ],
     bkChecklistLabels,
   );
+  /** First incomplete month-checklist step — Overview CTA + progress pointer. */
+  const currentStageItem = checklist.find((item) => !item.done) ?? null;
   const periodLabel = `${t(uiLang, auditMonthAbbrKey(activeMonth))} ${bkYear}`;
   const activeMonthIdx = AUDIT_MONTH_KEYS.indexOf(activeMonth);
   const prevMonthKey: BkMonthKey =
@@ -45635,6 +50236,33 @@ function BookkeepingWorkspace({
       [key]: !prev[key],
     }));
   };
+  const stageStepDone = (id: string) =>
+    !!checklistDone[bkChecklistDoneKey(activeMonth, id)];
+  const stageStepLabel = (id: string) =>
+    t(uiLang, bkCheckLabelKey(id, bkSettings));
+  const stageNoteKey = (sectionId: string) => `${sectionId}:${activeMonth}`;
+  const openBkFolder = (nodeId: string) => {
+    setFolderSelected(nodeId);
+    setFolderExpanded((prev) => ({ ...prev, [nodeId]: true }));
+    setSection("folder");
+  };
+  const openMasavTool = () => {
+    setSelectedCategory("tools");
+    setToolsModule("masav");
+    setToolsNav("prepare");
+    setScreen("tools");
+  };
+  const openPipelineStage = (id: string) => {
+    if (id === BK_CHECK_EXP_CAPTURE) {
+      setFolderSelected("bk-invoices");
+      setFolderExpanded((prev) => ({ ...prev, "bk-invoices": true }));
+    } else if (id === BK_CHECK_INC_CAPTURE) {
+      setFolderSelected("bk-working-papers");
+      setFolderExpanded((prev) => ({ ...prev, "bk-working-papers": true }));
+    }
+    const dest = bkScreenForCheck(id);
+    if (dest) setSection(dest);
+  };
 
   type BkSection =
     | "overview"
@@ -45644,7 +50272,9 @@ function BookkeepingWorkspace({
     | "files"
     | "folder"
     | "vat"
+    | "advances"
     | "salaries"
+    | "reconciliations"
     | "audit-prep"
     | "comments";
   const [sectionStored, setSection] = useCanvasState<string>(
@@ -45662,16 +50292,34 @@ function BookkeepingWorkspace({
     sectionStored === "files" ||
     sectionStored === "folder" ||
     sectionStored === "vat" ||
+    sectionStored === "advances" ||
     sectionStored === "salaries" ||
+    sectionStored === "reconciliations" ||
     sectionStored === "audit-prep" ||
     sectionStored === "comments"
       ? sectionStored
       : "overview";
+  const bkReconOn =
+    bkSettings.reconBanks ||
+    bkSettings.reconCards ||
+    bkSettings.reconSuppliers ||
+    bkSettings.reconCustomers;
   useEffect(() => {
     if (section === "audit-prep" && !hasAudit) setSection("overview");
     if (section === "vat" && bkSettings.vat === "off") setSection("overview");
+    if (section === "advances" && bkSettings.advances === "off") {
+      setSection("overview");
+    }
     if (section === "salaries" && !bkSettings.payroll) setSection("overview");
-  }, [section, hasAudit, bkSettings.vat, bkSettings.payroll]);
+    if (section === "reconciliations" && !bkReconOn) setSection("overview");
+  }, [
+    section,
+    hasAudit,
+    bkSettings.vat,
+    bkSettings.advances,
+    bkSettings.payroll,
+    bkReconOn,
+  ]);
   useEffect(() => {
     const intent = bkSectionIntents[client.id];
     if (intent !== "vat") return;
@@ -45688,6 +50336,22 @@ function BookkeepingWorkspace({
     `bkDocRequests.v1:${yearScope}`,
     [],
   );
+  const [bkDocsTopTab, setBkDocsTopTab] = useCanvasState<DocsReceivedTopTab>(
+    `bkDocsTopTab.v1:${yearScope}`,
+    "requests",
+  );
+  const [bkReceivedDocs, setBkReceivedDocs] = useCanvasState<
+    ReceivedClientDoc[]
+  >(
+    `bkReceivedDocs.v1:${yearScope}`,
+    seedModuleReceivedClientDocs("bookkeeping", client, bkYear),
+  );
+  const bkReceivedList =
+    bkReceivedDocs && bkReceivedDocs.length > 0
+      ? bkReceivedDocs
+      : seedModuleReceivedClientDocs("bookkeeping", client, bkYear);
+  const [bkResendPopout, setBkResendPopout] =
+    useState<DocsReceivedResendPopoutState | null>(null);
   const [folderExpanded, setFolderExpanded] = useCanvasState<
     Record<string, boolean>
   >(`bkFolderExpanded.v1:${yearScope}`, {});
@@ -45707,6 +50371,14 @@ function BookkeepingWorkspace({
     `bkReqDrafts.v1:${yearScope}`,
     [newBkDocReqDraft()],
   );
+  const [customDocTypes, setCustomDocTypes] = useCanvasState<string[]>(
+    CRM_DOC_TYPES_CUSTOM_KEY,
+    [],
+  );
+  const [creatingDocTypeForDraftId, setCreatingDocTypeForDraftId] = useState<
+    string | null
+  >(null);
+  const [newDocTypeDraft, setNewDocTypeDraft] = useState("");
   const [reqPortal, setReqPortal] = useCanvasState(
     `bkReqPortal.v1:${yearScope}`,
     true,
@@ -45723,18 +50395,34 @@ function BookkeepingWorkspace({
     `bkReqFlash.v1:${yearScope}`,
     "",
   );
-  const [reqPreviewOpen, setReqPreviewOpen] = useCanvasState(
-    `bkReqPreviewOpen.v1:${yearScope}`,
-    false,
+  /** Ephemeral — do not persist; stuck true was reopening the popout on remount. */
+  const [reqPreviewOpen, setReqPreviewOpen] = useState(false);
+  /** Receive-expenses / receive-income checklist request status (Pending → Requested). */
+  const [bkReceiveReqStatus, setBkReceiveReqStatus] = useCanvasState<
+    Record<string, "not-requested" | "requested" | "received">
+  >(`bkReceiveReqStatus.v1:${yearScope}`, {});
+  const [reqRecipientEmails, setReqRecipientEmails] = useCanvasState<string[]>(
+    `bkReqRecipientEmails.v2:${yearScope}`,
+    client.email ? [client.email] : [],
   );
-  const [reqRecipientEmail, setReqRecipientEmail] = useCanvasState(
-    `bkReqRecipientEmail.v1:${yearScope}`,
-    client.email || "",
+  const [reqCcEmails, setReqCcEmails] = useCanvasState<string[]>(
+    `bkReqCcEmails.v1:${yearScope}`,
+    [],
   );
-  const [reqWhatsAppPhone, setReqWhatsAppPhone] = useCanvasState(
-    `bkReqWhatsAppPhone.v1:${yearScope}`,
-    client.phone || "",
+  const [reqBccEmails, setReqBccEmails] = useCanvasState<string[]>(
+    `bkReqBccEmails.v1:${yearScope}`,
+    [],
   );
+  const [reqWhatsAppPhones, setReqWhatsAppPhones] = useCanvasState<string[]>(
+    `bkReqWhatsAppPhones.v2:${yearScope}`,
+    client.phone ? [client.phone] : [],
+  );
+  const [reqEmailSubject, setReqEmailSubject] = useState("");
+  const [reqEmailBodyHtml, setReqEmailBodyHtml] = useState("");
+  const [reqWhatsAppBody, setReqWhatsAppBody] = useState("");
+  const [reqPortalBody, setReqPortalBody] = useState("");
+  const [reqComposeTab, setReqComposeTab] =
+    useState<ReqComposeChannelId>("email");
   const [viewDocId, setViewDocId] = useCanvasState<string | null>(
     `bkViewDoc.v1:${yearScope}`,
     null,
@@ -45748,20 +50436,41 @@ function BookkeepingWorkspace({
     if (typeId === "bank") return t(uiLang, "bkDocTypeBank");
     if (typeId === "invoice") return t(uiLang, "bkDocTypeInvoice");
     if (typeId === "receipt") return t(uiLang, "bkDocTypeReceipt");
+    if (typeId === "other") return t(uiLang, "bkDocTypeOther");
+    const customHit = customDocTypes.find(
+      (c) => c === typeId || c.toLowerCase() === typeId.toLowerCase(),
+    );
+    if (customHit) return customHit;
     return t(uiLang, "bkDocTypeOther");
   };
 
-  const bkDocTypeOptions = [
+  const bkBuiltinDocTypeOptions = [
     { value: "bank", label: t(uiLang, "bkDocTypeBank") },
     { value: "invoice", label: t(uiLang, "bkDocTypeInvoice") },
     { value: "receipt", label: t(uiLang, "bkDocTypeReceipt") },
     { value: "other", label: t(uiLang, "bkDocTypeOther") },
+  ];
+  const bkDocTypeOptions = [
+    ...bkBuiltinDocTypeOptions,
+    ...customDocTypes.map((label) => ({ value: label, label })),
+    {
+      value: CRM_DOC_TYPE_CREATE_VALUE,
+      label: t(uiLang, "taxReturnDocTypeCreate"),
+    },
   ];
 
   const updateReqDraft = (id: string, patch: Partial<BkDocReqDraft>) => {
     setReqDrafts((prev) =>
       prev.map((row) => (row.id === id ? { ...row, ...patch } : row)),
     );
+  };
+  const commitNewDocTypeForDraft = (draftId: string) => {
+    const result = appendCustomDocType(customDocTypes, newDocTypeDraft);
+    if (!result) return;
+    setCustomDocTypes(result.next);
+    updateReqDraft(draftId, { type: result.selected });
+    setCreatingDocTypeForDraftId(null);
+    setNewDocTypeDraft("");
   };
 
   const addReqDraft = () => {
@@ -45802,16 +50511,61 @@ function BookkeepingWorkspace({
         return {
           ...base,
           emailLog: reqEmail
-            ? t(uiLang, "taxReturnEmailSentTo").replace(
-                "{email}",
-                reqRecipientEmail.trim() || client.email || "—",
-              )
+            ? (() => {
+                const emails = reqRecipientEmails
+                  .map((e) => e.trim())
+                  .filter(Boolean);
+                const to =
+                  emails.length > 0
+                    ? emails
+                    : [client.email || "—"].filter(Boolean);
+                const cc = reqCcEmails.map((e) => e.trim()).filter(Boolean);
+                const bcc = reqBccEmails.map((e) => e.trim()).filter(Boolean);
+                const toLog = to
+                  .map((email) =>
+                    t(uiLang, "taxReturnEmailSentTo").replace(
+                      "{email}",
+                      email,
+                    ),
+                  )
+                  .join(" · ");
+                const extra = [
+                  cc.length
+                    ? t(uiLang, "reqComposeCcFlash").replace(
+                        "{cc}",
+                        cc.join(", "),
+                      )
+                    : "",
+                  bcc.length
+                    ? t(uiLang, "reqComposeBccFlash").replace(
+                        "{bcc}",
+                        bcc.join(", "),
+                      )
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                return extra ? `${toLog} · ${extra}` : toLog;
+              })()
             : undefined,
           whatsappLog: reqWhatsApp
-            ? t(uiLang, "taxReturnWhatsAppSentTo").replace(
-                "{phone}",
-                reqWhatsAppPhone.trim() || client.phone || "—",
-              )
+            ? (() => {
+                const phones = reqWhatsAppPhones
+                  .map((p) => p.trim())
+                  .filter(Boolean);
+                const list =
+                  phones.length > 0
+                    ? phones
+                    : [client.phone || "—"].filter(Boolean);
+                return list
+                  .map((phone) =>
+                    t(uiLang, "taxReturnWhatsAppSentTo").replace(
+                      "{phone}",
+                      phone,
+                    ),
+                  )
+                  .join(" · ");
+              })()
             : undefined,
         };
       }
@@ -45826,8 +50580,109 @@ function BookkeepingWorkspace({
     });
   };
 
+
+  const patchBkReceivedDoc = (
+    id: string,
+    partial: Partial<ReceivedClientDoc>,
+  ) => {
+    setBkReceivedDocs((prev) => {
+      const base =
+        prev && prev.length > 0
+          ? prev
+          : seedModuleReceivedClientDocs("bookkeeping", client, bkYear);
+      return base.map((row) => (row.id === id ? { ...row, ...partial } : row));
+    });
+  };
+
+  const openBkReceivedResendPopout = (received: ReceivedClientDoc) => {
+    const channel = received.channel;
+    const purposeId = (
+      received.purposeId ||
+      received.linkedRequestId ||
+      ""
+    ).trim();
+    const linked = docRequests.find((r) => r.id === purposeId);
+    const purposeLabel = linked?.docName || received.docType || received.name;
+    const composed = composeReceivedDocResendMessage(
+      uiLang,
+      client,
+      bkYear,
+      received.name,
+      purposeLabel,
+      channel,
+      "bookkeeping",
+      "הנהלת חשבונות",
+    );
+    const emails = clientEmailsForTools(client);
+    const phones = clientPhonesForDemo(client, uiLang);
+    const contactPrefill =
+      channel === "whatsapp"
+        ? phones[0]?.value || client.phone || ""
+        : channel === "email"
+          ? emails[0] || client.email || ""
+          : displayClientName(client, uiLang);
+    const contactList =
+      channel === "portal"
+        ? [contactPrefill]
+        : channel === "email"
+          ? (emails.length ? emails : [contactPrefill]).filter(Boolean)
+          : (
+              phones.map((p) => p.value).filter(Boolean).length
+                ? phones.map((p) => p.value)
+                : [contactPrefill]
+            ).filter(Boolean);
+    patchBkReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    setBkResendPopout({
+      channel,
+      receivedDocId: received.id,
+      subject: composed.subject,
+      message: composed.message,
+      contact: contactPrefill,
+      contacts: contactList.length ? contactList : [contactPrefill],
+    });
+  };
+
+  const sendBkReceivedResend = () => {
+    if (!bkResendPopout) return;
+    const { channel, receivedDocId } = bkResendPopout;
+    const today = new Date().toISOString().slice(0, 10);
+    const channelLabel =
+      channel === "email"
+        ? t(uiLang, "taxReturnSendEmail")
+        : channel === "portal"
+          ? t(uiLang, "taxReturnSendPortal")
+          : t(uiLang, "taxReturnSendWhatsApp");
+    const received = bkReceivedList.find((d) => d.id === receivedDocId);
+    patchBkReceivedDoc(receivedDocId, {
+      reviewVerdict: "not-ok",
+      resendLog: [
+        ...((received?.resendLog) ?? []),
+        `${today} · ${channel}`,
+      ],
+    });
+    const pid = (received?.purposeId || received?.linkedRequestId || "").trim();
+    if (pid) {
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === pid
+            ? markPortalRequestReceived(r, {
+                fileName: received?.name,
+                previewText: `Reminder sent · not OK · ${received?.name ?? r.docName}`,
+                year: bkYear,
+              })
+            : r,
+        ),
+      );
+    }
+    setReqFlash(
+      t(uiLang, "trustDocsResendFlash").replace("{channel}", channelLabel),
+    );
+    setBkResendPopout(null);
+  };
+
   const composeBkRequestMessage = (): string => {
     const contact = client.profile?.contactName?.trim();
+    const monthLabel = t(uiLang, auditMonthAbbrKey(activeMonth));
     const docs = reqDrafts
       .map((d) => {
         const name =
@@ -45843,9 +50698,9 @@ function BookkeepingWorkspace({
       .filter(Boolean)
       .join(", ");
     if (uiLang === "he") {
-      return `שלום${contact ? ` ${contact}` : ""},\n\nנא להעלות את המסמכים הבאים לשנת הנה״ח ${bkYear}:\n${docs}\n\nערוצים: ${channels}\n\nתודה.`;
+      return `שלום${contact ? ` ${contact}` : ""},\n\nנא להעלות הוצאות / הכנסות ל-${monthLabel} ${bkYear}:\n${docs}\n\nערוצים: ${channels}\n\nתודה.`;
     }
-    return `Hello${contact ? ` ${contact}` : ""},\n\nPlease upload the following documents for bookkeeping year ${bkYear}:\n${docs}\n\nChannels: ${channels}\n\nThank you.`;
+    return `Hello${contact ? ` ${contact}` : ""},\n\nPlease upload expenses / income for ${monthLabel} ${bkYear}:\n${docs}\n\nChannels: ${channels}\n\nThank you.`;
   };
 
   const openBkReqPreview = () => {
@@ -45853,12 +50708,38 @@ function BookkeepingWorkspace({
       setReqFlash(t(uiLang, "taxReturnPickChannel"));
       return;
     }
-    if (!reqRecipientEmail.trim()) {
-      setReqRecipientEmail(bkContactEmails[0] || client.email || "");
+    if (
+      reqRecipientEmails.length === 0 ||
+      !reqRecipientEmails.some((e) => e.trim())
+    ) {
+      setReqRecipientEmails([bkContactEmails[0] || client.email || ""]);
     }
-    if (!reqWhatsAppPhone.trim()) {
-      setReqWhatsAppPhone(bkContactPhones[0]?.value || client.phone || "");
+    if (
+      reqWhatsAppPhones.length === 0 ||
+      !reqWhatsAppPhones.some((p) => p.trim())
+    ) {
+      setReqWhatsAppPhones([
+        bkContactPhones[0]?.value || client.phone || "",
+      ]);
     }
+    const baseMsg = composeBkRequestMessage();
+    const baseHtml = baseMsg
+      .split("\n")
+      .map((line) => line || " ")
+      .join("<br/>");
+    setReqEmailSubject(
+      uiLang === "he"
+        ? `בקשת מסמכי הנה״ח — ${bkYear}`
+        : `Bookkeeping document request — ${bkYear}`,
+    );
+    setReqEmailBodyHtml(baseHtml);
+    setReqWhatsAppBody(baseMsg);
+    setReqPortalBody(baseMsg);
+    const tabs: ReqComposeChannelId[] = [];
+    if (reqEmail) tabs.push("email");
+    if (reqPortal) tabs.push("portal");
+    if (reqWhatsApp) tabs.push("whatsapp");
+    setReqComposeTab(tabs[0] ?? "email");
     setReqFlash("");
     setReqPreviewOpen(true);
   };
@@ -45869,14 +50750,48 @@ function BookkeepingWorkspace({
       return;
     }
     const rows = buildBkRequestRows("pending");
+    const bkEmails = reqRecipientEmails.map((e) => e.trim()).filter(Boolean);
+    const bkCc = reqCcEmails.map((e) => e.trim()).filter(Boolean);
+    const bkBcc = reqBccEmails.map((e) => e.trim()).filter(Boolean);
+    const bkPhones = reqWhatsAppPhones.map((p) => p.trim()).filter(Boolean);
     setDocRequests((prev) => [...rows, ...prev]);
     setReqDrafts([newBkDocReqDraft()]);
     setReqPreviewOpen(false);
+    setBkReceiveReqStatus((prev) => ({
+      ...prev,
+      [`${activeMonth}:${BK_CHECK_EXP_RECEIVE}`]: "requested",
+      [`${activeMonth}:${BK_CHECK_INC_RECEIVE}`]: "requested",
+    }));
+    const bkRecipientBits = [
+      reqEmail && (bkEmails.length || client.email)
+        ? t(uiLang, "reqComposeRecipientsFlash").replace(
+            "{to}",
+            (bkEmails.length ? bkEmails : [client.email || "—"]).join(", "),
+          )
+        : "",
+      reqEmail && bkCc.length
+        ? t(uiLang, "reqComposeCcFlash").replace("{cc}", bkCc.join(", "))
+        : "",
+      reqEmail && bkBcc.length
+        ? t(uiLang, "reqComposeBccFlash").replace("{bcc}", bkBcc.join(", "))
+        : "",
+      reqWhatsApp && (bkPhones.length || client.phone)
+        ? t(uiLang, "reqComposePhonesFlash").replace(
+            "{phones}",
+            (bkPhones.length ? bkPhones : [client.phone || "—"]).join(", "),
+          )
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     setReqFlash(
       t(uiLang, "bkRequestSentMulti").replace("{n}", String(rows.length)) +
         (reqPortal ? t(uiLang, "taxReturnRequestSentPortalSuffix") : "") +
         (reqEmail ? t(uiLang, "taxReturnRequestSentEmailSuffix") : "") +
-        (reqWhatsApp ? t(uiLang, "taxReturnRequestSentWhatsAppSuffix") : ""),
+        (reqWhatsApp ? t(uiLang, "taxReturnRequestSentWhatsAppSuffix") : "") +
+        " · " +
+        t(uiLang, "bkChannelRequestedPill") +
+        (bkRecipientBits ? ` · ${bkRecipientBits}` : ""),
     );
   };
 
@@ -45940,21 +50855,48 @@ function BookkeepingWorkspace({
   };
 
   const accent = theme.accent.primary;
+  const requestsStatus = bkPipelineScreenWorkFlowStatus(
+    "requests",
+    bkSettings,
+    activeMonth,
+    checklistDone,
+  );
+  const folderStatus = bkPipelineScreenWorkFlowStatus(
+    "folder",
+    bkSettings,
+    activeMonth,
+    checklistDone,
+  );
   const navItems: {
     id: BkSection;
     labelKey: CrmUiKey;
     badge?: string;
     status?: WorkFlowStatus;
     icon?: ModuleSectionTabIconId;
+    flowGlyphs?: DocRequestFlowKind[];
+    badgeCount?: number;
+    badgeTone?: "red" | "green" | "blue";
+    sentBadgeCount?: number;
   }[] = [
-    { id: "overview", labelKey: "bkNavOverview" },
-    { id: "checklist", labelKey: "bkNavChecklist" },
+    { id: "overview", labelKey: "bkNavOverview", icon: "overview" },
+    { id: "checklist", labelKey: "bkNavChecklist", icon: "checklist" },
     ...(bkSettings.vat !== "off"
       ? ([
           {
             id: "vat" as const,
             labelKey: "bkNavVat" as CrmUiKey,
             status: vatStatus,
+            icon: "vat" as const,
+          },
+        ] as const)
+      : []),
+    ...(bkSettings.advances !== "off"
+      ? ([
+          {
+            id: "advances" as const,
+            labelKey: "bkNavAdvances" as CrmUiKey,
+            status: advancesStatus,
+            icon: "advances" as const,
           },
         ] as const)
       : []),
@@ -45964,20 +50906,52 @@ function BookkeepingWorkspace({
             id: "salaries" as const,
             labelKey: "bkNavSalaries" as CrmUiKey,
             status: salariesStatus,
+            icon: "salaries" as const,
+          },
+        ] as const)
+      : []),
+    ...(bkReconOn
+      ? ([
+          {
+            id: "reconciliations" as const,
+            labelKey: "bkNavReconciliations" as CrmUiKey,
+            status: reconciliationsStatus,
+            icon: "reconciliations" as const,
           },
         ] as const)
       : []),
     {
       id: "requests",
       labelKey: "bkNavRequests",
-      badge: pendingReqs > 0 ? String(pendingReqs) : undefined,
+      status: requestsStatus,
+      icon: "requests",
+      flowGlyphs:
+        pendingReqs > 0 ? (["sent"] as const) : undefined,
+      badgeCount: (() => {
+        const n = countReceivedDocsNeedingReview(bkReceivedList);
+        return n > 0 ? n : undefined;
+      })(),
+      badgeTone: "red" as const,
+      sentBadgeCount: pendingReqs > 0 ? pendingReqs : undefined,
     },
-    { id: "files", labelKey: "bkNavFiles" },
-    { id: "folder", labelKey: "bkNavFolder" },
+    { id: "files", labelKey: "bkNavFiles", icon: "files" },
+    {
+      id: "folder",
+      labelKey: "bkNavFolder",
+      /** Folder is a pipeline stage (expense/income capture). */
+      status: folderStatus,
+      icon: "folder",
+    },
     ...(hasAudit
-      ? ([{ id: "audit-prep" as const, labelKey: "bkNavAuditPrep" as CrmUiKey }])
+      ? ([
+          {
+            id: "audit-prep" as const,
+            labelKey: "bkNavAuditPrep" as CrmUiKey,
+            icon: "audit-prep" as const,
+          },
+        ])
       : []),
-    { id: "comments", labelKey: "bkNavComments" },
+    { id: "comments", labelKey: "bkNavComments", icon: "comments" },
     { id: "settings", labelKey: "bkNavSettings", icon: "settings" },
   ];
 
@@ -46030,6 +51004,55 @@ function BookkeepingWorkspace({
     }));
   };
 
+  const pipelineStops = bkPipelineStops(bkSettings, activeMonth);
+  const pipelineIdx = pipelineStops.findIndex((stop) => stop.screen === section);
+  const pipelineStop = pipelineIdx >= 0 ? pipelineStops[pipelineIdx] : undefined;
+  const pipelineStageDone =
+    !!pipelineStop && pipelineStop.ids.every((id) => stageStepDone(id));
+  const completePipelineStage = () => {
+    if (!pipelineStop) return;
+    setChecklistDone((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of pipelineStop.ids) {
+        const key = bkChecklistDoneKey(activeMonth, id);
+        if (next[key] !== true) {
+          next[key] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    const firstId = pipelineStop.ids[0];
+    const stageLabel = firstId
+      ? stageStepLabel(firstId)
+      : t(uiLang, "bookkeeping");
+    showStageCompletedPopout({
+      module: "bookkeeping",
+      stageLabel,
+      clientName: client.name,
+    });
+  };
+  const undoPipelineStage = () => {
+    if (!pipelineStop) return;
+    setChecklistDone((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of pipelineStop.ids) {
+        const key = bkChecklistDoneKey(activeMonth, id);
+        if (next[key] === true) {
+          next[key] = false;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  };
+  const goPipelineStage = (delta: number) => {
+    const stop = pipelineStops[pipelineIdx + delta];
+    const first = stop?.ids[0];
+    if (first) openPipelineStage(first);
+  };
   const renderMain = () => {
     if (section === "settings") {
       const cycleOptions = [
@@ -46160,8 +51183,7 @@ function BookkeepingWorkspace({
             {t(uiLang, "bkMonthlyStagePct").replace("{pct}", String(monthPct))}
           </ChromeText>
           {(bkSettings.vat === "bimonthly" ||
-            bkSettings.advances === "bimonthly") &&
-          !bkIsBimonthlyFilingMonth(activeMonth) ? (
+            bkSettings.advances === "bimonthly") ? (
             <ChromeText size="small" tone="secondary">
               {t(uiLang, "bkSettingsBimonthlyHint")}
             </ChromeText>
@@ -46170,6 +51192,8 @@ function BookkeepingWorkspace({
             items={checklist}
             focusStageId={activeMonth}
             onToggle={toggleChecklistItem}
+            onOpen={openPipelineStage}
+            canOpen={(id) => !!bkScreenForCheck(id)}
             onRename={(id, label) =>
               setBkChecklistLabels((prev) => ({ ...prev, [id]: label }))
             }
@@ -46237,15 +51261,20 @@ function BookkeepingWorkspace({
       );
     }
     if (section === "requests") {
-      return (
+      const bkPurposeOptions: DocsReceivedPurposeOption[] = [
+        { value: "", label: t(uiLang, "trustDocsPurposePlaceholder") },
+        ...docRequests.map((r) => ({ value: r.id, label: r.docName })),
+      ];
+      const bkRequestsBody = (
         <Stack gap={12}>
           <ChromeText size="small" tone="secondary">
             {t(uiLang, "bkRequestHint")}
           </ChromeText>
           <Stack gap={8}>
             {reqDrafts.map((draft, index) => (
-              <Row key={draft.id} gap={8} wrap align="end">
-                <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+              <Stack key={draft.id} gap={6}>
+              <Row gap={8} align="center">
+                <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
                   <ChromeText size="small" tone="secondary">
                     {t(uiLang, "taxReturnDocName")}
                     {reqDrafts.length > 1 ? ` (${index + 1})` : ""}
@@ -46256,13 +51285,29 @@ function BookkeepingWorkspace({
                     placeholder={t(uiLang, "taxReturnDocNamePh")}
                   />
                 </Stack>
-                <Stack gap={4} style={{ minWidth: 160 }}>
+                <Stack
+                  gap={4}
+                  style={{ flex: "0 0 180px", width: 180, minWidth: 160 }}
+                >
                   <ChromeText size="small" tone="secondary">
                     {t(uiLang, "taxReturnDocType")}
                   </ChromeText>
                   <Select
-                    value={draft.type}
-                    onChange={(v) => updateReqDraft(draft.id, { type: v })}
+                    value={
+                      draft.type === CRM_DOC_TYPE_CREATE_VALUE
+                        ? "other"
+                        : draft.type
+                    }
+                    onChange={(v) => {
+                      if (v === CRM_DOC_TYPE_CREATE_VALUE) {
+                        setCreatingDocTypeForDraftId(draft.id);
+                        setNewDocTypeDraft("");
+                        return;
+                      }
+                      setCreatingDocTypeForDraftId(null);
+                      setNewDocTypeDraft("");
+                      updateReqDraft(draft.id, { type: v });
+                    }}
                     options={bkDocTypeOptions}
                   />
                 </Stack>
@@ -46270,13 +51315,46 @@ function BookkeepingWorkspace({
                   <Button
                     variant="secondary"
                     onClick={() => removeReqDraft(draft.id)}
+                    style={{ flexShrink: 0, alignSelf: "flex-end" }}
                   >
                     {t(uiLang, "bkRemoveDocRow")}
                   </Button>
                 ) : null}
               </Row>
+              {creatingDocTypeForDraftId === draft.id ? (
+                <Row gap={8} align="center">
+                  <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+                    <ChromeText size="small" tone="secondary">
+                      {t(uiLang, "taxReturnDocTypeCreate")}
+                    </ChromeText>
+                    <ChromeTextInput
+                      value={newDocTypeDraft}
+                      onChange={setNewDocTypeDraft}
+                      placeholder={t(uiLang, "taxReturnDocTypeCreatePh")}
+                    />
+                  </Stack>
+                  <Button
+                    variant="secondary"
+                    onClick={() => commitNewDocTypeForDraft(draft.id)}
+                    style={{ flexShrink: 0, alignSelf: "flex-end" }}
+                  >
+                    {t(uiLang, "taxReturnDocTypeCreateAdd")}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setCreatingDocTypeForDraftId(null);
+                      setNewDocTypeDraft("");
+                    }}
+                    style={{ flexShrink: 0, alignSelf: "flex-end" }}
+                  >
+                    {t(uiLang, "taxReturnDocTypeCreateCancel")}
+                  </Button>
+                </Row>
+              ) : null}
+              </Stack>
             ))}
-            <Row gap={8} wrap>
+            <Row gap={8} align="center" justify="center">
               <Button variant="secondary" onClick={addReqDraft}>
                 {t(uiLang, "bkAddDocRow")}
               </Button>
@@ -46299,7 +51377,25 @@ function BookkeepingWorkspace({
               label={t(uiLang, "taxReturnSendWhatsApp")}
             />
           </Row>
-          <Row gap={8} wrap>
+          <Row gap={8} wrap align="center">
+            <Pill
+              size="sm"
+              tone={
+                bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_EXP_RECEIVE}`] ===
+                  "requested" ||
+                bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_INC_RECEIVE}`] ===
+                  "requested"
+                  ? "info"
+                  : "neutral"
+              }
+            >
+              {bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_EXP_RECEIVE}`] ===
+                "requested" ||
+              bkReceiveReqStatus[`${activeMonth}:${BK_CHECK_INC_RECEIVE}`] ===
+                "requested"
+                ? t(uiLang, "bkChannelRequestedPill")
+                : t(uiLang, "taxReturnDocPending")}
+            </Pill>
             <Button variant="primary" onClick={openBkReqPreview}>
               {t(uiLang, "bkSeeMessage")}
             </Button>
@@ -46308,91 +51404,98 @@ function BookkeepingWorkspace({
             </Button>
           </Row>
           {reqPreviewOpen ? (
-            <Stack
-              gap={10}
-              style={{
-                padding: 14,
-                borderRadius: 10,
-                border: `1px solid ${chromeBorder(theme)}`,
-                background: chromeSoftFill(theme),
+            <RequestMessagePopout
+              title={t(uiLang, "bkRequestPreviewTitle")}
+              closeLabel={t(uiLang, "taxReturnClosePreview")}
+              onClose={() => {
+                setReqPreviewOpen(false);
               }}
+              anchorRect={null}
             >
-              <Row align="center" gap={8} wrap>
-                <ChromeText size="small" weight="semibold">
-                  {t(uiLang, "bkRequestPreviewTitle")}
-                </ChromeText>
-                <Spacer />
-                <Button
-                  variant="ghost"
-                  onClick={() => setReqPreviewOpen(false)}
-                >
-                  {t(uiLang, "taxReturnClosePreview")}
-                </Button>
-              </Row>
-              <ChromeText
-                size="small"
-                style={{ whiteSpace: "pre-wrap" }}
-              >
-                {composeBkRequestMessage()}
-              </ChromeText>
-              {reqEmail ? (
-                <Stack gap={4}>
-                  <ChromeText size="small" tone="secondary">
-                    {t(uiLang, "bkRequestPreviewEmail")}
-                  </ChromeText>
-                  <ChromeTextInput
-                    value={reqRecipientEmail}
-                    onChange={setReqRecipientEmail}
-                    placeholder={client.email || "email@example.com"}
-                  />
-                  {bkContactEmails.length > 1 ? (
-                    <Select
-                      value={
-                        bkContactEmails.includes(reqRecipientEmail)
-                          ? reqRecipientEmail
-                          : bkContactEmails[0]
-                      }
-                      onChange={setReqRecipientEmail}
-                      options={bkContactEmails.map((e) => ({
-                        value: e,
-                        label: e,
-                      }))}
+              {(() => {
+                const bkChannels: ReqComposeChannelId[] = [
+                  ...(reqEmail ? (["email"] as const) : []),
+                  ...(reqPortal ? (["portal"] as const) : []),
+                  ...(reqWhatsApp ? (["whatsapp"] as const) : []),
+                ];
+                const activeTab = bkChannels.includes(reqComposeTab)
+                  ? reqComposeTab
+                  : bkChannels[0] ?? "email";
+                return (
+                  <Stack gap={10}>
+                    <RequestComposeChannelTabs
+                      uiLang={uiLang}
+                      channels={bkChannels}
+                      active={activeTab}
+                      onChange={setReqComposeTab}
                     />
-                  ) : null}
-                </Stack>
-              ) : null}
-              {reqWhatsApp ? (
-                <Stack gap={4}>
-                  <ChromeText size="small" tone="secondary">
-                    {t(uiLang, "bkRequestPreviewWhatsApp")}
-                  </ChromeText>
-                  <ChromeTextInput
-                    value={reqWhatsAppPhone}
-                    onChange={setReqWhatsAppPhone}
-                    placeholder={client.phone || "+972..."}
-                  />
-                  {bkContactPhones.length > 1 ? (
-                    <Select
-                      value={
-                        bkContactPhones.some((p) => p.value === reqWhatsAppPhone)
-                          ? reqWhatsAppPhone
-                          : bkContactPhones[0]?.value || reqWhatsAppPhone
-                      }
-                      onChange={setReqWhatsAppPhone}
-                      options={bkContactPhones.map((p) => ({
-                        value: p.value,
-                        label: p.label,
-                      }))}
-                    />
-                  ) : null}
-                </Stack>
-              ) : null}
-              <Row gap={8} wrap>
-                <Button variant="primary" onClick={sendBkRequest}>
-                  {t(uiLang, "taxReturnSendRequest")}
-                </Button>
-              </Row>
-            </Stack>
+                    {activeTab === "email" && reqEmail ? (
+                      <RequestEmailStandardCompose
+                        uiLang={uiLang}
+                        fromAddress={REQ_COMPOSE_FROM_DEMO}
+                        toEmails={
+                          reqRecipientEmails.length
+                            ? reqRecipientEmails
+                            : [bkContactEmails[0] || client.email || ""]
+                        }
+                        onToChange={setReqRecipientEmails}
+                        ccEmails={reqCcEmails}
+                        onCcChange={setReqCcEmails}
+                        bccEmails={reqBccEmails}
+                        onBccChange={setReqBccEmails}
+                        subject={reqEmailSubject}
+                        onSubjectChange={setReqEmailSubject}
+                        bodyHtml={reqEmailBodyHtml}
+                        onBodyHtmlChange={setReqEmailBodyHtml}
+                      />
+                    ) : null}
+                    {activeTab === "whatsapp" && reqWhatsApp ? (
+                      <RequestWhatsAppCompose
+                        uiLang={uiLang}
+                        phones={
+                          reqWhatsAppPhones.length
+                            ? reqWhatsAppPhones
+                            : [
+                                bkContactPhones[0]?.value ||
+                                  client.phone ||
+                                  "",
+                              ]
+                        }
+                        onPhonesChange={setReqWhatsAppPhones}
+                        bodyText={reqWhatsAppBody}
+                        onBodyTextChange={setReqWhatsAppBody}
+                        phonePlaceholder={
+                          bkContactPhones[0]?.value ||
+                          client.phone ||
+                          "+972..."
+                        }
+                      />
+                    ) : null}
+                    {activeTab === "portal" && reqPortal ? (
+                      <RequestPortalCompose
+                        uiLang={uiLang}
+                        clientName={displayClientName(client, uiLang)}
+                        bodyText={reqPortalBody}
+                        onBodyTextChange={setReqPortalBody}
+                      />
+                    ) : null}
+                    <Row gap={8} wrap>
+                      <Button variant="primary" onClick={sendBkRequest}>
+                        {t(uiLang, "taxReturnPreviewConfirm")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setReqPreviewOpen(false);
+                        }}
+                      >
+                        {t(uiLang, "taxReturnClosePreview")}
+                      </Button>
+                    </Row>
+                  </Stack>
+                );
+              })()}
+            </RequestMessagePopout>
           ) : null}
           {reqFlash ? (
             <Callout
@@ -46458,6 +51561,14 @@ function BookkeepingWorkspace({
                             }`,
                           }}
                         />
+                        <DocRequestFlowGlyph
+                          kind={done ? "received" : "sent"}
+                          size={15}
+                        />
+                        <DocRequestFlowBadge
+                          kind={done ? "received" : "sent"}
+                          uiLang={uiLang}
+                        />
                         <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
                           <span
                             style={{
@@ -46496,10 +51607,10 @@ function BookkeepingWorkspace({
                           </ChromeText>
                         </Stack>
                       </div>
-                      <Pill size="sm" tone={done ? "success" : "warning"}>
+                      <Pill size="sm" tone={done ? "success" : "info"}>
                         {done
                           ? t(uiLang, "taxReturnDocUploaded")
-                          : t(uiLang, "taxReturnDocPending")}
+                          : t(uiLang, "bkChannelRequestedPill")}
                       </Pill>
                       {done ? (
                         <DocRequestEyeViewButton
@@ -46544,25 +51655,322 @@ function BookkeepingWorkspace({
           ) : null}
         </Stack>
       );
-    }
-    if (section === "vat") {
       return (
-        <ClientCardPanelView
-          panel="stream-vat"
-          client={client}
-          draft={draft}
-          setDraft={setDraft}
+        <DocsRequestsAreaShell
+          uiLang={uiLang}
+          ariaLabel={t(uiLang, "bkNavRequests")}
+          topTab={bkDocsTopTab}
+          onTopTabChange={setBkDocsTopTab}
+          requestsCount={pendingReqs}
+          receivedCount={bkReceivedList.length}
+          requestsBody={bkRequestsBody}
+          receivedBody={
+            <DocsReceivedListPanel
+              uiLang={uiLang}
+              files={bkReceivedList}
+              purposeOptions={bkPurposeOptions}
+              onPatch={(id, partial) => {
+                patchBkReceivedDoc(id, partial);
+                if (partial.purposeId !== undefined) {
+                  const pid = (partial.purposeId || "").trim();
+                  if (pid) {
+                    const file = bkReceivedList.find((f) => f.id === id);
+                    setDocRequests((prev) =>
+                      prev.map((r) =>
+                        r.id === pid
+                          ? markPortalRequestReceived(r, {
+                              fileName: file?.name,
+                              previewText: file
+                                ? `Paired · ${file.name}`
+                                : undefined,
+                              year: bkYear,
+                            })
+                          : r,
+                      ),
+                    );
+                  }
+                }
+              }}
+              onOk={(file) => {
+                patchBkReceivedDoc(file.id, {
+                  reviewVerdict: "ok",
+                  status: "reviewed",
+                });
+                const pid = (
+                  file.purposeId ||
+                  file.linkedRequestId ||
+                  ""
+                ).trim();
+                if (pid) {
+                  setDocRequests((prev) =>
+                    prev.map((r) =>
+                      r.id === pid
+                        ? {
+                            ...r,
+                            status: "uploaded" as const,
+                            uploadedFileName:
+                              r.uploadedFileName ??
+                              `${r.docName.replace(/\s+/g, "_")}_${bkYear}.pdf`,
+                            previewText:
+                              r.previewText ?? `Staff OK · ${file.name}`,
+                          }
+                        : r,
+                    ),
+                  );
+                }
+              }}
+              onNotOk={openBkReceivedResendPopout}
+              linkedLabel={(file) => {
+                const linked = docRequests.find(
+                  (r) =>
+                    r.id === (file.purposeId || file.linkedRequestId || ""),
+                );
+                return linked
+                  ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.docName}`
+                  : null;
+              }}
+            />}
+          overlay={
+            bkResendPopout ? (
+              <RequestMessagePopout
+                title={t(uiLang, "bkRequestPreviewTitle")}
+                closeLabel={t(uiLang, "taxReturnClosePreview")}
+                onClose={() => setBkResendPopout(null)}
+                anchorRect={null}
+              >
+                <Stack gap={10}>
+                  <Row gap={8} align="center">
+                    <DocRequestFlowGlyph kind="sent" />
+                    <ChromeText size="small" tone="secondary">
+                      {receivedClientDocChannelLabel(uiLang, bkResendPopout.channel)}
+                    </ChromeText>
+                  </Row>
+                  {bkResendPopout.channel === "email" ? (
+                    <ChromeTextInput
+                      value={bkResendPopout.subject}
+                      onChange={(v) =>
+                        setBkResendPopout((prev) =>
+                          prev ? { ...prev, subject: v } : prev,
+                        )
+                      }
+                    />
+                  ) : null}
+                  <textarea
+                    value={bkResendPopout.message}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setBkResendPopout((prev) =>
+                        prev ? { ...prev, message: v } : prev,
+                      );
+                    }}
+                    rows={8}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                      padding: 8,
+                      borderRadius: 8,
+                      border: `1px solid ${chromeBorder(theme)}`,
+                    }}
+                  />
+                  <Row gap={8} justify="end">
+                    <Button variant="secondary" onClick={() => setBkResendPopout(null)}>
+                      {t(uiLang, "taxReturnClosePreview")}
+                    </Button>
+                    <Button variant="primary" onClick={sendBkReceivedResend}>
+                      {t(uiLang, "taxReturnSendRequest")}
+                    </Button>
+                  </Row>
+                </Stack>
+              </RequestMessagePopout>
+            ) : null}
         />
       );
     }
-    if (section === "salaries") {
+    if (section === "vat" || section === "advances") {
+      const cycle = section === "vat" ? bkSettings.vat : bkSettings.advances;
+      const due = bkCycleStepActive(cycle, activeMonth);
+      const reportId =
+        section === "vat" ? BK_CHECK_VAT_REPORT : BK_CHECK_ADV_REPORT;
+      const payId = section === "vat" ? BK_CHECK_VAT_PAY : BK_CHECK_ADV_PAY;
+      const noteKey = stageNoteKey(section);
       return (
-        <ClientCardPanelView
-          panel="stream-payroll"
-          client={client}
-          draft={draft}
-          setDraft={setDraft}
-        />
+        <Stack gap={12}>
+          <ChromeText weight="semibold">
+            {t(uiLang, section === "vat" ? "bkNavVat" : "bkNavAdvances")}
+          </ChromeText>
+          <ChromeText size="small" tone="secondary">
+            {periodLabel}
+          </ChromeText>
+          {due ? (
+            <BkStageChecks
+              steps={[
+                {
+                  id: reportId,
+                  label: stageStepLabel(reportId),
+                  done: stageStepDone(reportId),
+                },
+                {
+                  id: payId,
+                  label: stageStepLabel(payId),
+                  done: stageStepDone(payId),
+                },
+              ]}
+              onToggle={toggleChecklistItem}
+            />
+          ) : (
+            <Callout tone="info" title={t(uiLang, "bkStageNotDue")}>
+              {t(uiLang, "bkSettingsBimonthlyHint")}
+            </Callout>
+          )}
+          <ChromeText size="small" weight="semibold" tone="secondary">
+            {t(uiLang, "bkStageWorkingPapers")}
+          </ChromeText>
+          <Button
+            variant="ghost"
+            onClick={() => openBkFolder("bk-working-papers")}
+          >
+            {t(uiLang, "bkStageOpenFolder")}
+          </Button>
+          <Stack gap={6}>
+            <ChromeText size="small" weight="semibold" tone="secondary">
+              {t(uiLang, "bkStageNote")}
+            </ChromeText>
+            <TextArea
+              value={stageNotes[noteKey] ?? ""}
+              onChange={(v) =>
+                setStageNotes((prev) => ({ ...prev, [noteKey]: v }))
+              }
+              placeholder={t(uiLang, "bkStageNotePh")}
+            />
+          </Stack>
+          {section === "vat" ? (
+            <ClientCardPanelView
+              panel="stream-vat"
+              client={client}
+              draft={draft}
+              setDraft={setDraft}
+            />
+          ) : null}
+        </Stack>
+      );
+    }
+    if (section === "salaries") {
+      const noteKey = stageNoteKey("salaries");
+      const salarySteps = [
+        BK_CHECK_PAY_PREPARE,
+        ...(bkSettings.salaryTransfer !== "none"
+          ? [BK_CHECK_PAY_TRANSFER]
+          : []),
+        BK_CHECK_AUTH_REPORT,
+        BK_CHECK_AUTH_PAY,
+      ];
+      return (
+        <Stack gap={12}>
+          <ChromeText weight="semibold">
+            {t(uiLang, "bkNavSalaries")}
+          </ChromeText>
+          <ChromeText size="small" tone="secondary">
+            {periodLabel}
+          </ChromeText>
+          <ChromeText size="small" tone="secondary">
+            {t(uiLang, "bkStageSalariesHint")}
+          </ChromeText>
+          <BkStageChecks
+            steps={salarySteps.map((id) => ({
+              id,
+              label: stageStepLabel(id),
+              done: stageStepDone(id),
+            }))}
+            onToggle={toggleChecklistItem}
+          />
+          {bkSettings.salaryTransfer === "masav" ? (
+            <Button variant="ghost" onClick={openMasavTool}>
+              {t(uiLang, "bkStageOpenMasav")}
+            </Button>
+          ) : null}
+          <Stack gap={6}>
+            <ChromeText size="small" weight="semibold" tone="secondary">
+              {t(uiLang, "bkStageNote")}
+            </ChromeText>
+            <TextArea
+              value={stageNotes[noteKey] ?? ""}
+              onChange={(v) =>
+                setStageNotes((prev) => ({ ...prev, [noteKey]: v }))
+              }
+              placeholder={t(uiLang, "bkStageNotePh")}
+            />
+          </Stack>
+          <ClientCardPanelView
+            panel="stream-payroll"
+            client={client}
+            draft={draft}
+            setDraft={setDraft}
+          />
+        </Stack>
+      );
+    }
+    if (section === "reconciliations") {
+      const noteKey = stageNoteKey("reconciliations");
+      const reconRows: { id: string; folderId: string }[] = [];
+      if (bkSettings.reconBanks) {
+        reconRows.push({ id: BK_CHECK_RECON_BANKS, folderId: "bk-banks" });
+      }
+      if (bkSettings.reconCards) {
+        reconRows.push({
+          id: BK_CHECK_RECON_CARDS,
+          folderId: "bk-reconcile",
+        });
+      }
+      if (bkSettings.reconSuppliers) {
+        reconRows.push({
+          id: BK_CHECK_RECON_SUPPLIERS,
+          folderId: "bk-invoices",
+        });
+      }
+      if (bkSettings.reconCustomers) {
+        reconRows.push({
+          id: BK_CHECK_RECON_CUSTOMERS,
+          folderId: "bk-working-papers",
+        });
+      }
+      return (
+        <Stack gap={12}>
+          <ChromeText weight="semibold">
+            {t(uiLang, "bkNavReconciliations")}
+          </ChromeText>
+          <ChromeText size="small" tone="secondary">
+            {periodLabel}
+          </ChromeText>
+          {reconRows.map((row) => (
+            <Stack key={row.id} gap={6}>
+              <Checkbox
+                checked={stageStepDone(row.id)}
+                onChange={() => toggleChecklistItem(row.id)}
+                label={stageStepLabel(row.id)}
+              />
+              <Button
+                variant="ghost"
+                onClick={() => openBkFolder(row.folderId)}
+              >
+                {t(uiLang, "bkStageOpenFolder")}
+              </Button>
+            </Stack>
+          ))}
+          <Stack gap={6}>
+            <ChromeText size="small" weight="semibold" tone="secondary">
+              {t(uiLang, "bkStageNote")}
+            </ChromeText>
+            <TextArea
+              value={stageNotes[noteKey] ?? ""}
+              onChange={(v) =>
+                setStageNotes((prev) => ({ ...prev, [noteKey]: v }))
+              }
+              placeholder={t(uiLang, "bkStageNotePh")}
+            />
+          </Stack>
+        </Stack>
       );
     }
     if (section === "audit-prep" && hasAudit) {
@@ -46646,11 +52054,61 @@ function BookkeepingWorkspace({
             </ChromeText>
           </Stack>
         </Row>
-        <ChromeText size="small" tone="secondary">
-          {t(uiLang, "bkMonthlyStagePct").replace("{pct}", String(monthPct))}
-          {" · "}
-          {t(uiLang, "auditMonthlyYearPct").replace("{pct}", String(yearAvg))}
-        </ChromeText>
+        <Stack
+          gap={8}
+          style={{
+            padding: 12,
+            borderRadius: 10,
+            background: chromeSoftFill(theme),
+            border: `1px solid ${chromeBorder(theme)}`,
+          }}
+        >
+          <ChromeText size="small" weight="semibold" tone="secondary">
+            {t(uiLang, "bkCurrentStage")}
+          </ChromeText>
+          {currentStageItem ? (
+            <>
+              <Row gap={8} wrap align="center">
+                <Pill tone="info">{currentStageItem.label}</Pill>
+                <ChromeText size="small" tone="secondary">
+                  {periodLabel}
+                  {" · "}
+                  {t(uiLang, "bkMonthlyStagePct").replace(
+                    "{pct}",
+                    String(monthPct),
+                  )}
+                </ChromeText>
+              </Row>
+              <Button
+                variant="primary"
+                onClick={() => openPipelineStage(currentStageItem.id)}
+              >
+                {`${t(uiLang, "bkGoToCurrentStage")} · ${currentStageItem.label}`}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Pill tone="success">{t(uiLang, "bkAllStagesComplete")}</Pill>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "bkMonthlyStagePct").replace(
+                  "{pct}",
+                  String(monthPct),
+                )}
+                {" · "}
+                {t(uiLang, "auditMonthlyYearPct").replace(
+                  "{pct}",
+                  String(yearAvg),
+                )}
+              </ChromeText>
+              <Button
+                variant="secondary"
+                onClick={() => setSection("checklist")}
+              >
+                {t(uiLang, "bkNavChecklist")}
+              </Button>
+            </>
+          )}
+        </Stack>
         <Row gap={8} wrap>
           <Button variant="secondary" onClick={() => setSection("checklist")}>
             {t(uiLang, "bkNavChecklist")}
@@ -46808,6 +52266,10 @@ function BookkeepingWorkspace({
           badge: item.badge,
           status: item.status,
           icon: item.icon,
+          flowGlyphs: item.flowGlyphs,
+          badgeCount: item.badgeCount,
+          badgeTone: item.badgeTone,
+          sentBadgeCount: item.sentBadgeCount,
         }))}
         activeId={section}
         onSelect={setSection}
@@ -46826,44 +52288,20 @@ function BookkeepingWorkspace({
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
           {renderMain()}
         </div>
-        {section === "overview" ||
-        section === "checklist" ||
-        section === "files" ||
-        section === "folder" ? (
+        {pipelineStop ? (
           <ProcessStageNavFooter
             uiLang={uiLang}
-            backDisabled={activeMonthIdx <= 0}
-            forwardDisabled={
-              activeMonthIdx < 0 ||
-              activeMonthIdx >= AUDIT_MONTH_KEYS.length - 1
-            }
-            onBack={() => {
-              if (activeMonthIdx <= 0) return;
-              const prev = AUDIT_MONTH_KEYS[activeMonthIdx - 1];
-              if (prev) setActiveMonth(prev);
-            }}
-            onForward={() => {
-              if (
-                activeMonthIdx < 0 ||
-                activeMonthIdx >= AUDIT_MONTH_KEYS.length - 1
-              ) {
-                return;
-              }
-              const next = AUDIT_MONTH_KEYS[activeMonthIdx + 1];
-              if (next) setActiveMonth(next);
-            }}
-            onCompleted={() => {
-              setChecklistDone((prev) => {
-                const next = { ...prev };
-                for (const item of checklist) {
-                  next[bkChecklistDoneKey(activeMonth, item.id)] = true;
-                }
-                return next;
-              });
-            }}
+            backDisabled={pipelineIdx <= 0}
+            forwardDisabled={pipelineIdx >= pipelineStops.length - 1}
+            completedActive={pipelineStageDone}
+            onBack={() => goPipelineStage(-1)}
+            onForward={() => goPipelineStage(1)}
+            onCompleted={completePipelineStage}
+            onUndoCompleted={undoPipelineStage}
           />
         ) : null}
       </ModuleSectionFrame>
+      {stageCompletePopout}
     </Stack>
   );
 }
@@ -47050,6 +52488,780 @@ function FolderExplorerResizableSplit({
   );
 }
 
+
+/** ── Live file workspace (in-app Excel / PDF open · edit · save) ── */
+/**
+ * Open-file ref for LiveFileWorkspace. v2 avoids `null` as the closed value:
+ * canvas persistence / `??` fallbacks can treat `null` as "missing" and leave
+ * the prior open ref stuck, so Close/Escape/backdrop never dismiss.
+ */
+const CRM_LIVE_FILE_OPEN_KEY = "crmLiveFileOpen.v2";
+const CRM_LIVE_FILE_CONTENTS_KEY = "crmLiveFileContents.v1";
+
+type LiveFileSource =
+  | "tax-folder"
+  | "files-root"
+  | "company-docs"
+  | "forms"
+  | "trust"
+  | "work-drive"
+  | "quick-access"
+  | "other";
+
+type LiveFileRef = {
+  id: string;
+  name: string;
+  /** Breadcrumb path shown in the workspace header (folder \ file). */
+  folderPath: string;
+  source: LiveFileSource;
+};
+
+/** Persisted "closed" sentinel — empty id means no file is open. */
+const LIVE_FILE_CLOSED: LiveFileRef = {
+  id: "",
+  name: "",
+  folderPath: "",
+  source: "other",
+};
+
+function isLiveFileOpen(
+  ref: LiveFileRef | null | undefined,
+): ref is LiveFileRef {
+  return !!ref?.id;
+}
+
+type LiveFileKind = "excel" | "pdf" | "other";
+
+type LiveFileContent = {
+  kind: LiveFileKind;
+  updatedAt: string;
+  cells?: string[][];
+  notes?: string;
+  title?: string;
+  contentRevised?: boolean;
+};
+
+type LiveFileContentsStore = Record<string, LiveFileContent>;
+
+function liveFileKindFromName(name: string): LiveFileKind {
+  const ext = folderExplorerFileExt(name);
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") return "excel";
+  if (ext === "pdf") return "pdf";
+  if (!ext && /(form|annex|tax|report|invoice|statement)/i.test(name)) {
+    return "pdf";
+  }
+  return "other";
+}
+
+function seedLiveExcelCells(name: string): string[][] {
+  const short = name.replace(/\.[^.]+$/, "").slice(0, 28);
+  return [
+    ["Client", "Year", "Amount", "Status", "Notes"],
+    ["Sample", "2024", "1,250", "Draft", short],
+    ["", "2025", "", "Open", ""],
+    ["", "", "", "", ""],
+  ];
+}
+
+function seedLiveFileContent(name: string): LiveFileContent {
+  const kind = liveFileKindFromName(name);
+  const updatedAt = new Date().toISOString();
+  if (kind === "excel") {
+    return { kind, updatedAt, cells: seedLiveExcelCells(name) };
+  }
+  return {
+    kind: kind === "pdf" ? "pdf" : "other",
+    updatedAt,
+    title: name.replace(/\.(pdf|txt|docx?)$/i, ""),
+    notes: "",
+    contentRevised: false,
+  };
+}
+
+function resolveLiveFileContent(
+  store: LiveFileContentsStore | null | undefined,
+  fileId: string,
+  name: string,
+): LiveFileContent {
+  const existing = store?.[fileId];
+  if (existing && existing.kind) return existing;
+  return seedLiveFileContent(name);
+}
+
+function cloneLiveCells(cells: string[][]): string[][] {
+  return cells.map((row) => row.slice());
+}
+
+
+/** MIME for OS-default open / download association. */
+function mimeForOsOpenFileName(name: string): string {
+  const ext = folderExplorerFileExt(name);
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "xlsx")
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (ext === "xls") return "application/vnd.ms-excel";
+  if (ext === "csv") return "text/csv";
+  if (ext === "txt") return "text/plain";
+  if (ext === "docx")
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (ext === "doc") return "application/msword";
+  return "application/octet-stream";
+}
+
+function cellsToCsv(cells: string[][]): string {
+  return cells
+    .map((row) =>
+      row
+        .map((cell) => {
+          const v = String(cell ?? "");
+          if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+          return v;
+        })
+        .join(","),
+    )
+    .join("\r\n");
+}
+
+/** Tiny valid PDF so Acrobat/Foxit can open demo content. */
+function minimalDemoPdfBytes(title: string, body: string): Uint8Array {
+  const safeTitle = (title || "CRM demo")
+    .replace(/[^\x20-\x7E]/g, "?")
+    .replace(/[()\\]/g, " ");
+  const safeBody = (body || "Opened from Intertax CRM demo.")
+    .replace(/[^\x20-\x7E]/g, "?")
+    .replace(/[()\\]/g, " ");
+  const stream =
+    "BT /F1 12 Tf 50 750 Td (" +
+    safeTitle.slice(0, 80) +
+    ") Tj 0 -18 Td (" +
+    safeBody.slice(0, 120) +
+    ") Tj ET";
+  const objs: string[] = [];
+  objs.push("%PDF-1.4\n");
+  objs.push("1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n");
+  objs.push("2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n");
+  objs.push(
+    "3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources<< /Font<< /F1 5 0 R >> >> >>endobj\n",
+  );
+  objs.push(
+    "4 0 obj<< /Length " +
+      String(stream.length) +
+      " >>stream\n" +
+      stream +
+      "\nendstream\nendobj\n",
+  );
+  objs.push(
+    "5 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\n",
+  );
+  let pdf = "";
+  const offsets: number[] = [0];
+  for (const part of objs) {
+    if (part.startsWith("%PDF")) {
+      pdf += part;
+      continue;
+    }
+    offsets.push(pdf.length);
+    pdf += part;
+  }
+  const xrefStart = pdf.length;
+  let xref = "xref\n0 " + String(offsets.length) + "\n";
+  xref += "0000000000 65535 f \n";
+  for (let i = 1; i < offsets.length; i++) {
+    xref += String(offsets[i]!).padStart(10, "0") + " 00000 n \n";
+  }
+  pdf +=
+    xref +
+    "trailer<< /Size " +
+    String(offsets.length) +
+    " /Root 1 0 R >>\nstartxref\n" +
+    String(xrefStart) +
+    "\n%%EOF\n";
+  const out = new Uint8Array(pdf.length);
+  for (let i = 0; i < pdf.length; i++) out[i] = pdf.charCodeAt(i) & 0xff;
+  return out;
+}
+
+function buildOsOpenPayload(
+  name: string,
+  content: LiveFileContent | null | undefined,
+): { filename: string; mime: string; data: BlobPart; blobType: string } {
+  const kind = liveFileKindFromName(name);
+  const seeded = content ?? seedLiveFileContent(name);
+  if (kind === "excel" || seeded.kind === "excel") {
+    const cells = seeded.cells ?? seedLiveExcelCells(name);
+    const csv = cellsToCsv(cells);
+    const base = name.replace(/\.[^.]+$/, "") || name;
+    const filename = /\.csv$/i.test(name) ? name : `${base}.csv`;
+    return {
+      filename,
+      mime: "text/csv",
+      data: csv,
+      blobType: "text/csv;charset=utf-8",
+    };
+  }
+  if (kind === "pdf" || seeded.kind === "pdf") {
+    const filename = /\.pdf$/i.test(name) ? name : `${name}.pdf`;
+    const bytes = minimalDemoPdfBytes(
+      seeded.title || name,
+      seeded.notes || "Demo PDF from CRM — open with default Windows app.",
+    );
+    return {
+      filename,
+      mime: "application/pdf",
+      data: bytes,
+      blobType: "application/pdf",
+    };
+  }
+  const mime = mimeForOsOpenFileName(name);
+  const filename = folderExplorerFileExt(name) ? name : `${name}.txt`;
+  const body =
+    (seeded.notes || seeded.title
+      ? `${seeded.title ?? name}\n\n${seeded.notes ?? ""}\n`
+      : `Demo stub for ${name}\n`);
+  return { filename, mime, data: body, blobType: mime || "text/plain" };
+}
+
+async function tryNativeShellOpenPath(filePath: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as {
+    electron?: { shell?: { openPath?: (p: string) => Promise<string> } };
+    crmDesktop?: { openPath?: (p: string) => Promise<unknown> };
+    require?: (id: string) => { shell?: { openPath?: (p: string) => Promise<string> } };
+  };
+  try {
+    if (w.crmDesktop?.openPath) {
+      await w.crmDesktop.openPath(filePath);
+      return true;
+    }
+    if (w.electron?.shell?.openPath) {
+      await w.electron.shell.openPath(filePath);
+      return true;
+    }
+    if (typeof w.require === "function") {
+      const mod = w.require("electron");
+      if (mod?.shell?.openPath) {
+        await mod.shell.openPath(filePath);
+        return true;
+      }
+    }
+  } catch {
+    /* no native bridge in canvas host */
+  }
+  return false;
+}
+
+/**
+ * Open a demo file with the OS default app (Acrobat/Excel/etc.).
+ * Prefers Electron/custom shell.openPath when an absolute path exists.
+ * Demo blobs (no real path): open object URL in a new tab/window — never
+ * set <a download> / downloadBlobFile here (that forces the Downloads bar).
+ * Returns a short status string for toast/flash.
+ */
+function openWithOsDefault(
+  file: { id: string; name: string; absolutePath?: string },
+  contentsStore?: LiveFileContentsStore | null,
+): string {
+  const status = "Opening with default Windows app…";
+  if (typeof document === "undefined") return status;
+  const content = resolveLiveFileContent(
+    contentsStore,
+    file.id,
+    file.name,
+  );
+  const payload = buildOsOpenPayload(file.name, content);
+
+  void (async () => {
+    if (file.absolutePath) {
+      const ok = await tryNativeShellOpenPath(file.absolutePath);
+      if (ok) return;
+    }
+    try {
+      const blob = new Blob([payload.data as BlobPart], {
+        type: payload.blobType,
+      });
+      const url = URL.createObjectURL(blob);
+      let opened = false;
+      if (typeof window !== "undefined") {
+        const win = window.open(url, "_blank", "noopener,noreferrer");
+        opened = !!win;
+      }
+      if (!opened) {
+        // Popup blocked: navigate via <a target=_blank> WITHOUT download=.
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      /* host may block popups — never fall back to forced download */
+    }
+  })();
+
+  return status;
+}
+
+/**
+ * Top-level overlay: explicit "Open & edit in CRM" → edit in-app → Save writes back
+ * into crmLiveFileContents.v1 keyed by file id (path preserved on the ref).
+ */
+function LiveFileWorkspace() {
+  const theme = useHostTheme();
+  const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
+  const [openRef, setOpenRef] = useCanvasState<LiveFileRef>(
+    CRM_LIVE_FILE_OPEN_KEY,
+    LIVE_FILE_CLOSED,
+  );
+  const [contents, setContents] = useCanvasState<LiveFileContentsStore>(
+    CRM_LIVE_FILE_CONTENTS_KEY,
+    {},
+  );
+  const [draftCells, setDraftCells] = useState<string[][] | null>(null);
+  const [draftNotes, setDraftNotes] = useState("");
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftRevised, setDraftRevised] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saveFlash, setSaveFlash] = useState("");
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [pdfPage, setPdfPage] = useState(1);
+  const fileOpen = isLiveFileOpen(openRef);
+  const openId = fileOpen ? openRef.id : "";
+  const openName = fileOpen ? openRef.name : "";
+
+  useEffect(() => {
+    if (!fileOpen) {
+      setDraftCells(null);
+      setDraftNotes("");
+      setDraftTitle("");
+      setDraftRevised(false);
+      setDirty(false);
+      setConfirmClose(false);
+      setSaveFlash("");
+      setPdfPage(1);
+      return;
+    }
+    const seeded = resolveLiveFileContent(contents, openRef.id, openRef.name);
+    setDraftCells(
+      seeded.kind === "excel"
+        ? cloneLiveCells(seeded.cells ?? seedLiveExcelCells(openRef.name))
+        : null,
+    );
+    setDraftNotes(seeded.notes ?? "");
+    setDraftTitle(seeded.title ?? openRef.name.replace(/\.[^.]+$/, ""));
+    setDraftRevised(!!seeded.contentRevised);
+    setDirty(false);
+    setConfirmClose(false);
+    setSaveFlash("");
+    setPdfPage(1);
+  }, [openId, openName]);
+
+  useEffect(() => {
+    if (!fileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (dirty) setConfirmClose(true);
+      else setOpenRef(LIVE_FILE_CLOSED);
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }
+    return undefined;
+  }, [fileOpen, dirty]);
+
+  if (!fileOpen) return null;
+
+  const kind = liveFileKindFromName(openRef.name);
+  const folderOnly = openRef.folderPath.includes(" \\ ")
+    ? openRef.folderPath.split(" \\ ").slice(0, -1).join(" \\ ")
+    : openRef.folderPath;
+
+  const markDirty = () => {
+    setDirty(true);
+    setSaveFlash("");
+    setConfirmClose(false);
+  };
+
+  const persistSave = () => {
+    const updatedAt = new Date().toISOString();
+    const next: LiveFileContent =
+      kind === "excel"
+        ? {
+            kind: "excel",
+            updatedAt,
+            cells: cloneLiveCells(draftCells ?? seedLiveExcelCells(openRef.name)),
+          }
+        : {
+            kind: kind === "pdf" ? "pdf" : "other",
+            updatedAt,
+            title: draftTitle.trim() || openRef.name,
+            notes: draftNotes,
+            contentRevised: draftRevised || dirty,
+          };
+    setContents((prev) => ({ ...(prev ?? {}), [openRef.id]: next }));
+    setDirty(false);
+    setConfirmClose(false);
+    setSaveFlash(
+      t(uiLang, "liveFileSavedTo").replace(
+        "{path}",
+        folderOnly || openRef.folderPath || openRef.name,
+      ),
+    );
+  };
+
+  const requestClose = () => {
+    if (dirty) {
+      setConfirmClose(true);
+      return;
+    }
+    setOpenRef(LIVE_FILE_CLOSED);
+  };
+
+  const discardAndClose = () => {
+    setDirty(false);
+    setConfirmClose(false);
+    setOpenRef(LIVE_FILE_CLOSED);
+  };
+
+  const downloadSecondary = () => {
+    const fileName = folderExplorerFileExt(openRef.name)
+      ? openRef.name
+      : `${openRef.name}.txt`;
+    let body = `Demo export of ${openRef.name}\n`;
+    if (kind === "excel" && draftCells) {
+      body = draftCells.map((r) => r.join("\t")).join("\n");
+    } else if (draftNotes || draftTitle) {
+      body = `${draftTitle}\n\n${draftNotes}\n`;
+    }
+    try {
+      downloadBlobFile(
+        fileName,
+        body,
+        kind === "excel" ? "text/csv" : "text/plain",
+      );
+    } catch {
+      /* host may block */
+    }
+  };
+
+  const setCell = (r: number, c: number, value: string) => {
+    setDraftCells((prev) => {
+      const base = cloneLiveCells(prev ?? seedLiveExcelCells(openRef.name));
+      if (!base[r]) return prev;
+      base[r] = base[r]!.slice();
+      base[r]![c] = value;
+      return base;
+    });
+    markDirty();
+  };
+
+  const addRow = () => {
+    setDraftCells((prev) => {
+      const base = cloneLiveCells(prev ?? seedLiveExcelCells(openRef.name));
+      const cols = base[0]?.length ?? 5;
+      base.push(Array.from({ length: cols }, () => ""));
+      return base;
+    });
+    markDirty();
+  };
+
+  const rtl = uiLang === "he" ? "rtl" : "ltr";
+  const pageCount = 2;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-chrome={`live-file-workspace-${GMAIL_DUAL_NAV_BUILD}`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 12000,
+        background: "rgba(15, 23, 42, 0.45)",
+        display: "flex",
+        alignItems: "stretch",
+        justifyContent: "center",
+        padding: 16,
+        boxSizing: "border-box",
+        direction: rtl,
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) requestClose();
+      }}
+    >
+      <div
+        style={{
+          width: "min(1100px, 100%)",
+          maxHeight: "100%",
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          borderRadius: 12,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: CHROME_WHITE,
+          overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Stack
+          gap={6}
+          style={{
+            padding: "10px 14px",
+            borderBottom: `1px solid ${chromeBorder(theme)}`,
+            background: chromeSoftFill(theme),
+            flexShrink: 0,
+          }}
+        >
+          <Row align="center" gap={8} wrap>
+            <ExplorerFileIcon
+              label={openRef.name}
+              kind="file"
+              size="md"
+            />
+            <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
+              <ChromeText size="small" weight="semibold">
+                {openRef.name}
+              </ChromeText>
+              <ChromeText
+                size="small"
+                tone="tertiary"
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {openRef.folderPath}
+              </ChromeText>
+            </Stack>
+            {dirty ? (
+              <Pill size="sm" tone="warning">
+                {t(uiLang, "liveFileDirty")}
+              </Pill>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={!dirty}
+              onClick={persistSave}
+            >
+              {t(uiLang, "liveFileSave")}
+            </Button>
+            <Button variant="secondary" onClick={downloadSecondary}>
+              {t(uiLang, "liveFileDownload")}
+            </Button>
+            <Button variant="ghost" onClick={requestClose}>
+              {t(uiLang, "liveFileClose")}
+            </Button>
+          </Row>
+          {saveFlash ? (
+            <ChromeText size="small" tone="secondary">
+              {saveFlash}
+            </ChromeText>
+          ) : null}
+          {confirmClose ? (
+            <Row align="center" gap={8} wrap>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "liveFileDiscardPrompt")}
+              </ChromeText>
+              <Button variant="primary" onClick={persistSave}>
+                {t(uiLang, "liveFileSave")}
+              </Button>
+              <Button variant="secondary" onClick={discardAndClose}>
+                {t(uiLang, "liveFileDiscard")}
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmClose(false)}>
+                {t(uiLang, "liveFileKeepEditing")}
+              </Button>
+            </Row>
+          ) : null}
+        </Stack>
+
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflow: "auto",
+            padding: 14,
+          }}
+        >
+          {kind === "excel" && draftCells ? (
+            <Stack gap={10}>
+              <Row align="center" gap={8} wrap>
+                <ChromeText size="small" weight="semibold">
+                  {t(uiLang, "liveFileExcelTitle")}
+                </ChromeText>
+                <Button variant="secondary" onClick={addRow}>
+                  {t(uiLang, "liveFileAddRow")}
+                </Button>
+              </Row>
+              <div style={{ overflow: "auto" }}>
+                <table
+                  style={{
+                    borderCollapse: "collapse",
+                    width: "100%",
+                    minWidth: 520,
+                    fontSize: 13,
+                  }}
+                >
+                  <tbody>
+                    {draftCells.map((row, rIdx) => (
+                      <tr key={`r-${rIdx}`}>
+                        {row.map((cell, cIdx) => (
+                          <td
+                            key={`c-${rIdx}-${cIdx}`}
+                            style={{
+                              border: `1px solid ${chromeBorder(theme)}`,
+                              padding: 0,
+                              background:
+                                rIdx === 0
+                                  ? chromeSoftFill(theme)
+                                  : CHROME_WHITE,
+                            }}
+                          >
+                            <input
+                              value={cell}
+                              onChange={(e) =>
+                                setCell(rIdx, cIdx, e.target.value)
+                              }
+                              style={{
+                                width: "100%",
+                                boxSizing: "border-box",
+                                border: "none",
+                                outline: "none",
+                                padding: "6px 8px",
+                                background: "transparent",
+                                fontWeight: rIdx === 0 ? 700 : 400,
+                                color: CHROME_INK,
+                                fontSize: 13,
+                              }}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Stack>
+          ) : (
+            <Stack gap={12}>
+              <ChromeText size="small" weight="semibold">
+                {kind === "pdf"
+                  ? t(uiLang, "liveFilePdfTitle")
+                  : t(uiLang, "liveFileOtherTitle")}
+              </ChromeText>
+              <div
+                style={{
+                  borderRadius: 8,
+                  border: `1px solid ${chromeBorder(theme)}`,
+                  background: chromeSoftFill(theme),
+                  padding: 16,
+                  minHeight: 220,
+                }}
+              >
+                <Stack gap={8}>
+                  <Row align="center" gap={8} wrap>
+                    <ChromeText size="small" tone="tertiary">
+                      {uiLang === "he"
+                        ? `עמוד ${pdfPage} מתוך ${pageCount}`
+                        : `Page ${pdfPage} of ${pageCount}`}
+                    </ChromeText>
+                    {draftRevised ? (
+                      <Pill size="sm" tone="success">
+                        {t(uiLang, "liveFileContentRevised")}
+                      </Pill>
+                    ) : null}
+                    <Spacer />
+                    <Button
+                      variant="ghost"
+                      disabled={pdfPage <= 1}
+                      onClick={() => setPdfPage((p) => Math.max(1, p - 1))}
+                    >
+                      {t(uiLang, "liveFilePrevPage")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={pdfPage >= pageCount}
+                      onClick={() =>
+                        setPdfPage((p) => Math.min(pageCount, p + 1))
+                      }
+                    >
+                      {t(uiLang, "liveFileNextPage")}
+                    </Button>
+                  </Row>
+                  <div
+                    style={{
+                      background: CHROME_WHITE,
+                      border: `1px solid ${chromeBorder(theme)}`,
+                      borderRadius: 6,
+                      padding: 18,
+                      minHeight: 160,
+                    }}
+                  >
+                    <Stack gap={6}>
+                      <ChromeText weight="semibold">{draftTitle || openRef.name}</ChromeText>
+                      <ChromeText size="small" tone="secondary">
+                        {uiLang === "he"
+                          ? "תצוגת PDF בתוך האפליקציה (דמו) — ללא הורדה אוטומטית."
+                          : "In-app PDF stage (demo) — opens here without forcing a download."}
+                      </ChromeText>
+                      <ChromeText size="small" tone="tertiary">
+                        {pdfPage === 1
+                          ? openRef.name
+                          : uiLang === "he"
+                            ? "עמוד המשך · הערות והחתמות נשמרות עם הקובץ."
+                            : "Continuation page · notes persist with this file node."}
+                      </ChromeText>
+                    </Stack>
+                  </div>
+                </Stack>
+              </div>
+              <Stack gap={6}>
+                <ChromeText size="small" weight="semibold">
+                  {t(uiLang, "liveFileTitleField")}
+                </ChromeText>
+                <TextInput
+                  value={draftTitle}
+                  onChange={(v) => {
+                    setDraftTitle(v);
+                    markDirty();
+                  }}
+                />
+                <ChromeText size="small" weight="semibold">
+                  {t(uiLang, "liveFileNotesField")}
+                </ChromeText>
+                <TextArea
+                  value={draftNotes}
+                  onChange={(v) => {
+                    setDraftNotes(v);
+                    markDirty();
+                  }}
+                  placeholder={t(uiLang, "liveFileNotesPh")}
+                />
+                <Row align="center" gap={8}>
+                  <Checkbox
+                    checked={draftRevised}
+                    onChange={(checked) => {
+                      setDraftRevised(checked);
+                      markDirty();
+                    }}
+                    label={t(uiLang, "liveFileMarkRevised")}
+                  />
+                </Row>
+              </Stack>
+            </Stack>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 /** Keep TaxReturnFolderBrowser ctx menu inside the viewport (flip + clamp). */
 function clampFolderExplorerCtxMenuPos(
   clientX: number,
@@ -47143,6 +53355,29 @@ function TaxReturnFolderBrowser({
     "folderExplorer.viewMode.v1",
     "list",
   );
+  const [explorerSearch, setExplorerSearch] = useCanvasState<string>(
+    `folderExplorer.search.v1:${persistScope}`,
+    "",
+  );
+  const [sortKey, setSortKey] = useCanvasState<FolderExplorerSortKey>(
+    `folderExplorer.sortKey.v1:${persistScope}`,
+    "name",
+  );
+  const [sortDir, setSortDir] = useCanvasState<"asc" | "desc">(
+    `folderExplorer.sortDir.v1:${persistScope}`,
+    "asc",
+  );
+  /** Browse location independent of selection (Windows Explorer: select folder without opening). */
+  const [browseFolderId, setBrowseFolderId] = useCanvasState<string | null>(
+    `folderExplorer.browse.v1:${persistScope}`,
+    null,
+  );
+  const [navBackStack, setNavBackStack] = useState<string[]>([]);
+  const [navForwardStack, setNavForwardStack] = useState<string[]>([]);
+  const navHistoryLockRef = useRef(false);
+  const detailClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [explorerSplitPct, setExplorerSplitPct] = useCanvasState<number>(
     CRM_EXPLORER_SPLIT_PCT_KEY,
     CRM_EXPLORER_SPLIT_DEFAULT,
@@ -47184,6 +53419,9 @@ function TaxReturnFolderBrowser({
   const [propsId, setPropsId] = useState<string | null>(null);
   const [actionFlash, setActionFlash] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const [addressBarEdit, setAddressBarEdit] = useState(false);
+  const [addressBarDraft, setAddressBarDraft] = useState("");
   const overlayIdSeq = useRef(0);
 
   const liveTree = applyTaxReturnFolderRenames(
@@ -47199,6 +53437,12 @@ function TaxReturnFolderBrowser({
     : null;
   const rootId = liveTree[0]?.id ?? persistScope;
   const currentFolderId = (() => {
+    if (
+      browseFolderId &&
+      findTaxReturnFolderNode(liveTree, browseFolderId)?.kind === "folder"
+    ) {
+      return browseFolderId;
+    }
     if (!selected) return rootId;
     if (selected.kind === "folder") return selected.id;
     const parent = findTaxReturnFolderParentId(liveTree, selected.id);
@@ -47233,6 +53477,26 @@ function TaxReturnFolderBrowser({
     ? findTaxReturnFolderNode(liveTree, propsId)
     : null;
 
+  const [, setLiveFileOpen] = useCanvasState<LiveFileRef>(
+    CRM_LIVE_FILE_OPEN_KEY,
+    LIVE_FILE_CLOSED,
+  );
+  const [liveFileContentsStore] = useCanvasState<LiveFileContentsStore>(
+    CRM_LIVE_FILE_CONTENTS_KEY,
+    {},
+  );
+  const openLiveFileFromNode = (node: TaxReturnFolderNode) => {
+    if (node.kind !== "file") return;
+    const folderPath =
+      taxReturnFolderNodePath(liveTree, node.id) || node.label;
+    setLiveFileOpen({
+      id: node.id,
+      name: node.label,
+      folderPath,
+      source: "tax-folder",
+    });
+  };
+
   const nextOverlayId = (prefix: string) => {
     overlayIdSeq.current += 1;
     return `${prefix}-${Date.now()}-${overlayIdSeq.current}`;
@@ -47266,6 +53530,190 @@ function TaxReturnFolderBrowser({
   const flash = (msg: string) => {
     setActionFlash(msg);
     setTimeout(() => setActionFlash(""), 2200);
+  };
+
+  const breadcrumbCrumbs = currentFolder
+    ? taxReturnFolderBreadcrumbCrumbs(liveTree, currentFolder.id)
+    : [];
+  const thisPcLabel = t(uiLang, "taxReturnFolderThisPc");
+  const explorerAddressPath = [
+    thisPcLabel,
+    ...breadcrumbCrumbs.map((c) => c.label),
+  ].join("\\");
+
+  useEffect(() => {
+    if (!addressBarEdit) return;
+    const el = addressInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [addressBarEdit]);
+
+  const enterAddressBarEdit = () => {
+    setAddressBarDraft(explorerAddressPath);
+    setAddressBarEdit(true);
+  };
+
+  const exitAddressBarEdit = () => {
+    setAddressBarEdit(false);
+  };
+
+  const copyExplorerAddressPath = () => {
+    copyTextToClipboard(explorerAddressPath);
+    flash(t(uiLang, "taxReturnFolderPathCopied"));
+  };
+
+  const navigateExplorerTo = (
+    id: string,
+    opts?: { fromHistory?: boolean },
+  ) => {
+    if (!id) return;
+    const node = findTaxReturnFolderNode(liveTree, id);
+    if (!node) return;
+    if (!opts?.fromHistory && currentFolderId && currentFolderId !== id) {
+      setNavBackStack((prev) => [...prev, currentFolderId]);
+      setNavForwardStack([]);
+    }
+    const expand: Record<string, boolean> = { ...expandedIds };
+    for (const aid of taxReturnFolderAncestorIds(liveTree, id)) {
+      expand[aid] = true;
+    }
+    if (node.kind === "folder") {
+      expand[id] = true;
+      setBrowseFolderId(id);
+      setPreviewId(null);
+    } else {
+      const parent = findTaxReturnFolderParentId(liveTree, id);
+      if (parent) expand[parent] = true;
+      setBrowseFolderId(
+        parent && parent.length > 0 ? parent : rootId,
+      );
+      setPreviewId(id);
+      setPreviewPaneTab("page");
+    }
+    setExpandedIds(expand);
+    setSelectedId(id);
+    setCtxMenu(null);
+    setCtxNewOpen(false);
+  };
+
+  const explorerGoBack = () => {
+    if (navBackStack.length === 0) return;
+    const prev = navBackStack[navBackStack.length - 1];
+    setNavBackStack((s) => s.slice(0, -1));
+    setNavForwardStack((s) => [currentFolderId, ...s]);
+    navHistoryLockRef.current = true;
+    navigateExplorerTo(prev, { fromHistory: true });
+  };
+
+  const explorerGoForward = () => {
+    if (navForwardStack.length === 0) return;
+    const next = navForwardStack[0];
+    setNavForwardStack((s) => s.slice(1));
+    setNavBackStack((s) => [...s, currentFolderId]);
+    navHistoryLockRef.current = true;
+    navigateExplorerTo(next, { fromHistory: true });
+  };
+
+  const explorerGoUp = () => {
+    if (currentFolderId === rootId) return;
+    const parent = findTaxReturnFolderParentId(liveTree, currentFolderId);
+    if (!parent) return;
+    navigateExplorerTo(parent);
+  };
+
+  const explorerRefresh = () => {
+    flash(t(uiLang, "taxReturnFolderRefresh"));
+  };
+
+  const toggleSort = (key: FolderExplorerSortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  };
+
+  const searchQ = explorerSearch.trim().toLowerCase();
+  const visibleDetailItems = (() => {
+    let items = detailItems;
+    if (searchQ) {
+      items = items.filter((it) =>
+        it.label.toLowerCase().includes(searchQ),
+      );
+    }
+    const dir = sortDir === "asc" ? 1 : -1;
+    const ranked = [...items].sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
+      let cmp = 0;
+      if (sortKey === "name") {
+        cmp = a.label.localeCompare(b.label, undefined, {
+          sensitivity: "base",
+        });
+      } else if (sortKey === "date") {
+        cmp = folderExplorerDemoModifiedDate(a.label, "en").localeCompare(
+          folderExplorerDemoModifiedDate(b.label, "en"),
+        );
+      } else if (sortKey === "type") {
+        cmp = folderExplorerTypeLabel(a, uiLang).localeCompare(
+          folderExplorerTypeLabel(b, uiLang),
+        );
+      } else {
+        cmp =
+          folderExplorerDemoSizeBytes(a) - folderExplorerDemoSizeBytes(b);
+      }
+      return cmp * dir;
+    });
+    return ranked;
+  })();
+
+  const selectedInView = selectedId
+    ? visibleDetailItems.some((it) => it.id === selectedId)
+    : false;
+  const selectedDetailNode = selectedInView
+    ? visibleDetailItems.find((it) => it.id === selectedId) ?? null
+    : null;
+  const statusText = (() => {
+    if (selectedDetailNode?.kind === "folder") {
+      const childCount = selectedDetailNode.children?.length ?? 0;
+      return `${t(uiLang, "taxReturnFolderStatusSelected").replace("{n}", "1")} · ${t(uiLang, "taxReturnFolderStatusCount").replace("{n}", String(childCount))}`;
+    }
+    if (selectedInView) {
+      return t(uiLang, "taxReturnFolderStatusSelected").replace("{n}", "1");
+    }
+    return t(uiLang, "taxReturnFolderStatusCount").replace(
+      "{n}",
+      String(visibleDetailItems.length),
+    );
+  })();
+
+  const explorerQuickPins = pinsForExplorerQuickAccess(
+    myQuickAccess,
+    quickAccessSidebar,
+  );
+  const navQuickPins = explorerQuickPins
+    .filter((p) => {
+      const k = p.kind ?? "folder";
+      return k === "folder" || k === "file";
+    })
+    .filter((p) => findTaxReturnFolderNode(liveTree, p.id))
+    .map((p) => ({
+      id: p.id,
+      label: p.label,
+      kind: ((p.kind ?? "folder") === "file" ? "file" : "folder") as
+        | "file"
+        | "folder",
+    }));
+
+  const openOsDefaultFromNode = (node: TaxReturnFolderNode) => {
+    if (node.kind !== "file") return;
+    flash(
+      openWithOsDefault(
+        { id: node.id, name: node.label },
+        liveFileContentsStore,
+      ),
+    );
   };
 
   const openNewFolderUi = (parentId: string) => {
@@ -47419,6 +53867,7 @@ function TaxReturnFolderBrowser({
     } else {
       setPreviewId(node.id);
       setPreviewPaneTab("page");
+      openOsDefaultFromNode(node);
     }
     closeCtxMenu();
   };
@@ -47550,32 +53999,94 @@ function TaxReturnFolderBrowser({
         t(
           uiLang,
           isFile
-            ? "taxReturnFolderCtxOpenPreview"
+            ? "liveFileOpenWindowsDefault"
             : "taxReturnFolderCtxOpenExpand",
         ),
         () => openTarget(ctxMenu.targetId, ctxMenu.targetKind),
       ),
     );
-    if (isFolderish && actionId) {
+    if (actionId && (isFile || isFolderish)) {
       const pinNode = findTaxReturnFolderNode(liveTree, actionId);
       const pinLabel =
-        pinNode?.kind === "folder"
-          ? pinNode.label
-          : findTaxReturnFolderNode(liveTree, actionId)?.label ?? actionId;
-      const isPinned = sidebarPins.some((p) =>
-        quickAccessPinMatches(p, actionId, quickAccessSidebar, "folder"),
+        pinNode?.label ??
+        findTaxReturnFolderNode(liveTree, actionId)?.label ??
+        actionId;
+      const pinKind: QuickAccessPinKind = isFile ? "file" : "folder";
+      if (isFolderish) {
+        const isSidebarPinned = sidebarPins.some((p) =>
+          quickAccessPinMatches(
+            p,
+            actionId,
+            quickAccessSidebar,
+            "folder",
+            "sidebar",
+          ),
+        );
+        items.push(
+          renderCtxItem(
+            isSidebarPinned ? "unpin-sidebar" : "pin-sidebar",
+            t(
+              uiLang,
+              isSidebarPinned
+                ? "taxReturnFolderCtxUnpinSidebar"
+                : "taxReturnFolderCtxPinSidebar",
+            ),
+            () => {
+              if (isSidebarPinned) {
+                setQuickAccessByWorker((prev) =>
+                  removeWorkerQuickAccessPin(
+                    prev ?? {},
+                    signedInWorkerId,
+                    actionId,
+                    quickAccessSidebar,
+                    uiLang,
+                    "folder",
+                    "sidebar",
+                  ),
+                );
+                flash(t(uiLang, "taxReturnFolderUnpinFlash"));
+              } else {
+                setQuickAccessByWorker((prev) =>
+                  upsertWorkerQuickAccessPin(
+                    prev ?? {},
+                    signedInWorkerId,
+                    {
+                      id: actionId,
+                      label: pinLabel,
+                      sidebar: quickAccessSidebar,
+                      kind: "folder",
+                      surface: "sidebar",
+                    },
+                    uiLang,
+                  ),
+                );
+                flash(t(uiLang, "taxReturnFolderPinFlash"));
+              }
+              closeCtxMenu();
+            },
+          ),
+        );
+      }
+      const isQaPinned = explorerQuickPins.some((p) =>
+        quickAccessPinMatches(
+          p,
+          actionId,
+          quickAccessSidebar,
+          pinKind,
+          "quickAccess",
+        ),
       );
       items.push(
         renderCtxItem(
-          isPinned ? "unpin-quick-access" : "pin-quick-access",
+          isQaPinned ? "unpin-quick-access" : "pin-quick-access",
           t(
             uiLang,
-            isPinned
+            isQaPinned
               ? "taxReturnFolderCtxUnpinQuickAccess"
               : "taxReturnFolderCtxPinQuickAccess",
           ),
           () => {
-            if (isPinned) {
+            if (isQaPinned) {
               setQuickAccessByWorker((prev) =>
                 removeWorkerQuickAccessPin(
                   prev ?? {},
@@ -47583,10 +54094,11 @@ function TaxReturnFolderBrowser({
                   actionId,
                   quickAccessSidebar,
                   uiLang,
-                  "folder",
+                  pinKind,
+                  "quickAccess",
                 ),
               );
-              flash(t(uiLang, "taxReturnFolderUnpinFlash"));
+              flash(t(uiLang, "taxReturnFolderUnpinQuickAccessFlash"));
             } else {
               setQuickAccessByWorker((prev) =>
                 upsertWorkerQuickAccessPin(
@@ -47596,12 +54108,13 @@ function TaxReturnFolderBrowser({
                     id: actionId,
                     label: pinLabel,
                     sidebar: quickAccessSidebar,
-                    kind: "folder",
+                    kind: pinKind,
+                    surface: "quickAccess",
                   },
                   uiLang,
                 ),
               );
-              flash(t(uiLang, "taxReturnFolderPinFlash"));
+              flash(t(uiLang, "taxReturnFolderPinQuickAccessFlash"));
             }
             closeCtxMenu();
           },
@@ -47780,7 +54293,7 @@ function TaxReturnFolderBrowser({
     const menuPos = clampFolderExplorerCtxMenuPos(ctxMenu.x, ctxMenu.y, {
       estW: 220,
       // +1 row for Pin to Quick access near Open / Expand.
-      estH: ctxNewOpen ? 480 : isFolderish ? 420 : 348,
+      estH: ctxNewOpen ? 480 : isFolderish ? 420 : 380,
     });
 
     return (
@@ -47838,17 +54351,41 @@ function TaxReturnFolderBrowser({
           role="button"
           tabIndex={0}
           onClick={() => {
-            setSelectedId(node.id);
-            closeCtxMenu();
             if (isFolder) {
-              setPreviewId(null);
-              setExpandedIds({
-                ...expandedIds,
-                [node.id]: !isOpen,
-              });
+              // Nav pane: select shows folder contents; toggle expand like Explorer.
+              if (selectedId === node.id) {
+                setExpandedIds({
+                  ...expandedIds,
+                  [node.id]: !isOpen,
+                });
+              } else {
+                navigateExplorerTo(node.id);
+              }
             } else {
+              setSelectedId(node.id);
+              closeCtxMenu();
               setPreviewId(node.id);
               setPreviewPaneTab("page");
+            }
+          }}
+          onDoubleClick={(e: {
+            preventDefault?: () => void;
+            stopPropagation?: () => void;
+          }) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            if (isFolder) {
+              navigateExplorerTo(node.id);
+              setExpandedIds({
+                ...expandedIds,
+                [node.id]: true,
+              });
+            } else {
+              setSelectedId(node.id);
+              closeCtxMenu();
+              setPreviewId(node.id);
+              setPreviewPaneTab("page");
+              openOsDefaultFromNode(node);
             }
           }}
           onContextMenu={(e) => {
@@ -47863,15 +54400,10 @@ function TaxReturnFolderBrowser({
             });
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              setSelectedId(node.id);
-              if (isFolder) {
-                setPreviewId(null);
-                setExpandedIds({
-                  ...expandedIds,
-                  [node.id]: !isOpen,
-                });
-              } else {
+            if (e.key === " " || e.key === "Enter") {
+              if (isFolder) navigateExplorerTo(node.id);
+              else {
+                setSelectedId(node.id);
                 setPreviewId(node.id);
                 setPreviewPaneTab("page");
               }
@@ -47924,16 +54456,58 @@ function TaxReturnFolderBrowser({
     const isSelected = selectedId === item.id;
     const isCutGhost =
       clipboard?.mode === "cut" && clipboard.nodeId === item.id;
-    const openItem = () => {
-      setSelectedId(item.id);
+    /** Single-click: folders select; files open in-CRM preview pane. */
+    const selectItem = () => {
       closeCtxMenu();
+      setBrowseFolderId((prev) => {
+        if (
+          prev &&
+          findTaxReturnFolderNode(liveTree, prev)?.kind === "folder"
+        ) {
+          return prev;
+        }
+        return currentFolderId;
+      });
       if (item.kind === "folder") {
+        setSelectedId(item.id);
         setPreviewId(null);
-        setExpandedIds({ ...expandedIds, [item.id]: true });
       } else {
+        setSelectedId(item.id);
         setPreviewId(item.id);
         setPreviewPaneTab("page");
       }
+    };
+    /** Double-click: folders navigate; files open with Windows default app (external). */
+    const openItem = () => {
+      closeCtxMenu();
+      if (detailClickTimerRef.current) {
+        clearTimeout(detailClickTimerRef.current);
+        detailClickTimerRef.current = null;
+      }
+      if (item.kind === "folder") {
+        navigateExplorerTo(item.id);
+      } else {
+        setSelectedId(item.id);
+        openOsDefaultFromNode(item);
+      }
+    };
+    const onDetailClick = (e: { detail?: number }) => {
+      if ((e.detail ?? 1) > 1) return;
+      if (detailClickTimerRef.current) {
+        clearTimeout(detailClickTimerRef.current);
+      }
+      detailClickTimerRef.current = setTimeout(() => {
+        detailClickTimerRef.current = null;
+        selectItem();
+      }, 280);
+    };
+    const onDetailDblClick = (e: {
+      preventDefault?: () => void;
+      stopPropagation?: () => void;
+    }) => {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      openItem();
     };
     const onCtx = (e: {
       clientX: number;
@@ -47941,32 +54515,48 @@ function TaxReturnFolderBrowser({
       preventDefault: () => void;
       stopPropagation: () => void;
     }) => {
+      if (detailClickTimerRef.current) {
+        clearTimeout(detailClickTimerRef.current);
+        detailClickTimerRef.current = null;
+      }
+      setBrowseFolderId((prev) => {
+        if (
+          prev &&
+          findTaxReturnFolderNode(liveTree, prev)?.kind === "folder"
+        ) {
+          return prev;
+        }
+        return currentFolderId;
+      });
       setSelectedId(item.id);
       openCtxMenu(e, {
-        parentId:
-          item.kind === "folder" ? item.id : currentFolderId,
+        parentId: item.kind === "folder" ? item.id : currentFolderId,
         targetId: item.id,
         targetKind: item.kind === "folder" ? "folder" : "file",
       });
     };
     if (viewMode === "list") {
+      const typeLabel = folderExplorerTypeLabel(item, uiLang);
+      const dateLabel = folderExplorerDemoModifiedDate(item.label, uiLang);
+      const sizeLabel = folderExplorerDemoSizeLabel(item);
       return (
         <div
           key={item.id}
           role="button"
           tabIndex={0}
-          onClick={openItem}
-          onDoubleClick={openItem}
+          onClick={onDetailClick}
+          onDoubleClick={onDetailDblClick}
           onContextMenu={onCtx}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") openItem();
+            if (e.key === " ") selectItem();
+            if (e.key === "Enter") openItem();
           }}
           style={{
-            padding: "6px 8px",
-            borderRadius: 6,
+            padding: "4px 8px",
+            borderRadius: 0,
             cursor: "pointer",
-            display: "flex",
-            flexDirection: "row",
+            display: "grid",
+            gridTemplateColumns: "minmax(160px, 2.2fr) 140px 120px 72px",
             alignItems: "center",
             gap: 8,
             opacity: isCutGhost ? 0.45 : 1,
@@ -47976,19 +54566,48 @@ function TaxReturnFolderBrowser({
             border: isSelected
               ? `1px solid ${theme.accent.primary}`
               : `1px solid transparent`,
+            borderBottom: `1px solid ${chromeBorder(theme)}`,
           }}
         >
-          <ExplorerFileIcon
-            label={item.label}
-            kind={item.kind}
-            size="sm"
-          />
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 0,
+            }}
+          >
+            <ExplorerFileIcon
+              label={item.label}
+              kind={item.kind}
+              size="sm"
+            />
+            <ChromeText
+              size="small"
+              weight={item.kind === "folder" ? "semibold" : "normal"}
+              tone={item.kind === "folder" ? "primary" : "secondary"}
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.label}
+            </ChromeText>
+          </div>
+          <ChromeText size="small" tone="tertiary">
+            {dateLabel}
+          </ChromeText>
+          <ChromeText size="small" tone="tertiary">
+            {typeLabel}
+          </ChromeText>
           <ChromeText
             size="small"
-            weight={item.kind === "folder" ? "semibold" : "normal"}
-            tone={item.kind === "folder" ? "primary" : "secondary"}
+            tone="tertiary"
+            style={{ textAlign: "end" }}
           >
-            {item.label}
+            {sizeLabel}
           </ChromeText>
         </div>
       );
@@ -48000,11 +54619,12 @@ function TaxReturnFolderBrowser({
           role="button"
           tabIndex={0}
           title={item.label}
-          onClick={openItem}
-          onDoubleClick={openItem}
+          onClick={onDetailClick}
+          onDoubleClick={onDetailDblClick}
           onContextMenu={onCtx}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") openItem();
+            if (e.key === " ") selectItem();
+            if (e.key === "Enter") openItem();
           }}
           style={{
             width: 96,
@@ -48058,11 +54678,12 @@ function TaxReturnFolderBrowser({
         key={item.id}
         role="button"
         tabIndex={0}
-        onClick={openItem}
-        onDoubleClick={openItem}
+        onClick={onDetailClick}
+        onDoubleClick={onDetailDblClick}
         onContextMenu={onCtx}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") openItem();
+          if (e.key === " ") selectItem();
+          if (e.key === "Enter") openItem();
         }}
         style={{
           padding: 10,
@@ -48137,12 +54758,44 @@ function TaxReturnFolderBrowser({
       <ChromeText size="small" tone="tertiary">
         {t(uiLang, "taxReturnWorkingFolderHint")}
       </ChromeText>
-      <Row align="center" gap={8} wrap>
+      <ChromeText size="small" tone="tertiary">
+        {t(uiLang, "liveFileOsOpenHint")}
+      </ChromeText>
+
+      <Row
+        align="center"
+        gap={6}
+        wrap
+        style={{
+          padding: "6px 8px",
+          borderRadius: 6,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: chromeSoftFill(theme),
+        }}
+      >
         <Button
-          variant="secondary"
-          onClick={() => fileInputRef.current?.click()}
+          variant="ghost"
+          onClick={explorerGoBack}
+          disabled={navBackStack.length === 0}
         >
-          {t(uiLang, "taxReturnFolderUpload")}
+          {t(uiLang, "taxReturnFolderBack")}
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={explorerGoForward}
+          disabled={navForwardStack.length === 0}
+        >
+          {t(uiLang, "taxReturnFolderForward")}
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={explorerGoUp}
+          disabled={currentFolderId === rootId}
+        >
+          {t(uiLang, "taxReturnFolderUp")}
+        </Button>
+        <Button variant="ghost" onClick={explorerRefresh}>
+          {t(uiLang, "taxReturnFolderRefresh")}
         </Button>
         <Button
           variant="secondary"
@@ -48150,11 +54803,14 @@ function TaxReturnFolderBrowser({
         >
           {t(uiLang, "taxReturnFolderAdd")}
         </Button>
-        <ChromeText size="small" tone="tertiary">
-          {t(uiLang, "taxReturnFolderUploadHint")}
-        </ChromeText>
+        <Button
+          variant="secondary"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {t(uiLang, "taxReturnFolderUpload")}
+        </Button>
         <Spacer />
-        <Row gap={4} align="center">
+        <Row gap={4} align="center" wrap>
           {viewModes.map((m) => (
             <Button
               key={m.id}
@@ -48165,7 +54821,275 @@ function TaxReturnFolderBrowser({
             </Button>
           ))}
         </Row>
+        <Row gap={6} align="center" wrap>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "taxReturnFolderSortBy")}
+          </ChromeText>
+          <Select
+            value={sortKey}
+            onChange={(v) => {
+              if (
+                v === "name" ||
+                v === "date" ||
+                v === "type" ||
+                v === "size"
+              ) {
+                if (sortKey === v) return;
+                setSortKey(v);
+                setSortDir(v === "name" ? "asc" : "desc");
+              }
+            }}
+            options={[
+              {
+                value: "name",
+                label: t(uiLang, "taxReturnFolderPropsName"),
+              },
+              {
+                value: "date",
+                label: t(uiLang, "taxReturnFolderPropsDate"),
+              },
+              {
+                value: "type",
+                label: t(uiLang, "taxReturnFolderPropsType"),
+              },
+              {
+                value: "size",
+                label: t(uiLang, "taxReturnFolderPropsSize"),
+              },
+            ]}
+            style={{ width: 148 }}
+          />
+          <Select
+            value={sortDir}
+            onChange={(v) => {
+              if (v === "asc" || v === "desc") setSortDir(v);
+            }}
+            options={[
+              {
+                value: "asc",
+                label: t(uiLang, "taxReturnFolderSortAsc"),
+              },
+              {
+                value: "desc",
+                label: t(uiLang, "taxReturnFolderSortDesc"),
+              },
+            ]}
+            style={{ width: 128 }}
+          />
+        </Row>
       </Row>
+
+      <Row align="center" gap={6} style={{ minWidth: 0 }}>
+        <div
+          role="group"
+          aria-label={thisPcLabel}
+          onClick={() => {
+            if (!addressBarEdit) enterAddressBarEdit();
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "row",
+            flexWrap: "nowrap",
+            alignItems: "center",
+            gap: 0,
+            overflowX: addressBarEdit ? "hidden" : "auto",
+            overflowY: "hidden",
+            height: 26,
+            padding: addressBarEdit ? "0 4px" : "0 4px 0 2px",
+            borderRadius: 3,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+            cursor: "text",
+            boxSizing: "border-box",
+          }}
+        >
+          {addressBarEdit ? (
+            <input
+              ref={addressInputRef}
+              value={addressBarDraft}
+              onChange={(e) => setAddressBarDraft(e.target.value)}
+              onBlur={() => exitAddressBarEdit()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" || e.key === "Enter") {
+                  e.preventDefault();
+                  exitAddressBarEdit();
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              spellCheck={false}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                width: "100%",
+                height: 22,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                color: CHROME_INK,
+                fontSize: 12,
+                lineHeight: "22px",
+                fontFamily: "inherit",
+                padding: "0 2px",
+                boxSizing: "border-box",
+              }}
+            />
+          ) : (
+            <>
+              <button
+                type="button"
+                data-explorer-crumb="1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigateExplorerTo(rootId);
+                }}
+                style={{
+                  flex: "0 0 auto",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  height: 22,
+                  padding: "0 5px",
+                  margin: 0,
+                  border: "none",
+                  borderRadius: 2,
+                  background: "transparent",
+                  color: CHROME_INK,
+                  fontSize: 12,
+                  lineHeight: "20px",
+                  fontFamily: "inherit",
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                  boxSizing: "border-box",
+                }}
+              >
+                {thisPcLabel}
+              </button>
+              {breadcrumbCrumbs.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    flex: "0 0 auto",
+                    width: "auto",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    style={{
+                      color: CHROME_INK_MUTED,
+                      fontSize: 12,
+                      lineHeight: "22px",
+                      padding: "0 1px",
+                      userSelect: "none",
+                    }}
+                  >
+                    {"\\"}
+                  </span>
+                  <button
+                    type="button"
+                    data-explorer-crumb="1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigateExplorerTo(c.id);
+                    }}
+                    style={{
+                      flex: "0 0 auto",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      height: 22,
+                      padding: "0 5px",
+                      margin: 0,
+                      border: "none",
+                      borderRadius: 2,
+                      background:
+                        c.id === currentFolderId
+                          ? CHROME_SOFT_BLUE
+                          : "transparent",
+                      color: CHROME_INK,
+                      fontSize: 12,
+                      lineHeight: "20px",
+                      fontFamily: "inherit",
+                      fontWeight: c.id === currentFolderId ? 600 : 400,
+                      whiteSpace: "nowrap",
+                      cursor: "pointer",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                </div>
+              ))}
+              <div
+                aria-hidden
+                style={{
+                  flex: 1,
+                  minWidth: 28,
+                  alignSelf: "stretch",
+                }}
+              />
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          title={t(uiLang, "taxReturnFolderCopyPath")}
+          aria-label={t(uiLang, "taxReturnFolderCopyPath")}
+          onClick={copyExplorerAddressPath}
+          style={{
+            flexShrink: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 26,
+            height: 26,
+            padding: 0,
+            margin: 0,
+            border: `1px solid ${chromeBorder(theme)}`,
+            borderRadius: 3,
+            background: CHROME_WHITE,
+            color: CHROME_INK_MUTED,
+            cursor: "pointer",
+            boxSizing: "border-box",
+          }}
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden
+          >
+            <rect
+              x="5"
+              y="5"
+              width="8"
+              height="9"
+              rx="1.5"
+              stroke="currentColor"
+              strokeWidth="1.4"
+            />
+            <path
+              d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H10"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+        <ChromeTextInput
+          type="search"
+          value={explorerSearch}
+          onChange={setExplorerSearch}
+          placeholder={t(uiLang, "taxReturnFolderSearch")}
+          style={{ width: 180, minWidth: 140, flexShrink: 0 }}
+        />
+      </Row>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -48242,7 +55166,71 @@ function TaxReturnFolderBrowser({
                 targetKind: "empty",
               });
             }}
+            style={{ display: "flex", flexDirection: "column", gap: 8 }}
           >
+            {navQuickPins.length > 0 ? (
+              <Stack gap={2}>
+                <ChromeText
+                  size="small"
+                  weight="semibold"
+                  tone="tertiary"
+                  style={{ paddingInlineStart: 8 }}
+                >
+                  {t(uiLang, "taxReturnFolderNavQuickAccess")}
+                </ChromeText>
+                {navQuickPins.map((pin) => {
+                  const isSelected = selectedId === pin.id;
+                  return (
+                    <div
+                      key={`qa-${pin.id}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => navigateExplorerTo(pin.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          navigateExplorerTo(pin.id);
+                        }
+                      }}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        background: isSelected
+                          ? chromeSelectedFill(theme)
+                          : "transparent",
+                        border: isSelected
+                          ? `1px solid ${theme.accent.primary}`
+                          : "1px solid transparent",
+                      }}
+                    >
+                      <ExplorerFileIcon
+                        label={pin.label}
+                        kind={pin.kind}
+                        size="sm"
+                        variant={
+                          pin.kind === "folder" && pin.id === rootId
+                            ? "root"
+                            : "default"
+                        }
+                      />
+                      <ChromeText size="small" tone="primary">
+                        {pin.label}
+                      </ChromeText>
+                    </div>
+                  );
+                })}
+                <Divider
+                  style={{
+                    borderColor: chromeBorder(theme),
+                    marginBlock: 6,
+                  }}
+                />
+              </Stack>
+            ) : null}
             <Stack gap={2}>{liveTree.map((n) => renderNode(n, 0))}</Stack>
           </div>
         }
@@ -48375,51 +55363,112 @@ function TaxReturnFolderBrowser({
               </ChromeText>
             ) : (
               <Stack
-                gap={10}
-                style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+                gap={0}
+                style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
               >
-                <Row align="center" gap={8} wrap>
-                  <ExplorerFileIcon
-                    label={currentFolder.label}
-                    kind="folder"
-                    size="sm"
-                    open
-                    variant={
-                      currentFolder.id === rootId ? "root" : "default"
-                    }
-                  />
-                  <ChromeText size="small" weight="semibold">
-                    {currentFolder.label}
-                  </ChromeText>
-                  <Pill size="sm" tone="neutral">
-                    {`${detailItems.length} ${t(uiLang, "taxReturnFolderItems")}`}
-                  </Pill>
-                </Row>
-                {detailItems.length === 0 ? (
-                  <ChromeText size="small" tone="tertiary">
-                    {t(uiLang, "taxReturnFolderEmpty")}
-                  </ChromeText>
-                ) : viewMode === "list" ? (
-                  <Stack gap={2}>
-                    {detailItems.map((item) => renderDetailItem(item))}
-                  </Stack>
-                ) : (
+                {viewMode === "list" ? (
                   <div
                     style={{
-                      display: "flex",
-                      flexDirection: "row",
-                      flexWrap: "wrap",
-                      gap: viewMode === "icons" ? 18 : 8,
+                      display: "grid",
+                      gridTemplateColumns:
+                        "minmax(160px, 2.2fr) 140px 120px 72px",
+                      gap: 8,
+                      padding: "4px 8px",
+                      borderBottom: `1px solid ${chromeBorder(theme)}`,
+                      background: chromeSoftFill(theme),
+                      flexShrink: 0,
                     }}
                   >
-                    {detailItems.map((item) => renderDetailItem(item))}
+                    {(
+                      [
+                        ["name", "taxReturnFolderPropsName"],
+                        ["date", "taxReturnFolderPropsDate"],
+                        ["type", "taxReturnFolderPropsType"],
+                        ["size", "taxReturnFolderPropsSize"],
+                      ] as const
+                    ).map(([key, labelKey]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => toggleSort(key)}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          padding: 0,
+                          margin: 0,
+                          cursor: "pointer",
+                          textAlign: uiLang === "he" ? "right" : "left",
+                          fontWeight: 600,
+                          fontSize: 12,
+                          color: CHROME_INK,
+                        }}
+                      >
+                        {t(uiLang, labelKey)}
+                        {sortKey === key
+                          ? sortDir === "asc"
+                            ? " ▲"
+                            : " ▼"
+                          : ""}
+                      </button>
+                    ))}
                   </div>
-                )}
+                ) : null}
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                  {visibleDetailItems.length === 0 ? (
+                    <ChromeText
+                      size="small"
+                      tone="tertiary"
+                      style={{ padding: 10 }}
+                    >
+                      {t(uiLang, "taxReturnFolderEmpty")}
+                    </ChromeText>
+                  ) : viewMode === "list" ? (
+                    <Stack gap={0}>
+                      {visibleDetailItems.map((item) =>
+                        renderDetailItem(item),
+                      )}
+                    </Stack>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        gap: viewMode === "icons" ? 18 : 8,
+                        padding: 8,
+                      }}
+                    >
+                      {visibleDetailItems.map((item) =>
+                        renderDetailItem(item),
+                      )}
+                    </div>
+                  )}
+                </div>
               </Stack>
             )}
           </div>
         }
       />
+
+      <Row
+        align="center"
+        gap={8}
+        style={{
+          padding: "4px 10px",
+          borderRadius: 6,
+          border: `1px solid ${chromeBorder(theme)}`,
+          background: chromeSoftFill(theme),
+        }}
+      >
+        <ChromeText size="small" tone="secondary">
+          {statusText}
+        </ChromeText>
+        <Spacer />
+        <ChromeText size="small" tone="tertiary">
+          {currentFolder?.label ?? ""}
+        </ChromeText>
+      </Row>
+
       {renderContextMenu()}
       {propsNode ? (
         <>
@@ -48515,7 +55564,9 @@ function TaxReturnWorkspace({
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const theme = useHostTheme();
   const accent = theme.accent.primary;
-  const [processStages] = useCanvasState<
+  const { showStageCompletedPopout, stageCompletePopout } =
+    useStageCompleteSuccessPopout(uiLang);
+  const [processStages, setProcessStages] = useCanvasState<
     Partial<Record<string, TaxReturnProcessStage>>
   >(`taxReturnProcessStage.v1:${client.id}`, {});
   const [taxYear, setTaxYear] = useCanvasState<TaxReturnYear>(
@@ -48551,14 +55602,35 @@ function TaxReturnWorkspace({
     `taxReturnDocRequests.v1:${scopeKey}`,
     [],
   );
-  const [reqName, setReqName] = useCanvasState(
-    `taxReturnReqName.v1:${scopeKey}`,
-    "",
+  const [taxDocsTopTab, setTaxDocsTopTab] = useCanvasState<DocsReceivedTopTab>(
+    `taxDocsTopTab.v1:${scopeKey}`,
+    "requests",
   );
-  const [reqType, setReqType] = useCanvasState<TaxReturnDocTypeId>(
-    `taxReturnReqType.v1:${scopeKey}`,
-    "form-106",
+  const [taxReceivedDocs, setTaxReceivedDocs] = useCanvasState<
+    ReceivedClientDoc[]
+  >(
+    `taxReceivedDocs.v1:${scopeKey}`,
+    seedModuleReceivedClientDocs("tax", client, taxYear),
   );
+  const taxReceivedList =
+    taxReceivedDocs && taxReceivedDocs.length > 0
+      ? taxReceivedDocs
+      : seedModuleReceivedClientDocs("tax", client, taxYear);
+  const [taxResendPopout, setTaxResendPopout] =
+    useState<DocsReceivedResendPopoutState | null>(null);
+  const [reqDrafts, setReqDrafts] = useCanvasState<TaxReturnDocReqDraft[]>(
+    `taxReturnReqDrafts.v1:${scopeKey}`,
+    [newTaxReturnDocReqDraft()],
+  );
+  /** Forever custom doc types — shared firm-wide across Tax Return (+ BK). */
+  const [customDocTypes, setCustomDocTypes] = useCanvasState<string[]>(
+    CRM_DOC_TYPES_CUSTOM_KEY,
+    [],
+  );
+  const [creatingDocTypeForDraftId, setCreatingDocTypeForDraftId] = useState<
+    string | null
+  >(null);
+  const [newDocTypeDraft, setNewDocTypeDraft] = useState("");
   const [reqPortal, setReqPortal] = useCanvasState(
     `taxReturnReqPortal.v1:${scopeKey}`,
     true,
@@ -48583,6 +55655,34 @@ function TaxReturnWorkspace({
     `taxReturnReqFlash.v1:${scopeKey}`,
     "",
   );
+  /** Ephemeral — do not persist; stuck true was reopening the popout on Tax remount. */
+  const [reqPreviewOpen, setReqPreviewOpen] = useState(false);
+  const [reqPreviewAnchor, setReqPreviewAnchor] =
+    useState<RequestMessageAnchorRect | null>(null);
+  const seeMessageBtnRef = useRef<HTMLDivElement | null>(null);
+  const [reqRecipientEmails, setReqRecipientEmails] = useCanvasState<string[]>(
+    `taxReturnReqEmails.v1:${scopeKey}`,
+    [],
+  );
+  const [reqCcEmails, setReqCcEmails] = useCanvasState<string[]>(
+    `taxReturnReqCc.v1:${scopeKey}`,
+    [],
+  );
+  const [reqBccEmails, setReqBccEmails] = useCanvasState<string[]>(
+    `taxReturnReqBcc.v1:${scopeKey}`,
+    [],
+  );
+  const [reqWhatsAppPhones, setReqWhatsAppPhones] = useCanvasState<string[]>(
+    `taxReturnReqPhones.v1:${scopeKey}`,
+    [],
+  );
+  const [reqEmailSubject, setReqEmailSubject] = useState("");
+  const [reqEmailBodyHtml, setReqEmailBodyHtml] = useState("");
+  const [reqWhatsAppBody, setReqWhatsAppBody] = useState("");
+  const [reqPortalBody, setReqPortalBody] = useState("");
+  const [reqWorkerChatBody, setReqWorkerChatBody] = useState("");
+  const [reqComposeTab, setReqComposeTab] =
+    useState<ReqComposeChannelId>("email");
   const [emailLogs, setEmailLogs] = useCanvasState<string[]>(
     `taxReturnEmailLog.v1:${scopeKey}`,
     [],
@@ -48617,6 +55717,42 @@ function TaxReturnWorkspace({
     normalizeFirmWorkers(firmWorkers).some((w) => w.id === reqWorkerId)
       ? reqWorkerId
       : defaultBookkeeperId;
+  const taxContactEmails = clientEmailsForTools(client);
+  const taxContactPhones = clientPhonesForDemo(client, uiLang);
+  const ensureTaxReqContacts = () => {
+    if (reqRecipientEmails.length === 0 || !reqRecipientEmails.some((e) => e.trim())) {
+      setReqRecipientEmails([
+        taxContactEmails[0] || client.email || "",
+      ]);
+    }
+    if (reqWhatsAppPhones.length === 0 || !reqWhatsAppPhones.some((p) => p.trim())) {
+      setReqWhatsAppPhones([
+        taxContactPhones[0]?.value || client.phone || "",
+      ]);
+    }
+  };
+  const updateReqDraft = (id: string, patch: Partial<TaxReturnDocReqDraft>) => {
+    setReqDrafts((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  };
+  const commitNewDocTypeForDraft = (draftId: string) => {
+    const result = appendCustomDocType(customDocTypes, newDocTypeDraft);
+    if (!result) return;
+    setCustomDocTypes(result.next);
+    updateReqDraft(draftId, { type: result.selected });
+    setCreatingDocTypeForDraftId(null);
+    setNewDocTypeDraft("");
+  };
+  const addReqDraft = () => {
+    setReqDrafts((prev) => [...prev, newTaxReturnDocReqDraft()]);
+  };
+  const removeReqDraft = (id: string) => {
+    setReqDrafts((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((row) => row.id !== id);
+    });
+  };
   const [viewDocId, setViewDocId] = useCanvasState<string | null>(
     `taxReturnViewDoc.v1:${scopeKey}`,
     null,
@@ -48682,24 +55818,76 @@ function TaxReturnWorkspace({
     taxYear,
     uploadedReqs,
   );
+  /** Forms tab: received client docs (email / WhatsApp / portal) for this year. */
+  const [receivedDocsStore] = useCanvasState<ReceivedClientDoc[]>(
+    `taxReturnReceivedDocs.v1:${scopeKey}`,
+    seedReceivedClientDocs(client, taxYear),
+  );
+  const receivedDocs = collectReceivedClientDocs(
+    client,
+    taxYear,
+    uploadedReqs,
+    receivedDocsStore,
+  );
+  const [formsChannelFilter, setFormsChannelFilter] = useCanvasState<
+    "all" | ReceivedClientDocChannel
+  >(`taxReturnFormsChannel.v1:${scopeKey}`, "all");
+  const formFiles =
+    formsChannelFilter === "all"
+      ? receivedDocs
+      : receivedDocs.filter((d) => d.channel === formsChannelFilter);
+  const [, setLiveFileOpenForms] = useCanvasState<LiveFileRef>(
+    CRM_LIVE_FILE_OPEN_KEY,
+    LIVE_FILE_CLOSED,
+  );
+  const [liveFileContentsForms] = useCanvasState<LiveFileContentsStore>(
+    CRM_LIVE_FILE_CONTENTS_KEY,
+    {},
+  );
+  const [selectedFormFileId, setSelectedFormFileId] = useState<string | null>(
+    null,
+  );
+  const [formsOsFlash, setFormsOsFlash] = useState("");
+  const [formsCtxMenu, setFormsCtxMenu] = useState<{
+    x: number;
+    y: number;
+    fileId: string;
+    fileName: string;
+  } | null>(null);
   const viewing = docRequests.find((r) => r.id === viewDocId) ?? null;
   const pendingReqs = docRequests.filter((r) => r.status === "pending").length;
 
+  /** Tax ModuleSectionTabs are section browsers, not process stages — no ✓/✗ marks.
+   *  Process-stage marks live on the WorkStatusBanner chevron + Completed/Undo. */
   const navItems: {
     id: TaxReturnSection;
     labelKey: CrmUiKey;
     badge?: string;
+    status?: WorkFlowStatus;
+    icon?: ModuleSectionTabIconId;
+    flowGlyphs?: DocRequestFlowKind[];
+    badgeCount?: number;
+    badgeTone?: "red" | "green" | "blue";
+    sentBadgeCount?: number;
   }[] = [
-    { id: "overview", labelKey: "taxReturnNavOverview" },
-    { id: "checklist", labelKey: "taxReturnNavChecklist" },
+    { id: "overview", labelKey: "taxReturnNavOverview", icon: "overview" },
+    { id: "checklist", labelKey: "taxReturnNavChecklist", icon: "checklist" },
     {
       id: "requests",
       labelKey: "taxReturnNavRequests",
-      badge: pendingReqs > 0 ? String(pendingReqs) : undefined,
+      icon: "requests",
+      flowGlyphs:
+        pendingReqs > 0 ? (["sent"] as const) : undefined,
+      badgeCount: (() => {
+        const n = countReceivedDocsNeedingReview(taxReceivedList);
+        return n > 0 ? n : undefined;
+      })(),
+      badgeTone: "red" as const,
+      sentBadgeCount: pendingReqs > 0 ? pendingReqs : undefined,
     },
-    { id: "forms", labelKey: "taxReturnNavForms" },
-    { id: "folder", labelKey: "taxReturnNavFolder" },
-    { id: "comments", labelKey: "taxReturnNavComments" },
+    { id: "forms", labelKey: "taxReturnNavForms", icon: "forms" },
+    { id: "folder", labelKey: "taxReturnNavFolder", icon: "folder" },
+    { id: "comments", labelKey: "taxReturnNavComments", icon: "comments" },
   ];
 
   const toggleChecklistItem = (id: string) => {
@@ -48716,6 +55904,59 @@ function TaxReturnWorkspace({
     const preferForms = stage === "materials" || stage === "filing";
     setSection(preferForms ? "forms" : "checklist");
   };
+
+  const footerNavIdx = TAX_RETURN_PROCESS_STEPS.indexOf(highlightStage);
+  const showStageFooter = footerNavIdx >= 0;
+  const footerPrevStage =
+    footerNavIdx > 0 ? (TAX_RETURN_PROCESS_STEPS[footerNavIdx - 1] ?? null) : null;
+  const footerNextStage =
+    footerNavIdx >= 0 && footerNavIdx < TAX_RETURN_PROCESS_STEPS.length - 1
+      ? (TAX_RETURN_PROCESS_STEPS[footerNavIdx + 1] ?? null)
+      : null;
+
+  const onTaxStageChange = (next: TaxReturnProcessStage) => {
+    setProcessStages((prev) => ({ ...prev, [taxYear]: next }));
+    setFocusStage(next);
+    const preferForms = next === "materials" || next === "filing";
+    setSection(preferForms ? "forms" : "checklist");
+  };
+
+  const taxFooterStageDone = checklist
+    .filter((item) => item.stageId === highlightStage)
+    .every((item) => item.done);
+
+  const completeTaxProcessStage = () => {
+    const stage = highlightStage;
+    setChecklistDoneOverrides((prev) => {
+      const next = { ...prev };
+      for (const item of checklist) {
+        if (item.stageId === stage) next[item.id] = true;
+      }
+      return next;
+    });
+    showStageCompletedPopout({
+      module: "tax-return",
+      stageLabel: taxReturnProcessLabel(uiLang, stage),
+      clientName: client.name,
+      advanceAfterMs: 450,
+      onAdvance: () => {
+        if (footerNextStage) onTaxStageChange(footerNextStage);
+      },
+    });
+  };
+
+  const undoTaxProcessStage = () => {
+    const stage = highlightStage;
+    setChecklistDoneOverrides((prev) => {
+      const next = { ...prev };
+      for (const item of checklist) {
+        if (item.stageId === stage) next[item.id] = false;
+      }
+      return next;
+    });
+  };
+
+
 
   const markUploaded = (id: string, via: "mark" | "simulate") => {
     setDocRequests((prev) =>
@@ -48736,76 +55977,324 @@ function TaxReturnWorkspace({
     setViewDocId(id);
   };
 
+
+  const patchTaxReceivedDoc = (
+    id: string,
+    partial: Partial<ReceivedClientDoc>,
+  ) => {
+    setTaxReceivedDocs((prev) => {
+      const base =
+        prev && prev.length > 0
+          ? prev
+          : seedModuleReceivedClientDocs("tax", client, taxYear);
+      return base.map((row) => (row.id === id ? { ...row, ...partial } : row));
+    });
+  };
+
+  const openTaxReceivedResendPopout = (received: ReceivedClientDoc) => {
+    const channel = received.channel;
+    const purposeId = (
+      received.purposeId ||
+      received.linkedRequestId ||
+      ""
+    ).trim();
+    const linked = docRequests.find((r) => r.id === purposeId);
+    const purposeLabel = linked?.docName || received.docType || received.name;
+    const composed = composeReceivedDocResendMessage(
+      uiLang,
+      client,
+      taxYear,
+      received.name,
+      purposeLabel,
+      channel,
+      "tax return",
+      "דוח מס",
+    );
+    const emails = clientEmailsForTools(client);
+    const phones = clientPhonesForDemo(client, uiLang);
+    const contactPrefill =
+      channel === "whatsapp"
+        ? phones[0]?.value || client.phone || ""
+        : channel === "email"
+          ? emails[0] || client.email || ""
+          : displayClientName(client, uiLang);
+    const contactList =
+      channel === "portal"
+        ? [contactPrefill]
+        : channel === "email"
+          ? (emails.length ? emails : [contactPrefill]).filter(Boolean)
+          : (
+              phones.map((p) => p.value).filter(Boolean).length
+                ? phones.map((p) => p.value)
+                : [contactPrefill]
+            ).filter(Boolean);
+    patchTaxReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    setTaxResendPopout({
+      channel,
+      receivedDocId: received.id,
+      subject: composed.subject,
+      message: composed.message,
+      contact: contactPrefill,
+      contacts: contactList.length ? contactList : [contactPrefill],
+    });
+  };
+
+  const sendTaxReceivedResend = () => {
+    if (!taxResendPopout) return;
+    const { channel, receivedDocId } = taxResendPopout;
+    const today = new Date().toISOString().slice(0, 10);
+    const channelLabel =
+      channel === "email"
+        ? t(uiLang, "taxReturnSendEmail")
+        : channel === "portal"
+          ? t(uiLang, "taxReturnSendPortal")
+          : t(uiLang, "taxReturnSendWhatsApp");
+    const received = taxReceivedList.find((d) => d.id === receivedDocId);
+    patchTaxReceivedDoc(receivedDocId, {
+      reviewVerdict: "not-ok",
+      resendLog: [
+        ...((received?.resendLog) ?? []),
+        `${today} · ${channel}`,
+      ],
+    });
+    const pid = (received?.purposeId || received?.linkedRequestId || "").trim();
+    if (pid) {
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === pid
+            ? markPortalRequestReceived(r, {
+                fileName: received?.name,
+                previewText: `Reminder sent · not OK · ${received?.name ?? r.docName}`,
+                year: taxYear,
+              })
+            : r,
+        ),
+      );
+    }
+    setReqFlash(
+      t(uiLang, "trustDocsResendFlash").replace("{channel}", channelLabel),
+    );
+    setTaxResendPopout(null);
+  };
+
+  const composeTaxReturnRequestMessage = (): string => {
+    const contact = client.profile?.contactName?.trim();
+    const docs = reqDrafts
+      .map((d) => {
+        const typeId = resolveTaxReturnDocTypeId(d.type, customDocTypes);
+        const typeLabel = taxReturnDocTypeLabel(uiLang, typeId, customDocTypes);
+        const name = d.name.trim() || typeLabel;
+        return `• ${name} (${typeLabel})`;
+      })
+      .join("\n");
+    const channels = [
+      reqPortal ? (uiLang === "he" ? "פורטל" : "portal") : null,
+      reqEmail ? (uiLang === "he" ? "אימייל" : "email") : null,
+      reqWhatsApp ? "WhatsApp" : null,
+      reqWorkerChat
+        ? uiLang === "he"
+          ? "צ׳אט עובד"
+          : "worker chat"
+        : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    if (uiLang === "he") {
+      return `שלום${contact ? ` ${contact}` : ""},\n\nנא להעלות את המסמכים הבאים לדוח מס ${taxYear}:\n${docs}\n\nערוצים: ${channels}\n\nתודה.`;
+    }
+    return `Hello${contact ? ` ${contact}` : ""},\n\nPlease upload the following documents for tax return ${taxYear}:\n${docs}\n\nChannels: ${channels}\n\nThank you.`;
+  };
+
+  const openTaxReqPreview = () => {
+    if (!reqPortal && !reqEmail && !reqWhatsApp && !reqWorkerChat) {
+      setReqFlash(t(uiLang, "taxReturnPickChannel"));
+      return;
+    }
+    ensureTaxReqContacts();
+    setReqFlash("");
+    const baseMsg = composeTaxReturnRequestMessage();
+    const baseHtml = baseMsg
+      .split("\n")
+      .map((line) => line || " ")
+      .join("<br/>");
+    const docNames = reqDrafts
+      .map((d) => {
+        const typeId = resolveTaxReturnDocTypeId(d.type, customDocTypes);
+        return (
+          d.name.trim() ||
+          taxReturnDocTypeLabel(uiLang, typeId, customDocTypes)
+        );
+      })
+      .filter(Boolean);
+    const subjectDefault =
+      uiLang === "he"
+        ? `בקשת מסמכים — ${taxYear}`
+        : `Document request — ${taxYear}`;
+    setReqEmailSubject(subjectDefault);
+    setReqEmailBodyHtml(baseHtml);
+    setReqWhatsAppBody(baseMsg);
+    setReqPortalBody(baseMsg);
+    setReqWorkerChatBody(
+      uiLang === "he"
+        ? `בקשת מסמכים ללקוח ${client.name} (${taxYear}):\n${docNames.map((n) => `• ${n}`).join("\n")}`
+        : `Document request for ${client.name} (${taxYear}):\n${docNames.map((n) => `• ${n}`).join("\n")}`,
+    );
+    const tabs: ReqComposeChannelId[] = [];
+    if (reqEmail) tabs.push("email");
+    if (reqPortal) tabs.push("portal");
+    if (reqWhatsApp) tabs.push("whatsapp");
+    if (reqWorkerChat) tabs.push("workerChat");
+    setReqComposeTab(tabs[0] ?? "email");
+    const el = seeMessageBtnRef.current;
+    if (el && typeof el.getBoundingClientRect === "function") {
+      const r = el.getBoundingClientRect();
+      setReqPreviewAnchor({
+        top: r.top,
+        left: r.left,
+        bottom: r.bottom,
+        right: r.right,
+        width: r.width,
+        height: r.height,
+      });
+    } else {
+      setReqPreviewAnchor(null);
+    }
+    setReqPreviewOpen(true);
+  };
+
   const sendRequest = () => {
     if (!reqPortal && !reqEmail && !reqWhatsApp && !reqWorkerChat) {
       setReqFlash(t(uiLang, "taxReturnPickChannel"));
       return;
     }
-    const name = reqName.trim() || taxReturnDocTypeLabel(uiLang, reqType);
-    const id = `tr-req-${Date.now()}`;
+    const emails = reqRecipientEmails.map((e) => e.trim()).filter(Boolean);
+    const ccEmails = reqCcEmails.map((e) => e.trim()).filter(Boolean);
+    const bccEmails = reqBccEmails.map((e) => e.trim()).filter(Boolean);
+    const phones = reqWhatsAppPhones.map((p) => p.trim()).filter(Boolean);
+    if (reqEmail && emails.length === 0) {
+      ensureTaxReqContacts();
+    }
+    if (reqWhatsApp && phones.length === 0) {
+      ensureTaxReqContacts();
+    }
+    const finalEmails =
+      emails.length > 0
+        ? emails
+        : [taxContactEmails[0] || client.email || ""].filter(Boolean);
+    const finalPhones =
+      phones.length > 0
+        ? phones
+        : [
+            taxContactPhones[0]?.value ||
+              client.phone?.trim() ||
+              client.profile?.telephone?.trim() ||
+              "+972-50-000-0000",
+          ];
+    const now = Date.now();
     const createdAt = new Date().toISOString().slice(0, 10);
-    let emailLog: string | undefined;
-    let whatsappLog: string | undefined;
-    let workerChatLog: string | undefined;
-    if (reqEmail) {
-      emailLog = t(uiLang, "taxReturnEmailSentTo")
-        .replace("{email}", client.email)
-        .replace("{doc}", name)
-        .replace("{year}", taxYear);
-      setEmailLogs((prev) => [emailLog!, ...prev].slice(0, 8));
+    const rows: PortalDocRequest[] = reqDrafts.map((draft, i) => {
+      const typeId = resolveTaxReturnDocTypeId(draft.type, customDocTypes);
+      const name =
+        draft.name.trim() ||
+        taxReturnDocTypeLabel(uiLang, typeId, customDocTypes);
+      const docListLabel =
+        reqDrafts.length > 1
+          ? `${name} (+${reqDrafts.length - 1} more)`
+          : name;
+      let emailLog: string | undefined;
+      let whatsappLog: string | undefined;
+      let workerChatLog: string | undefined;
+      if (reqEmail) {
+        const toPart = finalEmails
+          .map((email) =>
+            t(uiLang, "taxReturnEmailSentTo")
+              .replace("{email}", email)
+              .replace("{doc}", docListLabel)
+              .replace("{year}", taxYear),
+          )
+          .join(" · ");
+        const extra = [
+          ccEmails.length
+            ? t(uiLang, "reqComposeCcFlash").replace(
+                "{cc}",
+                ccEmails.join(", "),
+              )
+            : "",
+          bccEmails.length
+            ? t(uiLang, "reqComposeBccFlash").replace(
+                "{bcc}",
+                bccEmails.join(", "),
+              )
+            : "",
+          reqEmailSubject.trim()
+            ? `${t(uiLang, "bkRequestPreviewSubject")}: ${reqEmailSubject.trim()}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        emailLog = extra ? `${toPart} · ${extra}` : toPart;
+      }
+      if (reqWhatsApp) {
+        whatsappLog = finalPhones
+          .map((phone) =>
+            t(uiLang, "taxReturnWhatsAppSentTo")
+              .replace("{phone}", phone)
+              .replace("{doc}", docListLabel)
+              .replace("{year}", taxYear),
+          )
+          .join(" · ");
+      }
+      if (reqWorkerChat) {
+        const workerName = staffDisplayName(
+          uiLang,
+          effectiveReqWorkerId,
+          firmWorkers,
+        );
+        workerChatLog = t(uiLang, "taxReturnWorkerChatSentTo")
+          .replace("{worker}", workerName)
+          .replace("{doc}", docListLabel)
+          .replace("{year}", taxYear)
+          .replace("{client}", client.name);
+      }
+      return {
+        id: `tr-req-${now}-${i}`,
+        clientId: client.id,
+        year: taxYear,
+        sourcePanel: "stream-tax-return" as const,
+        docName: name,
+        docType: taxReturnDocTypeLabel(uiLang, typeId, customDocTypes),
+        note: "",
+        status: "pending" as const,
+        createdAt,
+        sendPortal: reqPortal,
+        sendEmail: reqEmail,
+        sendWhatsApp: reqWhatsApp,
+        sendWorkerChat: reqWorkerChat,
+        workerChatWorkerId: reqWorkerChat ? effectiveReqWorkerId : undefined,
+        emailLog,
+        whatsappLog,
+        workerChatLog,
+      };
+    });
+    if (reqEmail && rows[0]?.emailLog) {
+      setEmailLogs((prev) => [rows[0].emailLog!, ...prev].slice(0, 8));
     }
-    if (reqWhatsApp) {
-      const phone =
-        client.phone?.trim() ||
-        client.profile?.telephone?.trim() ||
-        "+972-50-000-0000";
-      whatsappLog = t(uiLang, "taxReturnWhatsAppSentTo")
-        .replace("{phone}", phone)
-        .replace("{doc}", name)
-        .replace("{year}", taxYear);
-      setWhatsappLogs((prev) => [whatsappLog!, ...prev].slice(0, 8));
+    if (reqWhatsApp && rows[0]?.whatsappLog) {
+      setWhatsappLogs((prev) => [rows[0].whatsappLog!, ...prev].slice(0, 8));
     }
-    if (reqWorkerChat) {
-      const workerName = staffDisplayName(
-        uiLang,
-        effectiveReqWorkerId,
-        firmWorkers,
-      );
-      workerChatLog = t(uiLang, "taxReturnWorkerChatSentTo")
-        .replace("{worker}", workerName)
-        .replace("{doc}", name)
-        .replace("{year}", taxYear)
-        .replace("{client}", client.name);
-      setWorkerChatLogs((prev) => [workerChatLog!, ...prev].slice(0, 8));
+    if (reqWorkerChat && rows[0]?.workerChatLog) {
+      setWorkerChatLogs((prev) => [rows[0].workerChatLog!, ...prev].slice(0, 8));
       appendInternalWorkerDocRequestNote(setThreads, {
         targetWorkerId: effectiveReqWorkerId,
         fromWorkerId: signedInWorkerId,
-        body: workerChatLog,
+        body: rows[0].workerChatLog!,
         workers: firmWorkers,
         lang: uiLang,
       });
     }
-    const row: PortalDocRequest = {
-      id,
-      clientId: client.id,
-      year: taxYear,
-      sourcePanel: "stream-tax-return",
-      docName: name,
-      docType: taxReturnDocTypeLabel(uiLang, reqType),
-      note: "",
-      status: "pending",
-      createdAt,
-      sendPortal: reqPortal,
-      sendEmail: reqEmail,
-      sendWhatsApp: reqWhatsApp,
-      sendWorkerChat: reqWorkerChat,
-      workerChatWorkerId: reqWorkerChat ? effectiveReqWorkerId : undefined,
-      emailLog,
-      whatsappLog,
-      workerChatLog,
-    };
-    setDocRequests((prev) => [row, ...prev]);
-    setReqName("");
+    setDocRequests((prev) => [...rows, ...prev]);
+    setReqDrafts([newTaxReturnDocReqDraft()]);
+    setReqPreviewOpen(false);
     const channels =
       (reqPortal ? t(uiLang, "taxReturnRequestSentPortalSuffix") : "") +
       (reqEmail ? t(uiLang, "taxReturnRequestSentEmailSuffix") : "") +
@@ -48813,8 +56302,35 @@ function TaxReturnWorkspace({
       (reqWorkerChat
         ? t(uiLang, "taxReturnRequestSentWorkerChatSuffix")
         : "");
+    const recipientBits = [
+      reqEmail && finalEmails.length
+        ? t(uiLang, "reqComposeRecipientsFlash").replace(
+            "{to}",
+            finalEmails.join(", "),
+          )
+        : "",
+      reqEmail && ccEmails.length
+        ? t(uiLang, "reqComposeCcFlash").replace("{cc}", ccEmails.join(", "))
+        : "",
+      reqEmail && bccEmails.length
+        ? t(uiLang, "reqComposeBccFlash").replace(
+            "{bcc}",
+            bccEmails.join(", "),
+          )
+        : "",
+      reqWhatsApp && finalPhones.length
+        ? t(uiLang, "reqComposePhonesFlash").replace(
+            "{phones}",
+            finalPhones.join(", "),
+          )
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     setReqFlash(
-      t(uiLang, "taxReturnRequestSent").replace("{channels}", channels),
+      t(uiLang, "bkRequestSentMulti").replace("{n}", String(rows.length)) +
+        channels +
+        (recipientBits ? ` · ${recipientBits}` : ""),
     );
     setSection("requests");
   };
@@ -48826,13 +56342,15 @@ function TaxReturnWorkspace({
           <ChromeText size="small" tone="secondary">
             {clientPanelSubtitle(uiLang, "stream-tax-return", client.name)}
           </ChromeText>
-          <Row gap={12} wrap>
+          <Grid
+            columns="repeat(auto-fit, minmax(200px, 1fr))"
+            gap={12}
+            align="stretch"
+          >
             <Stack
               gap={8}
               style={{
-                minWidth: 200,
-                flex: 1,
-                maxWidth: 280,
+                minWidth: 0,
                 padding: 12,
                 borderRadius: 10,
                 background: chromeSoftFill(theme),
@@ -48866,7 +56384,7 @@ function TaxReturnWorkspace({
             <Stack
               gap={6}
               style={{
-                minWidth: 160,
+                minWidth: 0,
                 padding: 12,
                 borderRadius: 10,
                 background: chromeSoftFill(theme),
@@ -48889,7 +56407,7 @@ function TaxReturnWorkspace({
                 {t(uiLang, "taxReturnNavForms")}
               </Button>
             </Stack>
-          </Row>
+          </Grid>
         </Stack>
       );
     }
@@ -48911,8 +56429,231 @@ function TaxReturnWorkspace({
       );
     }
 
-    if (section === "requests") {
+    const renderTaxFormsPanel = () => {
+      const channelFilters: Array<"all" | ReceivedClientDocChannel> = [
+        "all",
+        "email",
+        "whatsapp",
+        "portal",
+      ];
+      const channelFilterLabel = (
+        id: "all" | ReceivedClientDocChannel,
+      ): string => {
+        if (id === "all") return t(uiLang, "taxReturnFormsChannelAll");
+        return receivedClientDocChannelLabel(uiLang, id);
+      };
       return (
+        <Stack
+          gap={8}
+          style={{
+            borderRadius: 10,
+            border:
+              highlightStage === "materials" || highlightStage === "filing"
+                ? `2px solid ${accent}`
+                : `1px solid ${chromeBorder(theme)}`,
+            padding: 12,
+          }}
+        >
+          <Row align="center" gap={8} wrap>
+            <ChromeText size="small" weight="semibold" tone="secondary">
+              {t(uiLang, "taxReturnNavForms")}
+            </ChromeText>
+            <Pill size="sm" tone="neutral">
+              {taxYear}
+            </Pill>
+            <Pill size="sm" tone="info">
+              {taxReturnProcessLabel(uiLang, processStage)}
+            </Pill>
+            <Pill size="sm" tone="neutral">
+              {formFiles.length} {t(uiLang, "docsCount")}
+            </Pill>
+          </Row>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "taxReturnFormsReceivedHint")}
+          </ChromeText>
+          <Row align="center" gap={6} wrap>
+            {channelFilters.map((id) => (
+              <Button
+                key={id}
+                variant={formsChannelFilter === id ? "primary" : "secondary"}
+                onClick={() => setFormsChannelFilter(id)}
+              >
+                {channelFilterLabel(id)}
+              </Button>
+            ))}
+          </Row>
+          <Stack gap={6}>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "liveFileOsOpenHint")}
+            </ChromeText>
+            {formsCtxMenu ? (
+              <>
+                <div
+                  style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+                  onClick={() => setFormsCtxMenu(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setFormsCtxMenu(null);
+                  }}
+                />
+                <div
+                  role="menu"
+                  style={{
+                    position: "fixed",
+                    left: formsCtxMenu.x,
+                    top: formsCtxMenu.y,
+                    zIndex: 9999,
+                    minWidth: 200,
+                    padding: 4,
+                    borderRadius: 8,
+                    border: `1px solid ${chromeBorder(theme)}`,
+                    background: CHROME_WHITE,
+                  }}
+                >
+                  <div
+                    role="menuitem"
+                    tabIndex={0}
+                    onClick={() => {
+                      setFormsOsFlash(
+                        openWithOsDefault(
+                          {
+                            id: formsCtxMenu.fileId,
+                            name: formsCtxMenu.fileName,
+                          },
+                          liveFileContentsForms,
+                        ),
+                      );
+                      setTimeout(() => setFormsOsFlash(""), 2200);
+                      setFormsCtxMenu(null);
+                    }}
+                    style={{
+                      padding: "7px 10px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    <ChromeText size="small" weight="semibold">
+                      {t(uiLang, "liveFileOpenWindowsDefault")}
+                    </ChromeText>
+                  </div>
+                </div>
+              </>
+            ) : null}
+            {formsOsFlash ? (
+              <ChromeText size="small" tone="secondary">
+                {formsOsFlash}
+              </ChromeText>
+            ) : null}
+            {formFiles.length === 0 ? (
+              <ChromeText size="small" tone="tertiary">
+                {t(uiLang, "taxReturnFormsReceivedEmpty")}
+              </ChromeText>
+            ) : (
+              formFiles.map((file) => (
+                <div
+                  key={file.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setSelectedFormFileId(file.id);
+                    const folderPath = `${client.name} \\ ${taxYear} \\ ${file.name} · ${receivedClientDocChannelLabel(uiLang, file.channel)}`;
+                    setLiveFileOpenForms({
+                      id: file.id,
+                      name: file.name,
+                      folderPath,
+                      source: "forms",
+                    });
+                  }}
+                  onDoubleClick={() => {
+                    setSelectedFormFileId(file.id);
+                    setFormsOsFlash(
+                      openWithOsDefault(
+                        { id: file.id, name: file.name },
+                        liveFileContentsForms,
+                      ),
+                    );
+                    setTimeout(() => setFormsOsFlash(""), 2200);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedFormFileId(file.id);
+                    setFormsCtxMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      fileId: file.id,
+                      fileName: file.name,
+                    });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === " " || e.key === "Enter") {
+                      setSelectedFormFileId(file.id);
+                      const folderPath = `${client.name} \\ ${taxYear} \\ ${file.name} · ${receivedClientDocChannelLabel(uiLang, file.channel)}`;
+                      setLiveFileOpenForms({
+                        id: file.id,
+                        name: file.name,
+                        folderPath,
+                        source: "forms",
+                      });
+                    }
+                  }}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background:
+                      selectedFormFileId === file.id
+                        ? chromeSelectedFill(theme)
+                        : chromeSoftFill(theme),
+                    border:
+                      selectedFormFileId === file.id
+                        ? `1px solid ${theme.accent.primary}`
+                        : `1px solid ${chromeBorder(theme)}`,
+                    cursor: "pointer",
+                  }}
+                >
+                  <Row align="center" gap={8} wrap>
+                    <ExplorerFileNameCell
+                      label={file.name}
+                      kind="file"
+                      semibold
+                    />
+                    <Pill
+                      size="sm"
+                      tone={receivedClientDocChannelTone(file.channel)}
+                    >
+                      {receivedClientDocChannelLabel(uiLang, file.channel)}
+                    </Pill>
+                    <Pill size="sm" tone="neutral">
+                      {file.receivedAt}
+                    </Pill>
+                    {file.docType ? (
+                      <Pill size="sm" tone="neutral">
+                        {file.docType}
+                      </Pill>
+                    ) : null}
+                    <Pill size="sm" tone="neutral">
+                      {receivedClientDocStatusLabel(uiLang, file.status)}
+                    </Pill>
+                  </Row>
+                </div>
+              ))
+            )}
+          </Stack>
+        </Stack>
+      );
+    };
+
+    if (section === "forms") {
+      return renderTaxFormsPanel();
+    }
+
+    if (section === "requests") {
+      const taxPurposeOptions: DocsReceivedPurposeOption[] = [
+        { value: "", label: t(uiLang, "trustDocsPurposePlaceholder") },
+        ...docRequests.map((r) => ({ value: r.id, label: r.docName })),
+      ];
+      const taxRequestsBody = (
         <Stack gap={14}>
           <Stack
             gap={10}
@@ -48929,37 +56670,96 @@ function TaxReturnWorkspace({
             <ChromeText size="small" tone="tertiary">
               {t(uiLang, "taxReturnRequestDocHint")}
             </ChromeText>
-            <Row gap={8} wrap align="end">
-              <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
-                <ChromeText size="small" tone="secondary">
-                  {t(uiLang, "taxReturnDocName")}
-                </ChromeText>
-                <ChromeTextInput
-                  value={reqName}
-                  onChange={setReqName}
-                  placeholder={t(uiLang, "taxReturnDocNamePh")}
-                />
-              </Stack>
-              <Stack gap={4} style={{ minWidth: 160 }}>
-                <ChromeText size="small" tone="secondary">
-                  {t(uiLang, "taxReturnDocType")}
-                </ChromeText>
-                <Select
-                  value={reqType}
-                  onChange={(v) => {
-                    if (
-                      (TAX_RETURN_DOC_TYPE_IDS as readonly string[]).includes(v)
-                    ) {
-                      setReqType(v as TaxReturnDocTypeId);
-                    }
-                  }}
-                  options={TAX_RETURN_DOC_TYPE_IDS.map((id) => ({
-                    value: id,
-                    label: taxReturnDocTypeLabel(uiLang, id),
-                  }))}
-                />
-              </Stack>
-            </Row>
+            <Stack gap={8}>
+              {reqDrafts.map((draft, index) => (
+                <Stack key={draft.id} gap={6}>
+                <Row gap={8} align="center">
+                  <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+                    <ChromeText size="small" tone="secondary">
+                      {t(uiLang, "taxReturnDocName")}
+                      {reqDrafts.length > 1 ? ` (${index + 1})` : ""}
+                    </ChromeText>
+                    <ChromeTextInput
+                      value={draft.name}
+                      onChange={(v) => updateReqDraft(draft.id, { name: v })}
+                      placeholder={t(uiLang, "taxReturnDocNamePh")}
+                    />
+                  </Stack>
+                  <Stack
+                    gap={4}
+                    style={{ flex: "0 0 180px", width: 180, minWidth: 160 }}
+                  >
+                    <ChromeText size="small" tone="secondary">
+                      {t(uiLang, "taxReturnDocType")}
+                    </ChromeText>
+                    <Select
+                      value={
+                        draft.type === CRM_DOC_TYPE_CREATE_VALUE
+                          ? "other"
+                          : draft.type
+                      }
+                      onChange={(v) => {
+                        if (v === CRM_DOC_TYPE_CREATE_VALUE) {
+                          setCreatingDocTypeForDraftId(draft.id);
+                          setNewDocTypeDraft("");
+                          return;
+                        }
+                        setCreatingDocTypeForDraftId(null);
+                        setNewDocTypeDraft("");
+                        updateReqDraft(draft.id, { type: v });
+                      }}
+                      options={taxReturnDocTypeOptions(uiLang, customDocTypes)}
+                    />
+                  </Stack>
+                  {reqDrafts.length > 1 ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => removeReqDraft(draft.id)}
+                      style={{ flexShrink: 0, alignSelf: "flex-end" }}
+                    >
+                      ×
+                    </Button>
+                  ) : null}
+                </Row>
+                {creatingDocTypeForDraftId === draft.id ? (
+                  <Row gap={8} align="center">
+                    <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+                      <ChromeText size="small" tone="secondary">
+                        {t(uiLang, "taxReturnDocTypeCreate")}
+                      </ChromeText>
+                      <ChromeTextInput
+                        value={newDocTypeDraft}
+                        onChange={setNewDocTypeDraft}
+                        placeholder={t(uiLang, "taxReturnDocTypeCreatePh")}
+                      />
+                    </Stack>
+                    <Button
+                      variant="secondary"
+                      onClick={() => commitNewDocTypeForDraft(draft.id)}
+                      style={{ flexShrink: 0, alignSelf: "flex-end" }}
+                    >
+                      {t(uiLang, "taxReturnDocTypeCreateAdd")}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setCreatingDocTypeForDraftId(null);
+                        setNewDocTypeDraft("");
+                      }}
+                      style={{ flexShrink: 0, alignSelf: "flex-end" }}
+                    >
+                      {t(uiLang, "taxReturnDocTypeCreateCancel")}
+                    </Button>
+                  </Row>
+                ) : null}
+                </Stack>
+              ))}
+              <Row gap={8} align="center" justify="center">
+                <Button variant="secondary" onClick={addReqDraft}>
+                  {t(uiLang, "bkAddDocRow")}
+                </Button>
+              </Row>
+            </Stack>
             <Row gap={12} wrap align="center">
               <Checkbox
                 checked={reqPortal}
@@ -48968,12 +56768,18 @@ function TaxReturnWorkspace({
               />
               <Checkbox
                 checked={reqEmail}
-                onChange={setReqEmail}
+                onChange={(v) => {
+                  setReqEmail(v);
+                  if (v) ensureTaxReqContacts();
+                }}
                 label={t(uiLang, "taxReturnSendEmail")}
               />
               <Checkbox
                 checked={reqWhatsApp}
-                onChange={setReqWhatsApp}
+                onChange={(v) => {
+                  setReqWhatsApp(v);
+                  if (v) ensureTaxReqContacts();
+                }}
                 label={t(uiLang, "taxReturnSendWhatsApp")}
               />
               <Checkbox
@@ -48985,9 +56791,15 @@ function TaxReturnWorkspace({
                 label={t(uiLang, "taxReturnSendWorkerChat")}
               />
               <Spacer />
-              <Button variant="primary" onClick={sendRequest}>
-                {t(uiLang, "taxReturnSendRequest")}
-              </Button>
+              <div
+                ref={seeMessageBtnRef}
+                data-chrome="tax-see-message-btn"
+                style={{ display: "inline-block" }}
+              >
+                <Button variant="primary" onClick={openTaxReqPreview}>
+                  {t(uiLang, "bkSeeMessage")}
+                </Button>
+              </div>
             </Row>
             {reqWorkerChat ? (
               <Stack gap={4} style={{ maxWidth: 360 }}>
@@ -49007,6 +56819,122 @@ function TaxReturnWorkspace({
                   {t(uiLang, "taxReturnWorkerSelectHint")}
                 </ChromeText>
               </Stack>
+            ) : null}
+            {reqPreviewOpen ? (
+              <RequestMessagePopout
+                title={t(uiLang, "bkRequestPreviewTitle")}
+                closeLabel={t(uiLang, "taxReturnClosePreview")}
+                onClose={() => {
+                  setReqPreviewOpen(false);
+                  setReqPreviewAnchor(null);
+                }}
+                anchorRect={reqPreviewAnchor}
+              >
+                {(() => {
+                  const taxComposeChannels: ReqComposeChannelId[] = [
+                    ...(reqEmail ? (["email"] as const) : []),
+                    ...(reqPortal ? (["portal"] as const) : []),
+                    ...(reqWhatsApp ? (["whatsapp"] as const) : []),
+                    ...(reqWorkerChat ? (["workerChat"] as const) : []),
+                  ];
+                  const activeTab = taxComposeChannels.includes(reqComposeTab)
+                    ? reqComposeTab
+                    : taxComposeChannels[0] ?? "email";
+                  return (
+                    <Stack gap={10}>
+                      <RequestComposeChannelTabs
+                        uiLang={uiLang}
+                        channels={taxComposeChannels}
+                        active={activeTab}
+                        onChange={setReqComposeTab}
+                      />
+                      {activeTab === "email" && reqEmail ? (
+                        <RequestEmailStandardCompose
+                          uiLang={uiLang}
+                          fromAddress={REQ_COMPOSE_FROM_DEMO}
+                          toEmails={
+                            reqRecipientEmails.length
+                              ? reqRecipientEmails
+                              : [taxContactEmails[0] || client.email || ""]
+                          }
+                          onToChange={setReqRecipientEmails}
+                          ccEmails={reqCcEmails}
+                          onCcChange={setReqCcEmails}
+                          bccEmails={reqBccEmails}
+                          onBccChange={setReqBccEmails}
+                          subject={reqEmailSubject}
+                          onSubjectChange={setReqEmailSubject}
+                          bodyHtml={reqEmailBodyHtml}
+                          onBodyHtmlChange={setReqEmailBodyHtml}
+                        />
+                      ) : null}
+                      {activeTab === "whatsapp" && reqWhatsApp ? (
+                        <RequestWhatsAppCompose
+                          uiLang={uiLang}
+                          phones={
+                            reqWhatsAppPhones.length
+                              ? reqWhatsAppPhones
+                              : [
+                                  taxContactPhones[0]?.value ||
+                                    client.phone ||
+                                    "",
+                                ]
+                          }
+                          onPhonesChange={setReqWhatsAppPhones}
+                          bodyText={reqWhatsAppBody}
+                          onBodyTextChange={setReqWhatsAppBody}
+                          phonePlaceholder={
+                            taxContactPhones[0]?.value ||
+                            client.phone ||
+                            "+972..."
+                          }
+                        />
+                      ) : null}
+                      {activeTab === "portal" && reqPortal ? (
+                        <RequestPortalCompose
+                          uiLang={uiLang}
+                          clientName={displayClientName(client, uiLang)}
+                          bodyText={reqPortalBody}
+                          onBodyTextChange={setReqPortalBody}
+                        />
+                      ) : null}
+                      {activeTab === "workerChat" && reqWorkerChat ? (
+                        <Stack gap={6}>
+                          <ChromeText size="small" tone="secondary">
+                            {t(uiLang, "taxReturnWorkerSelect")}
+                          </ChromeText>
+                          <ChromeText weight="semibold">
+                            {staffDisplayName(
+                              uiLang,
+                              effectiveReqWorkerId,
+                              firmWorkers,
+                            )}
+                          </ChromeText>
+                          <TextArea
+                            value={reqWorkerChatBody}
+                            onChange={setReqWorkerChatBody}
+                            style={{ width: "100%", minHeight: 100 }}
+                          />
+                        </Stack>
+                      ) : null}
+                      <Row gap={8} wrap>
+                        <Button variant="primary" onClick={sendRequest}>
+                          {t(uiLang, "taxReturnPreviewConfirm")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setReqPreviewOpen(false);
+                            setReqPreviewAnchor(null);
+                          }}
+                        >
+                          {t(uiLang, "taxReturnClosePreview")}
+                        </Button>
+                      </Row>
+                    </Stack>
+                  );
+                })()}
+              </RequestMessagePopout>
             ) : null}
             {reqFlash ? (
               <Callout
@@ -49115,6 +57043,14 @@ function TaxReturnWorkspace({
                             background: borderColor,
                           }}
                         />
+                        <DocRequestFlowGlyph
+                          kind={uploaded ? "received" : "sent"}
+                          size={15}
+                        />
+                        <DocRequestFlowBadge
+                          kind={uploaded ? "received" : "sent"}
+                          uiLang={uiLang}
+                        />
                         <Stack gap={2} style={{ flex: 1, minWidth: 140 }}>
                           <span
                             style={{
@@ -49214,45 +57150,141 @@ function TaxReturnWorkspace({
           ) : null}
         </Stack>
       );
-    }
-
-    if (section === "forms") {
       return (
-        <Stack
-          gap={8}
-          style={{
-            borderRadius: 10,
-            border:
-              highlightStage === "materials" || highlightStage === "filing"
-                ? `2px solid ${accent}`
-                : `1px solid ${chromeBorder(theme)}`,
-            padding: 12,
-          }}
-        >
-          <Row align="center" gap={8} wrap>
-            <ChromeText size="small" weight="semibold" tone="secondary">
-              {t(uiLang, "taxReturnNavForms")}
-            </ChromeText>
-            <Pill size="sm" tone="neutral">
-              {taxYear}
-            </Pill>
-            <Pill size="sm" tone="info">
-              {taxReturnProcessLabel(uiLang, processStage)}
-            </Pill>
-          </Row>
-          <ChromeText size="small" tone="tertiary">
-            {t(uiLang, taxReturnStageDocsHintKey(highlightStage))}
-          </ChromeText>
-          <TaxReturnFolderBrowser
-            tree={folderTree}
-            expandedIds={folderExpanded}
-            setExpandedIds={setFolderExpanded}
-            selectedId={folderSelected}
-            setSelectedId={setFolderSelected}
-          />
-        </Stack>
+        <DocsRequestsAreaShell
+          uiLang={uiLang}
+          ariaLabel={t(uiLang, "taxReturnNavRequests")}
+          topTab={taxDocsTopTab}
+          onTopTabChange={setTaxDocsTopTab}
+          requestsCount={pendingReqs}
+          receivedCount={taxReceivedList.length}
+          requestsBody={taxRequestsBody}
+          receivedBody={
+            <DocsReceivedListPanel
+              uiLang={uiLang}
+              files={taxReceivedList}
+              purposeOptions={taxPurposeOptions}
+              onPatch={(id, partial) => {
+                patchTaxReceivedDoc(id, partial);
+                if (partial.purposeId !== undefined) {
+                  const pid = (partial.purposeId || "").trim();
+                  if (pid) {
+                    const file = taxReceivedList.find((f) => f.id === id);
+                    setDocRequests((prev) =>
+                      prev.map((r) =>
+                        r.id === pid
+                          ? markPortalRequestReceived(r, {
+                              fileName: file?.name,
+                              previewText: file
+                                ? `Paired · ${file.name}`
+                                : undefined,
+                              year: taxYear,
+                            })
+                          : r,
+                      ),
+                    );
+                  }
+                }
+              }}
+              onOk={(file) => {
+                patchTaxReceivedDoc(file.id, {
+                  reviewVerdict: "ok",
+                  status: "reviewed",
+                });
+                const pid = (
+                  file.purposeId ||
+                  file.linkedRequestId ||
+                  ""
+                ).trim();
+                if (pid) {
+                  setDocRequests((prev) =>
+                    prev.map((r) =>
+                      r.id === pid
+                        ? {
+                            ...r,
+                            status: "uploaded" as const,
+                            uploadedFileName:
+                              r.uploadedFileName ??
+                              `${r.docName.replace(/\s+/g, "_")}_${taxYear}.pdf`,
+                            previewText:
+                              r.previewText ?? `Staff OK · ${file.name}`,
+                          }
+                        : r,
+                    ),
+                  );
+                }
+              }}
+              onNotOk={openTaxReceivedResendPopout}
+              linkedLabel={(file) => {
+                const linked = docRequests.find(
+                  (r) =>
+                    r.id === (file.purposeId || file.linkedRequestId || ""),
+                );
+                return linked
+                  ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.docName}`
+                  : null;
+              }}
+            />}
+          overlay={
+            taxResendPopout ? (
+              <RequestMessagePopout
+                title={t(uiLang, "bkRequestPreviewTitle")}
+                closeLabel={t(uiLang, "taxReturnClosePreview")}
+                onClose={() => setTaxResendPopout(null)}
+                anchorRect={null}
+              >
+                <Stack gap={10}>
+                  <Row gap={8} align="center">
+                    <DocRequestFlowGlyph kind="sent" />
+                    <ChromeText size="small" tone="secondary">
+                      {receivedClientDocChannelLabel(uiLang, taxResendPopout.channel)}
+                    </ChromeText>
+                  </Row>
+                  {taxResendPopout.channel === "email" ? (
+                    <ChromeTextInput
+                      value={taxResendPopout.subject}
+                      onChange={(v) =>
+                        setTaxResendPopout((prev) =>
+                          prev ? { ...prev, subject: v } : prev,
+                        )
+                      }
+                    />
+                  ) : null}
+                  <textarea
+                    value={taxResendPopout.message}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setTaxResendPopout((prev) =>
+                        prev ? { ...prev, message: v } : prev,
+                      );
+                    }}
+                    rows={8}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                      padding: 8,
+                      borderRadius: 8,
+                      border: `1px solid ${chromeBorder(theme)}`,
+                    }}
+                  />
+                  <Row gap={8} justify="end">
+                    <Button variant="secondary" onClick={() => setTaxResendPopout(null)}>
+                      {t(uiLang, "taxReturnClosePreview")}
+                    </Button>
+                    <Button variant="primary" onClick={sendTaxReceivedResend}>
+                      {t(uiLang, "taxReturnSendRequest")}
+                    </Button>
+                  </Row>
+                </Stack>
+              </RequestMessagePopout>
+            ) : null}
+        />
       );
     }
+
+
 
     if (section === "folder") {
       return (
@@ -49302,6 +57334,12 @@ function TaxReturnWorkspace({
           id: item.id,
           label: t(uiLang, item.labelKey),
           badge: item.badge,
+          status: item.status,
+          icon: item.icon,
+          flowGlyphs: item.flowGlyphs,
+          badgeCount: item.badgeCount,
+          badgeTone: item.badgeTone,
+          sentBadgeCount: item.sentBadgeCount,
         }))}
         activeId={section}
         onSelect={setSection}
@@ -49313,11 +57351,31 @@ function TaxReturnWorkspace({
           borderRadius: 10,
           border: `1px solid ${chromeBorder(theme)}`,
           background: CHROME_WHITE,
-          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
-        {renderMain()}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {renderMain()}
+        </div>
+        {showStageFooter ? (
+          <ProcessStageNavFooter
+            uiLang={uiLang}
+            backDisabled={!footerPrevStage}
+            forwardDisabled={!footerNextStage}
+            onBack={() => {
+              if (footerPrevStage) onTaxStageChange(footerPrevStage);
+            }}
+            onForward={() => {
+              if (footerNextStage) onTaxStageChange(footerNextStage);
+            }}
+            onCompleted={completeTaxProcessStage}
+            onUndoCompleted={undoTaxProcessStage}
+            completedActive={taxFooterStageDone}
+          />
+        ) : null}
       </ModuleSectionFrame>
+      {stageCompletePopout}
     </Stack>
   );
 }
@@ -49339,6 +57397,8 @@ function AuditProcessWorkspace({
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const theme = useHostTheme();
   const accent = theme.accent.primary;
+  const { showStageCompletedPopout, stageCompletePopout } =
+    useStageCompleteSuccessPopout(uiLang);
   const [, setScreen] = useCanvasState<Screen>(SCREEN_STATE_KEY, "home");
   const [, setSelectedCategory] = useCanvasState(SELECTED_CATEGORY_STATE_KEY, DEFAULT_PRIMARY_CATEGORY);
   const [, setToolsModule] = useCanvasState<ToolsModuleId>(
@@ -49430,6 +57490,23 @@ function AuditProcessWorkspace({
     `auditDocRequests.v1:${scopeKey}`,
     [],
   );
+  const [auditDocsTopTab, setAuditDocsTopTab] =
+    useCanvasState<DocsReceivedTopTab>(
+      `auditDocsTopTab.v1:${scopeKey}`,
+      "requests",
+    );
+  const [auditReceivedDocs, setAuditReceivedDocs] = useCanvasState<
+    ReceivedClientDoc[]
+  >(
+    `auditReceivedDocs.v1:${scopeKey}`,
+    seedModuleReceivedClientDocs("audit", client, auditYear),
+  );
+  const auditReceivedList =
+    auditReceivedDocs && auditReceivedDocs.length > 0
+      ? auditReceivedDocs
+      : seedModuleReceivedClientDocs("audit", client, auditYear);
+  const [auditResendPopout, setAuditResendPopout] =
+    useState<DocsReceivedResendPopoutState | null>(null);
   const [reqName, setReqName] = useCanvasState(
     `auditReqName.v1:${scopeKey}`,
     "",
@@ -49462,6 +57539,8 @@ function AuditProcessWorkspace({
     `auditReqFlash.v1:${scopeKey}`,
     "",
   );
+  const [reqPreviewOpen, setReqPreviewOpen] = useState(false);
+  const [reqPreviewMessage, setReqPreviewMessage] = useState("");
   const [workerChatLogs, setWorkerChatLogs] = useCanvasState<string[]>(
     `auditWorkerChatLog.v1:${scopeKey}`,
     [],
@@ -49759,24 +57838,39 @@ function AuditProcessWorkspace({
    * Checklist (prep) → Working folder (fieldwork papers) → Requests →
    * Konto → SHAAM → Signature → Company documents → Comments.
    */
+  /** Audit ModuleSectionTabs are section browsers; process stages use the stage bar. */
   const navItems: {
     id: AuditSection;
     labelKey: CrmUiKey;
     badge?: string;
+    status?: WorkFlowStatus;
+    icon?: ModuleSectionTabIconId;
+    flowGlyphs?: DocRequestFlowKind[];
+    badgeCount?: number;
+    badgeTone?: "red" | "green" | "blue";
+    sentBadgeCount?: number;
   }[] = [
-    { id: "overview", labelKey: "auditNavOverview" },
-    { id: "checklist", labelKey: "auditNavChecklist" },
-    { id: "folder", labelKey: "auditNavFolder" },
+    { id: "overview", labelKey: "auditNavOverview", icon: "overview" },
+    { id: "checklist", labelKey: "auditNavChecklist", icon: "checklist" },
+    { id: "folder", labelKey: "auditNavFolder", icon: "folder" },
     {
       id: "requests",
       labelKey: "auditNavRequests",
-      badge: pendingReqs > 0 ? String(pendingReqs) : undefined,
+      icon: "requests",
+      flowGlyphs:
+        pendingReqs > 0 ? (["sent"] as const) : undefined,
+      badgeCount: (() => {
+        const n = countReceivedDocsNeedingReview(auditReceivedList);
+        return n > 0 ? n : undefined;
+      })(),
+      badgeTone: "red" as const,
+      sentBadgeCount: pendingReqs > 0 ? pendingReqs : undefined,
     },
-    { id: "konto", labelKey: "auditNavKonto" },
-    { id: "shaam", labelKey: "auditNavShaam" },
-    { id: "signature", labelKey: "auditNavSignature" },
-    { id: "company-docs", labelKey: "auditNavCompanyDocs" },
-    { id: "comments", labelKey: "auditNavComments" },
+    { id: "konto", labelKey: "auditNavKonto", icon: "konto" },
+    { id: "shaam", labelKey: "auditNavShaam", icon: "shaam" },
+    { id: "signature", labelKey: "auditNavSignature", icon: "signature" },
+    { id: "company-docs", labelKey: "auditNavCompanyDocs", icon: "company-docs" },
+    { id: "comments", labelKey: "auditNavComments", icon: "comments" },
   ];
 
   const openKontoExternal = () => {
@@ -50053,6 +58147,137 @@ function AuditProcessWorkspace({
     setViewDocId(id);
   };
 
+
+  const patchAuditReceivedDoc = (
+    id: string,
+    partial: Partial<ReceivedClientDoc>,
+  ) => {
+    setAuditReceivedDocs((prev) => {
+      const base =
+        prev && prev.length > 0
+          ? prev
+          : seedModuleReceivedClientDocs("audit", client, auditYear);
+      return base.map((row) => (row.id === id ? { ...row, ...partial } : row));
+    });
+  };
+
+  const openAuditReceivedResendPopout = (received: ReceivedClientDoc) => {
+    const channel = received.channel;
+    const purposeId = (
+      received.purposeId ||
+      received.linkedRequestId ||
+      ""
+    ).trim();
+    const linked = docRequests.find((r) => r.id === purposeId);
+    const purposeLabel = linked?.docName || received.docType || received.name;
+    const composed = composeReceivedDocResendMessage(
+      uiLang,
+      client,
+      auditYear,
+      received.name,
+      purposeLabel,
+      channel,
+      "audit",
+      "ביקורת",
+    );
+    const emails = clientEmailsForTools(client);
+    const phones = clientPhonesForDemo(client, uiLang);
+    const contactPrefill =
+      channel === "whatsapp"
+        ? phones[0]?.value || client.phone || ""
+        : channel === "email"
+          ? emails[0] || client.email || ""
+          : displayClientName(client, uiLang);
+    const contactList =
+      channel === "portal"
+        ? [contactPrefill]
+        : channel === "email"
+          ? (emails.length ? emails : [contactPrefill]).filter(Boolean)
+          : (
+              phones.map((p) => p.value).filter(Boolean).length
+                ? phones.map((p) => p.value)
+                : [contactPrefill]
+            ).filter(Boolean);
+    patchAuditReceivedDoc(received.id, { reviewVerdict: "not-ok" });
+    setAuditResendPopout({
+      channel,
+      receivedDocId: received.id,
+      subject: composed.subject,
+      message: composed.message,
+      contact: contactPrefill,
+      contacts: contactList.length ? contactList : [contactPrefill],
+    });
+  };
+
+  const sendAuditReceivedResend = () => {
+    if (!auditResendPopout) return;
+    const { channel, receivedDocId } = auditResendPopout;
+    const today = new Date().toISOString().slice(0, 10);
+    const channelLabel =
+      channel === "email"
+        ? t(uiLang, "taxReturnSendEmail")
+        : channel === "portal"
+          ? t(uiLang, "taxReturnSendPortal")
+          : t(uiLang, "taxReturnSendWhatsApp");
+    const received = auditReceivedList.find((d) => d.id === receivedDocId);
+    patchAuditReceivedDoc(receivedDocId, {
+      reviewVerdict: "not-ok",
+      resendLog: [
+        ...((received?.resendLog) ?? []),
+        `${today} · ${channel}`,
+      ],
+    });
+    const pid = (received?.purposeId || received?.linkedRequestId || "").trim();
+    if (pid) {
+      setDocRequests((prev) =>
+        prev.map((r) =>
+          r.id === pid
+            ? markPortalRequestReceived(r, {
+                fileName: received?.name,
+                previewText: `Reminder sent · not OK · ${received?.name ?? r.docName}`,
+                year: auditYear,
+              })
+            : r,
+        ),
+      );
+    }
+    setReqFlash(
+      t(uiLang, "trustDocsResendFlash").replace("{channel}", channelLabel),
+    );
+    setAuditResendPopout(null);
+  };
+
+  const composeAuditRequestMessage = (): string => {
+    const name = reqName.trim() || auditDocTypeLabel(uiLang, reqType);
+    const contact = client.profile?.contactName?.trim() || "";
+    const channels = [
+      reqPortal ? (uiLang === "he" ? "פורטל" : "portal") : null,
+      reqEmail ? (uiLang === "he" ? "אימייל" : "email") : null,
+      reqWhatsApp ? "WhatsApp" : null,
+      reqWorkerChat
+        ? uiLang === "he"
+          ? "צ'אט עובד"
+          : "worker chat"
+        : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    if (uiLang === "he") {
+      return `שלום${contact ? ` ${contact}` : ""},\n\nנא להעלות / לשלוח את המסמך הבא לביקורת ${auditYear}:\n• ${name}\n\nערוצים: ${channels}\n\nתודה.`;
+    }
+    return `Hello${contact ? ` ${contact}` : ""},\n\nPlease upload / send the following document for audit ${auditYear}:\n• ${name}\n\nChannels: ${channels}\n\nThank you.`;
+  };
+
+  const openAuditReqPreview = () => {
+    if (!reqPortal && !reqEmail && !reqWhatsApp && !reqWorkerChat) {
+      setReqFlash(t(uiLang, "taxReturnPickChannel"));
+      return;
+    }
+    setReqFlash("");
+    setReqPreviewMessage(composeAuditRequestMessage());
+    setReqPreviewOpen(true);
+  };
+
   const sendRequest = () => {
     if (!reqPortal && !reqEmail && !reqWhatsApp && !reqWorkerChat) {
       setReqFlash(t(uiLang, "taxReturnPickChannel"));
@@ -50131,6 +58356,7 @@ function AuditProcessWorkspace({
     setReqFlash(
       t(uiLang, "taxReturnRequestSent").replace("{channels}", channels),
     );
+    setReqPreviewOpen(false);
     setSection("requests");
   };
 
@@ -50289,7 +58515,11 @@ function AuditProcessWorkspace({
     }
 
     if (section === "requests") {
-      return (
+      const auditPurposeOptions: DocsReceivedPurposeOption[] = [
+        { value: "", label: t(uiLang, "trustDocsPurposePlaceholder") },
+        ...docRequests.map((r) => ({ value: r.id, label: r.docName })),
+      ];
+      const auditRequestsBody = (
         <Stack gap={14}>
           <Stack
             gap={10}
@@ -50320,7 +58550,7 @@ function AuditProcessWorkspace({
               }))}
               style={{ width: "100%" }}
             />
-            <Row gap={12} wrap>
+            <Row gap={12} wrap align="center">
               <Checkbox
                 checked={reqPortal}
                 onChange={setReqPortal}
@@ -50344,6 +58574,9 @@ function AuditProcessWorkspace({
                 }}
                 label={t(uiLang, "taxReturnSendWorkerChat")}
               />
+              <Button variant="primary" onClick={openAuditReqPreview}>
+                {t(uiLang, "bkSeeMessage")}
+              </Button>
             </Row>
             {reqWorkerChat ? (
               <Stack gap={4} style={{ maxWidth: 360 }}>
@@ -50364,11 +58597,51 @@ function AuditProcessWorkspace({
                 </ChromeText>
               </Stack>
             ) : null}
-            <Button variant="primary" onClick={sendRequest}>
-              {t(uiLang, "taxReturnSendRequest")}
-            </Button>
+            {reqPreviewOpen ? (
+              <RequestMessagePopout
+                title={t(uiLang, "bkRequestPreviewTitle")}
+                closeLabel={t(uiLang, "taxReturnClosePreview")}
+                onClose={() => setReqPreviewOpen(false)}
+                anchorRect={null}
+              >
+                <Stack gap={10}>
+                  <textarea
+                    value={reqPreviewMessage}
+                    onChange={(e) => setReqPreviewMessage(e.target.value)}
+                    rows={8}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                      padding: 8,
+                      borderRadius: 8,
+                      border: `1px solid ${chromeBorder(theme)}`,
+                    }}
+                  />
+                  <Row gap={8} wrap>
+                    <Button variant="primary" onClick={sendRequest}>
+                      {t(uiLang, "taxReturnPreviewConfirm")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setReqPreviewOpen(false)}
+                    >
+                      {t(uiLang, "taxReturnClosePreview")}
+                    </Button>
+                  </Row>
+                </Stack>
+              </RequestMessagePopout>
+            ) : null}
             {reqFlash ? (
-              <Callout tone="success" title={t(uiLang, "auditNavRequests")}>
+              <Callout
+                tone={
+                  reqFlash === t(uiLang, "taxReturnPickChannel")
+                    ? "warning"
+                    : "success"
+                }
+                title={t(uiLang, "auditNavRequests")}
+              >
                 {reqFlash}
               </Callout>
             ) : null}
@@ -50407,6 +58680,14 @@ function AuditProcessWorkspace({
                     border: `1px solid ${chromeBorder(theme)}`,
                   }}
                 >
+                  <DocRequestFlowGlyph
+                    kind={r.status === "uploaded" ? "received" : "sent"}
+                    size={15}
+                  />
+                  <DocRequestFlowBadge
+                    kind={r.status === "uploaded" ? "received" : "sent"}
+                    uiLang={uiLang}
+                  />
                   <Stack gap={2} style={{ flex: 1, minWidth: 140 }}>
                     <span
                       style={{
@@ -50484,6 +58765,138 @@ function AuditProcessWorkspace({
             </Callout>
           ) : null}
         </Stack>
+      );
+      return (
+        <DocsRequestsAreaShell
+          uiLang={uiLang}
+          ariaLabel={t(uiLang, "auditNavRequests")}
+          topTab={auditDocsTopTab}
+          onTopTabChange={setAuditDocsTopTab}
+          requestsCount={pendingReqs}
+          receivedCount={auditReceivedList.length}
+          requestsBody={auditRequestsBody}
+          receivedBody={
+            <DocsReceivedListPanel
+              uiLang={uiLang}
+              files={auditReceivedList}
+              purposeOptions={auditPurposeOptions}
+              onPatch={(id, partial) => {
+                patchAuditReceivedDoc(id, partial);
+                if (partial.purposeId !== undefined) {
+                  const pid = (partial.purposeId || "").trim();
+                  if (pid) {
+                    const file = auditReceivedList.find((f) => f.id === id);
+                    setDocRequests((prev) =>
+                      prev.map((r) =>
+                        r.id === pid
+                          ? markPortalRequestReceived(r, {
+                              fileName: file?.name,
+                              previewText: file
+                                ? `Paired · ${file.name}`
+                                : undefined,
+                              year: auditYear,
+                            })
+                          : r,
+                      ),
+                    );
+                  }
+                }
+              }}
+              onOk={(file) => {
+                patchAuditReceivedDoc(file.id, {
+                  reviewVerdict: "ok",
+                  status: "reviewed",
+                });
+                const pid = (
+                  file.purposeId ||
+                  file.linkedRequestId ||
+                  ""
+                ).trim();
+                if (pid) {
+                  setDocRequests((prev) =>
+                    prev.map((r) =>
+                      r.id === pid
+                        ? {
+                            ...r,
+                            status: "uploaded" as const,
+                            uploadedFileName:
+                              r.uploadedFileName ??
+                              `${r.docName.replace(/\s+/g, "_")}_${auditYear}.pdf`,
+                            previewText:
+                              r.previewText ?? `Staff OK · ${file.name}`,
+                          }
+                        : r,
+                    ),
+                  );
+                }
+              }}
+              onNotOk={openAuditReceivedResendPopout}
+              linkedLabel={(file) => {
+                const linked = docRequests.find(
+                  (r) =>
+                    r.id === (file.purposeId || file.linkedRequestId || ""),
+                );
+                return linked
+                  ? `${t(uiLang, "trustDocsLinkedRequest")}: ${linked.docName}`
+                  : null;
+              }}
+            />}
+          overlay={
+            auditResendPopout ? (
+              <RequestMessagePopout
+                title={t(uiLang, "bkRequestPreviewTitle")}
+                closeLabel={t(uiLang, "taxReturnClosePreview")}
+                onClose={() => setAuditResendPopout(null)}
+                anchorRect={null}
+              >
+                <Stack gap={10}>
+                  <Row gap={8} align="center">
+                    <DocRequestFlowGlyph kind="sent" />
+                    <ChromeText size="small" tone="secondary">
+                      {receivedClientDocChannelLabel(uiLang, auditResendPopout.channel)}
+                    </ChromeText>
+                  </Row>
+                  {auditResendPopout.channel === "email" ? (
+                    <ChromeTextInput
+                      value={auditResendPopout.subject}
+                      onChange={(v) =>
+                        setAuditResendPopout((prev) =>
+                          prev ? { ...prev, subject: v } : prev,
+                        )
+                      }
+                    />
+                  ) : null}
+                  <textarea
+                    value={auditResendPopout.message}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAuditResendPopout((prev) =>
+                        prev ? { ...prev, message: v } : prev,
+                      );
+                    }}
+                    rows={8}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                      padding: 8,
+                      borderRadius: 8,
+                      border: `1px solid ${chromeBorder(theme)}`,
+                    }}
+                  />
+                  <Row gap={8} justify="end">
+                    <Button variant="secondary" onClick={() => setAuditResendPopout(null)}>
+                      {t(uiLang, "taxReturnClosePreview")}
+                    </Button>
+                    <Button variant="primary" onClick={sendAuditReceivedResend}>
+                      {t(uiLang, "taxReturnSendRequest")}
+                    </Button>
+                  </Row>
+                </Stack>
+              </RequestMessagePopout>
+            ) : null}
+        />
       );
     }
 
@@ -50769,6 +59182,12 @@ function AuditProcessWorkspace({
             id: item.id,
             label: t(uiLang, item.labelKey),
             badge: item.badge,
+            status: item.status,
+            icon: item.icon,
+            flowGlyphs: item.flowGlyphs,
+            badgeCount: item.badgeCount,
+            badgeTone: item.badgeTone,
+            sentBadgeCount: item.sentBadgeCount,
           }))}
           activeId={section}
           onSelect={setSection}
@@ -50799,6 +59218,9 @@ function AuditProcessWorkspace({
               onForward={() => {
                 if (footerNextStage) onStageChange(footerNextStage);
               }}
+              completedActive={checklist
+                .filter((item) => item.stageId === processStage)
+                .every((item) => item.done)}
               onCompleted={() => {
                 setChecklistDoneOverrides((prev) => {
                   const next = { ...prev };
@@ -50808,10 +59230,26 @@ function AuditProcessWorkspace({
                   }
                   return next;
                 });
+                showStageCompletedPopout({
+                  module: "audit",
+                  stageLabel: auditProcessLabel(uiLang, processStage),
+                  clientName: client.name,
+                });
+              }}
+              onUndoCompleted={() => {
+                setChecklistDoneOverrides((prev) => {
+                  const next = { ...prev };
+                  next[auditChecklistIdForStage(processStage)] = false;
+                  for (const item of checklist) {
+                    if (item.stageId === processStage) next[item.id] = false;
+                  }
+                  return next;
+                });
               }}
             />
           ) : null}
               </ModuleSectionFrame>
+      {stageCompletePopout}
     </Stack>
   );
 }/**
@@ -57858,8 +66296,10 @@ function CompanyModulesVisibilityScreen() {
   /** Persist role defaults only for keys the worker has never overridden. */
   useEffect(() => {
     if (tab !== "workers" || !effectiveWorkerId) return;
-    if (isAdminLike(selectedRights.role)) return;
-    const offIds = defaultNonAdminWorkerModuleOffIds(selectedDeptIds);
+    if (isSystemAdmin(selectedRights.role)) return;
+    const offIds = isManager(selectedRights.role)
+      ? defaultManagerSystemAdminModuleOffIds()
+      : defaultNonAdminWorkerModuleOffIds(selectedDeptIds);
     setWorkerEnabled((prev) => {
       const normalized = normalizeWorkerModuleEnabledMap(prev);
       const current = { ...(normalized[effectiveWorkerId] ?? {}) };
@@ -68446,18 +76886,50 @@ function FilesRootScreen() {
     );
   };
 
+  const [, setLiveFileOpenRoot] = useCanvasState<LiveFileRef>(
+    CRM_LIVE_FILE_OPEN_KEY,
+    LIVE_FILE_CLOSED,
+  );
+  const [liveFileContentsRoot] = useCanvasState<LiveFileContentsStore>(
+    CRM_LIVE_FILE_CONTENTS_KEY,
+    {},
+  );
+const openLiveFilesRootEntry = (row: FilesBrowserEntry) => {
+    if (row.kind !== "file") return;
+    const label = filesEntryLabel(uiLang, row);
+    const prefix = settings.rootPath.replace(/[\\/]+$/, "");
+    const folderBits = crumbs.map((c) => c.name);
+    const folderPath =
+      folderBits.length === 0
+        ? `${prefix} \\ ${label}`
+        : `${prefix} \\ ${folderBits.join(" \\ ")} \\ ${label}`;
+    setLiveFileOpenRoot({
+      id: row.id,
+      name: label,
+      folderPath,
+      source: "files-root",
+    });
+  };
+
+  const openOsFilesRootEntry = (row: FilesBrowserEntry) => {
+    if (row.kind !== "file") return;
+    const label = filesEntryLabel(uiLang, row);
+    setFlash(
+      openWithOsDefault(
+        { id: row.id, name: label },
+        liveFileContentsRoot,
+      ),
+    );
+  };
+
   const demoPreview = () => {
     if (!selected || selected.kind !== "file") {
       setFlash(t(uiLang, "filesRootSelectFile"));
       return;
     }
-    setFlash(
-      t(uiLang, "filesRootPreviewStub").replace(
-        "{name}",
-        filesEntryLabel(uiLang, selected),
-      ),
-    );
+    openOsFilesRootEntry(selected);
   };
+
 
   const pathPrefix = settings.rootPath.replace(/[\\/]+$/, "");
   const crumbPath =
@@ -69113,6 +77585,9 @@ const scanFolders = (forceDemo: boolean) => {
                 </Button>
               ))}
             </Row>
+            <ChromeText size="small" tone="tertiary">
+              {t(uiLang, "liveFileOsOpenHint")}
+            </ChromeText>
             <Row gap={8} wrap>
               <Button
                 variant="secondary"
@@ -69131,7 +77606,7 @@ const scanFolders = (forceDemo: boolean) => {
                 {t(uiLang, "filesRootDownload")}
               </Button>
               <Button variant="secondary" onClick={demoPreview}>
-                {t(uiLang, "filesRootPreview")}
+                {t(uiLang, "liveFileOpenWindowsDefault")}
               </Button>
             </Row>
           </Stack>
@@ -69152,7 +77627,23 @@ const scanFolders = (forceDemo: boolean) => {
                   type="button"
                   onClick={() => {
                     if (row.kind === "folder") openFolder(row.id);
-                    else setSelectedId(row.id);
+                    else {
+                      setSelectedId(row.id);
+                      openLiveFilesRootEntry(row);
+                    }
+                  }}
+                  onDoubleClick={() => {
+                    if (row.kind === "folder") openFolder(row.id);
+                    else {
+                      setSelectedId(row.id);
+                      openOsFilesRootEntry(row);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (row.kind !== "file") return;
+                    setSelectedId(row.id);
+                    openOsFilesRootEntry(row);
                   }}
                   style={{
                     background: "transparent",
@@ -69180,12 +77671,7 @@ const scanFolders = (forceDemo: boolean) => {
                     {t(uiLang, "filesRootOpenFolder")}
                   </Button>
                 ) : (
-                  <Button
-                    variant={selectedRow ? "primary" : "ghost"}
-                    onClick={() => setSelectedId(row.id)}
-                  >
-                    {t(uiLang, "open")}
-                  </Button>
+                  ""
                 ),
               ];
             })}
@@ -70716,14 +79202,327 @@ function formatAssignCount(lang: UiLang, n: number): string {
   return t(lang, "assignStaffCount").replace("{n}", String(n));
 }
 
+
+type AssignStaffMainTab = "all" | "worker" | "unassigned";
+type AssignStaffSortKey = "client" | "worker";
+type AssignStaffExcelCompare = "name" | "identity";
+
+type StaffAssignmentPair = {
+  key: string;
+  workerId: string;
+  entityId: string;
+  scope: StaffWorkScope;
+};
+
+type AssignStaffExcelDemoRow = {
+  id: string;
+  workerName: string;
+  clientName: string;
+  identity: string;
+  /** Template Category / department column (used when upload scope is Everything). */
+  category: string;
+};
+
+type AssignStaffExcelPair = {
+  id: string;
+  excelWorkerName: string;
+  excelClientName: string;
+  excelIdentity: string;
+  excelCategory: string;
+  workerId: string;
+  entityId: string;
+  scope: StaffWorkScope | null;
+  selected: boolean;
+  status: "matched" | "partial" | "unmatched";
+};
+
+type AssignStaffExcelPhase =
+  | "closed"
+  | "pick-upload-dept"
+  | "pick-template-dept"
+  | "preview"
+  | "match";
+
+type AssignStaffExcelDeptChoice = StaffWorkScope | "everything";
+
+/** Demo Excel batch — Category + Worker + Client (+ ID). */
+const ASSIGN_STAFF_EXCEL_DEMO_ROWS: AssignStaffExcelDemoRow[] = [
+  {
+    id: "ax-1",
+    workerName: "Avi Cohen",
+    clientName: "Cohen Books",
+    identity: "301112223",
+    category: "bookkeeping",
+  },
+  {
+    id: "ax-2",
+    workerName: "Eli Audit",
+    clientName: "Sharon Tech",
+    identity: "514998877",
+    category: "companies",
+  },
+  {
+    id: "ax-3",
+    workerName: "Noa Mizrahi",
+    clientName: "Malki Stationery",
+    identity: "302223334",
+    category: "individuals",
+  },
+  {
+    id: "ax-4",
+    workerName: "Dana Levi",
+    clientName: "Green Leaf Ltd",
+    identity: "515418499",
+    category: "bookkeeping",
+  },
+  {
+    id: "ax-5",
+    workerName: "Maya Billing",
+    clientName: "Unknown Client Ltd",
+    identity: "999000111",
+    category: "oneTime",
+  },
+  {
+    id: "ax-6",
+    workerName: "Mystery Worker",
+    clientName: "Olive Grove Holdings",
+    identity: "515667788",
+    category: "trusts",
+  },
+];
+
+function parseAssignStaffExcelCategory(
+  raw: string,
+  lang: UiLang,
+): StaffWorkScope | null {
+  const q = filesImportNormalize(raw);
+  if (!q || q === "everything" || q === "all") return null;
+  for (const scope of STAFF_ASSIGN_SCOPES) {
+    if (filesImportNormalize(scope) === q) return scope;
+    if (filesImportNormalize(assignScopeLabel(lang, scope)) === q) return scope;
+  }
+  if (q.includes("bookkeep")) return "bookkeeping";
+  if (q.includes("compan") || q.includes("audit")) return "companies";
+  if (q.includes("tax") || q.includes("individual")) return "individuals";
+  if (q.includes("trust")) return "trusts";
+  if (q.includes("osek")) return "osek";
+  if (q.includes("one") && q.includes("time")) return "oneTime";
+  return null;
+}
+
+function assignStaffExcelCategoryLabel(
+  lang: UiLang,
+  category: string,
+  lockScope?: AssignStaffExcelDeptChoice,
+): string {
+  if (lockScope && lockScope !== "everything") {
+    return assignScopeLabel(lang, lockScope);
+  }
+  const parsed = parseAssignStaffExcelCategory(category, lang);
+  if (parsed) return assignScopeLabel(lang, parsed);
+  return category.trim() || "—";
+}
+
+function buildAssignStaffExcelTemplateCsv(
+  lang: UiLang,
+  deptFilter: AssignStaffExcelDeptChoice | "",
+): string {
+  const header = ["Category", "Worker", "Client", "Identity"];
+  const rows = ASSIGN_STAFF_EXCEL_DEMO_ROWS.filter((r) => {
+    if (!deptFilter || deptFilter === "everything") return true;
+    return parseAssignStaffExcelCategory(r.category, lang) === deptFilter;
+  }).map((r) => {
+    const cat =
+      deptFilter && deptFilter !== "everything"
+        ? assignScopeLabel(lang, deptFilter)
+        : assignStaffExcelCategoryLabel(lang, r.category);
+    return [cat, r.workerName, r.clientName, r.identity];
+  });
+  const escape = (cell: string) => {
+    if (/[",\n]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`;
+    return cell;
+  };
+  return [header, ...rows]
+    .map((cols) => cols.map(escape).join(","))
+    .join("\n");
+}
+
+function flattenStaffAssignmentPairs(
+  assignments: StaffWorkAssignments | undefined,
+  rows: DemoRow[],
+): StaffAssignmentPair[] {
+  const map = assignments ?? DEFAULT_STAFF_ASSIGNMENTS;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out: StaffAssignmentPair[] = [];
+  for (const [workerId, raw] of Object.entries(map)) {
+    const bucket = sanitizeStaffBucketAgainstRows(
+      normalizeStaffBucket(raw),
+      rows,
+    );
+    for (const scope of STAFF_ASSIGN_SCOPES) {
+      for (const entityId of scopeIdsFromBucket(bucket, scope)) {
+        if (!byId.has(entityId)) continue;
+        out.push({
+          key: `${workerId}:${scope}:${entityId}`,
+          workerId,
+          entityId,
+          scope,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Clients eligible for assignment that have no worker in any scope. */
+function unassignedAssignableRows(
+  rows: DemoRow[],
+  assignments: StaffWorkAssignments | undefined,
+): DemoRow[] {
+  return rows.filter((row) => {
+    const scope = staffWorkScopeForRow(row);
+    if (!scope) return false;
+    if (scope === "bookkeeping" && !isBookkeepingAssignableRow(row)) {
+      return false;
+    }
+    return assigneeWorkerIdsForEntityAnyScope(assignments, row.id).length === 0;
+  });
+}
+
+function resolveWorkerByLabel(
+  label: string,
+  workers: FirmWorker[],
+  lang: UiLang,
+): FirmWorker | undefined {
+  const q = filesImportNormalize(label);
+  if (!q) return undefined;
+  return (
+    workers.find(
+      (w) => filesImportNormalize(staffDisplayName(lang, w.id, workers)) === q,
+    ) ??
+    workers.find((w) =>
+      filesImportNormalize(staffDisplayName(lang, w.id, workers)).includes(q),
+    ) ??
+    workers.find((w) =>
+      q.includes(filesImportNormalize(staffDisplayName(lang, w.id, workers))),
+    )
+  );
+}
+
+function resolveDemoRowForAssignExcel(
+  label: string,
+  identity: string,
+  rows: DemoRow[],
+  lang: UiLang,
+  field: AssignStaffExcelCompare,
+): DemoRow | undefined {
+  const assignable = rows.filter((r) => staffWorkScopeForRow(r) != null);
+  if (field === "identity") {
+    const idq = filesImportNormalize(identity.replace(/\D+/g, "") || identity);
+    if (idq) {
+      const byId =
+        assignable.find(
+          (r) => filesImportNormalize(String(r.identity ?? "")) === idq,
+        ) ??
+        assignable.find((r) =>
+          filesImportNormalize(String(r.identity ?? "")).includes(idq),
+        );
+      if (byId) return byId;
+    }
+  }
+  return resolveDemoRowByLabel(label, assignable, lang);
+}
+
+function buildAssignStaffExcelPairs(
+  demoRows: AssignStaffExcelDemoRow[],
+  workers: FirmWorker[],
+  rows: DemoRow[],
+  lang: UiLang,
+  field: AssignStaffExcelCompare,
+  opts?: {
+    lockWorkerId?: string;
+    lockScope?: AssignStaffExcelDeptChoice;
+  },
+): AssignStaffExcelPair[] {
+  const lockWorkerId = opts?.lockWorkerId;
+  const lockScope = opts?.lockScope;
+  return demoRows.map((row) => {
+    const locked =
+      lockWorkerId && workers.some((w) => w.id === lockWorkerId)
+        ? lockWorkerId
+        : "";
+    const worker =
+      locked
+        ? workers.find((w) => w.id === locked)
+        : resolveWorkerByLabel(row.workerName, workers, lang);
+    const entity = resolveDemoRowForAssignExcel(
+      row.clientName,
+      row.identity,
+      rows,
+      lang,
+      field,
+    );
+    let scope: StaffWorkScope | null = null;
+    if (lockScope && lockScope !== "everything") {
+      scope = lockScope;
+    } else {
+      scope =
+        parseAssignStaffExcelCategory(row.category, lang) ??
+        (entity ? staffWorkScopeForRow(entity) : null);
+    }
+    const workerId = worker?.id ?? "";
+    const entityId = entity?.id ?? "";
+    let status: AssignStaffExcelPair["status"] = "unmatched";
+    if (workerId && entityId && scope) status = "matched";
+    else if (workerId || entityId) status = "partial";
+    return {
+      id: row.id,
+      excelWorkerName: row.workerName,
+      excelClientName: row.clientName,
+      excelIdentity: row.identity,
+      excelCategory: row.category,
+      workerId,
+      entityId,
+      scope,
+      selected: status === "matched",
+      status,
+    };
+  });
+}
+
+function assignEntityIntoMap(
+  prev: StaffWorkAssignments,
+  workerId: string,
+  entityId: string,
+  scope: StaffWorkScope,
+  rows: DemoRow[],
+): StaffWorkAssignments {
+  const bucket = sanitizeStaffBucketAgainstRows(
+    normalizeStaffBucket(prev[workerId]),
+    rows,
+  );
+  const current = scopeIdsFromBucket(bucket, scope);
+  if (current.includes(entityId)) return prev;
+  return {
+    ...prev,
+    [workerId]: sanitizeStaffBucketAgainstRows(
+      withScopeIds(bucket, scope, [...current, entityId]),
+      rows,
+    ),
+  };
+}
+
 function AssignStaffScreen({
   role,
   mode,
+  onOpenMyAssignments,
 }: {
   role: Role;
   /** manage = Workers → Assign staff; mine = Worker → My assignments. */
   mode: "manage" | "mine";
+  onOpenMyAssignments?: () => void;
 }) {
+  const theme = useHostTheme();
   const [uiLang] = useCanvasState<UiLang>("crmUiLang", "en");
   const [firmWorkers] = useCanvasState<FirmWorker[]>(
     "firmWorkers.v3",
@@ -70733,9 +79532,16 @@ function AssignStaffScreen({
     "firmDepartments.v3",
     DEFAULT_FIRM_DEPARTMENTS,
   );
-  const workers = normalizeFirmWorkers(
-    Array.isArray(firmWorkers) ? firmWorkers : DEMO_STAFF,
-  );
+  const workers = (() => {
+    const base = normalizeFirmWorkers(
+      Array.isArray(firmWorkers) && firmWorkers.length > 0
+        ? firmWorkers
+        : DEMO_STAFF,
+    );
+    const have = new Set(base.map((w) => w.id));
+    const missing = DEMO_STAFF.filter((w) => !have.has(w.id));
+    return missing.length ? [...base, ...missing] : base;
+  })();
   const departments = Array.isArray(firmDepartments)
     ? firmDepartments
     : DEFAULT_FIRM_DEPARTMENTS;
@@ -70757,7 +79563,16 @@ function AssignStaffScreen({
     "assignStaffWorkerQuery.v1",
     "",
   );
-  const [scope, setScope] = useCanvasState<StaffWorkScope>(
+  const [workerTab, setWorkerTab] = useCanvasState<string>(
+    "assignStaffWorkerTab.v1",
+    "all",
+  );
+  /** Worker → What I'm assigned to: active department top tab. */
+  const [workerMineTab, setWorkerMineTab] = useCanvasState<string>(
+    "assignStaff.workerMineTab.v1",
+    "bookkeeping",
+  );
+  const [addScope, setAddScope] = useCanvasState<StaffWorkScope>(
     "assignStaffScope.v1",
     "bookkeeping",
   );
@@ -70766,38 +79581,149 @@ function AssignStaffScreen({
     "",
   );
   const [flash, setFlash] = useCanvasState("assignStaffFlash.v1", "");
+  const [mainTab, setMainTab] = useCanvasState<AssignStaffMainTab>(
+    "assignStaffMainTab.v1",
+    "all",
+  );
+  const [allSort, setAllSort] = useCanvasState<AssignStaffSortKey>(
+    "assignStaffAllSort.v1",
+    "client",
+  );
+  const [allFilterWorker, setAllFilterWorker] = useCanvasState(
+    "assignStaffAllFilterWorker.v1",
+    "",
+  );
+  const [allFilterScope, setAllFilterScope] = useCanvasState(
+    "assignStaffAllFilterScope.v1",
+    "",
+  );
+  const [allSearch, setAllSearch] = useCanvasState(
+    "assignStaffAllSearch.v1",
+    "",
+  );
+  const [unassignedFilterScope, setUnassignedFilterScope] = useCanvasState(
+    "assignStaffUnassignedFilterScope.v1",
+    "",
+  );
+  const [unassignedSearch, setUnassignedSearch] = useCanvasState(
+    "assignStaffUnassignedSearch.v1",
+    "",
+  );
+  const [unassignedWorkerId, setUnassignedWorkerId] = useCanvasState(
+    "assignStaffUnassignedWorker.v1",
+    DEMO_WORKER.id,
+  );
+  const [unassignedPicks, setUnassignedPicks] = useCanvasState<string[]>(
+    "assignStaffUnassignedPicks.v1",
+    [],
+  );
+  const [excelShown, setExcelShown] = useCanvasState(
+    "assignStaffExcelShown.v1",
+    false,
+  );
+  const [excelCompare, setExcelCompare] =
+    useCanvasState<AssignStaffExcelCompare>(
+      "assignStaffExcelCompare.v1",
+      "name",
+    );
+  const [excelMode, setExcelMode] = useCanvasState<"auto" | "manual">(
+    "assignStaffExcelMode.v1",
+    "auto",
+  );
+  const [excelPairs, setExcelPairs] = useCanvasState<AssignStaffExcelPair[]>(
+    "assignStaffExcelPairs.v1",
+    [],
+  );
+  const [excelContext, setExcelContext] = useCanvasState<"worker" | "unassigned">(
+    "assignStaffExcelContext.v1",
+    "worker",
+  );
+  const [excelPhase, setExcelPhase] = useCanvasState<AssignStaffExcelPhase>(
+    "assignStaffExcelPhase.v1",
+    "closed",
+  );
+  const [excelUploadDept, setExcelUploadDept] =
+    useCanvasState<AssignStaffExcelDeptChoice>(
+      "assignStaffExcelUploadDept.v1",
+      "everything",
+    );
+  const [excelTemplateDept, setExcelTemplateDept] = useCanvasState<
+    AssignStaffExcelDeptChoice | ""
+  >("assignStaffExcelTemplateDept.v1", "");
+  const [excelPreviewClient, setExcelPreviewClient] = useCanvasState(
+    "assignStaffExcelPreviewClient.v1",
+    "",
+  );
+  const [excelPreviewDept, setExcelPreviewDept] = useCanvasState(
+    "assignStaffExcelPreviewDept.v1",
+    "",
+  );
+  const [excelRawRows, setExcelRawRows] = useCanvasState<
+    AssignStaffExcelDemoRow[]
+  >("assignStaffExcelRawRows.v1", []);
+  const allListAnchorRef = useRef<HTMLDivElement | null>(null);
 
-  const canManage = mode === "manage" && isAdminLike(role);
+  const preserveShellScroll = () => {
+    let scroller: HTMLElement | null = allListAnchorRef.current;
+    while (scroller && scroller !== document.body) {
+      const oy =
+        typeof window !== "undefined"
+          ? window.getComputedStyle(scroller).overflowY
+          : "";
+      if (oy === "auto" || oy === "scroll") break;
+      scroller = scroller.parentElement;
+    }
+    const top = scroller?.scrollTop ?? 0;
+    return () => {
+      if (scroller) scroller.scrollTop = top;
+    };
+  };
+
+  /** Assign staff tile / Workers secondary → full UI. My assignments tile → self-review. */
+  const canManage = mode === "manage";
   const focusWorkerId = canManage
     ? workers.some((w) => w.id === selectedWorkerId)
       ? selectedWorkerId
       : workers[0]?.id ?? DEMO_WORKER.id
     : signedInWorkerId;
 
+  const map = assignments ?? DEFAULT_STAFF_ASSIGNMENTS;
   const bucket = sanitizeStaffBucketAgainstRows(
-    normalizeStaffBucket(
-      (assignments ?? DEFAULT_STAFF_ASSIGNMENTS)[focusWorkerId],
-    ),
+    normalizeStaffBucket(map[focusWorkerId]),
     rows,
   );
-  const activeScope: StaffWorkScope = isStaffWorkScope(scope)
-    ? scope
-    : "bookkeeping";
+  const workerTabIsAll = workerTab === "all";
+  const activeScope: StaffWorkScope = isStaffWorkScope(workerTab)
+    ? workerTab
+    : isStaffWorkScope(addScope)
+      ? addScope
+      : "bookkeeping";
+  /** Department used by Add assignment (tab scope, or picker on All assigned). */
+  const scopeForAdd: StaffWorkScope = workerTabIsAll
+    ? (isStaffWorkScope(addScope) ? addScope : "bookkeeping")
+    : activeScope;
   const workerName = staffDisplayName(uiLang, focusWorkerId, workers);
-  const scopeRows = rowsForAssignScope(rows, activeScope);
-  const assignedIds = new Set(scopeIdsFromBucket(bucket, activeScope));
+  const scopeRows = rowsForAssignScope(rows, scopeForAdd);
+  const assignedIds = new Set(scopeIdsFromBucket(bucket, scopeForAdd));
   const availableScopeRows = scopeRows.filter((r) => !assignedIds.has(r.id));
   const entityCandidates = availableScopeRows.map((r) =>
     displayClientName(r, uiLang),
+  );
+  const workerAssignedTotal = STAFF_ASSIGN_SCOPES.reduce(
+    (n, id) => n + scopeIdsFromBucket(bucket, id).length,
+    0,
   );
   const workerCandidates = workers.map((w) =>
     staffDisplayName(uiLang, w.id, workers),
   );
 
-  const patchBucket = (next: StaffWorkBucket) => {
+  const allPairs = flattenStaffAssignmentPairs(map, rows);
+  const unassignedRows = unassignedAssignableRows(rows, map);
+
+  const patchBucketFor = (workerId: string, next: StaffWorkBucket) => {
     setAssignments((prev) => ({
       ...(prev ?? DEFAULT_STAFF_ASSIGNMENTS),
-      [focusWorkerId]: sanitizeStaffBucketAgainstRows(
+      [workerId]: sanitizeStaffBucketAgainstRows(
         normalizeStaffBucket(next),
         rows,
       ),
@@ -70805,28 +79731,55 @@ function AssignStaffScreen({
     setFlash(t(uiLang, "assignStaffSaved"));
   };
 
-  const addEntityByLabel = (label: string) => {
+  const addEntityToWorker = (
+    workerId: string,
+    label: string,
+    scopeKey: StaffWorkScope,
+  ) => {
     if (!canManage) return;
-    const match = resolveDemoRowByLabel(label, availableScopeRows, uiLang);
+    const pool = rowsForAssignScope(rows, scopeKey).filter((r) => {
+      const b = sanitizeStaffBucketAgainstRows(
+        normalizeStaffBucket(map[workerId]),
+        rows,
+      );
+      return !scopeIdsFromBucket(b, scopeKey).includes(r.id);
+    });
+    const match = resolveDemoRowByLabel(label, pool, uiLang);
     if (!match) return;
     if (
-      activeScope === "bookkeeping" &&
+      scopeKey === "bookkeeping" &&
       !isBookkeepingAssignableRow(match)
     ) {
       return;
     }
-    const current = scopeIdsFromBucket(bucket, activeScope);
+    const currentBucket = sanitizeStaffBucketAgainstRows(
+      normalizeStaffBucket(map[workerId]),
+      rows,
+    );
+    const current = scopeIdsFromBucket(currentBucket, scopeKey);
     if (current.includes(match.id)) return;
-    patchBucket(withScopeIds(bucket, activeScope, [...current, match.id]));
+    patchBucketFor(
+      workerId,
+      withScopeIds(currentBucket, scopeKey, [...current, match.id]),
+    );
     setEntityQuery("");
   };
 
-  const removeEntity = (scopeKey: StaffWorkScope, id: string) => {
+  const removeEntity = (
+    workerId: string,
+    scopeKey: StaffWorkScope,
+    id: string,
+  ) => {
     if (!canManage) return;
-    const current = scopeIdsFromBucket(bucket, scopeKey);
-    patchBucket(
+    const currentBucket = sanitizeStaffBucketAgainstRows(
+      normalizeStaffBucket(map[workerId]),
+      rows,
+    );
+    const current = scopeIdsFromBucket(currentBucket, scopeKey);
+    patchBucketFor(
+      workerId,
       withScopeIds(
-        bucket,
+        currentBucket,
         scopeKey,
         current.filter((x) => x !== id),
       ),
@@ -70835,7 +79788,7 @@ function AssignStaffScreen({
 
   const clearScope = () => {
     if (!canManage) return;
-    patchBucket(withScopeIds(bucket, activeScope, []));
+    patchBucketFor(focusWorkerId, withScopeIds(bucket, activeScope, []));
   };
 
   const selectWorkerByLabel = (label: string) => {
@@ -70854,8 +79807,244 @@ function AssignStaffScreen({
     }
   };
 
-  const renderScopeList = (scopeKey: StaffWorkScope) => {
-    const ids = scopeIdsFromBucket(bucket, scopeKey);
+  const openUploadDeptPicker = (context: "worker" | "unassigned") => {
+    setExcelContext(context);
+    setExcelUploadDept("everything");
+    setExcelPhase("pick-upload-dept");
+    setExcelShown(false);
+  };
+
+  const openTemplateDeptPicker = () => {
+    setExcelTemplateDept("");
+    setExcelPhase("pick-template-dept");
+  };
+
+  /** Sumit clip: פעולות נוספות → מיזוג כרטיסים — jump straight to match board. */
+  const openSumitMergeCards = (context: "worker" | "unassigned") => {
+    setExcelContext(context);
+    setExcelUploadDept("everything");
+    const raw = ASSIGN_STAFF_EXCEL_DEMO_ROWS.slice();
+    setExcelRawRows(raw);
+    setExcelPreviewClient("");
+    setExcelPreviewDept("");
+    setExcelMode("auto");
+    setExcelShown(true);
+    const lockWorker =
+      context === "worker" ? focusWorkerId : undefined;
+    setExcelPairs(
+      buildAssignStaffExcelPairs(
+        raw,
+        workers,
+        rows,
+        uiLang,
+        excelCompare,
+        {
+          lockWorkerId: lockWorker,
+          lockScope: "everything",
+        },
+      ),
+    );
+    setExcelPhase("match");
+    setFlash(
+      t(uiLang, "assignStaffExcelLoaded").replace("{n}", String(raw.length)),
+    );
+  };
+
+  const downloadAssignStaffTemplate = () => {
+    const csv = buildAssignStaffExcelTemplateCsv(
+      uiLang,
+      excelTemplateDept || "everything",
+    );
+    downloadBlobFile(
+      "assign-staff-template.csv",
+      csv,
+      "text/csv;charset=utf-8",
+    );
+    setExcelPhase("closed");
+    setFlash(t(uiLang, "assignStaffTemplateDownloaded"));
+  };
+
+  const confirmUploadDept = () => {
+    // Demo workbook keeps all rows; department choice scopes matching only.
+    const raw = ASSIGN_STAFF_EXCEL_DEMO_ROWS.slice();
+    setExcelRawRows(raw);
+    setExcelPreviewClient("");
+    setExcelPreviewDept("");
+    setExcelPairs([]);
+    setExcelShown(true);
+    setExcelPhase("preview");
+    setExcelMode("auto");
+    setFlash(
+      t(uiLang, "assignStaffExcelLoaded").replace("{n}", String(raw.length)),
+    );
+  };
+
+  const continuePreviewToMatch = () => {
+    const lockWorker =
+      excelContext === "worker" ? focusWorkerId : undefined;
+    let source = excelRawRows.length
+      ? excelRawRows
+      : ASSIGN_STAFF_EXCEL_DEMO_ROWS;
+    const cq = excelPreviewClient.trim().toLowerCase();
+    const dq = excelPreviewDept.trim().toLowerCase();
+    if (cq) {
+      source = source.filter((r) =>
+        r.clientName.toLowerCase().includes(cq),
+      );
+    }
+    if (dq) {
+      source = source.filter((r) =>
+        assignStaffExcelCategoryLabel(
+          uiLang,
+          r.category,
+          excelUploadDept,
+        )
+          .toLowerCase()
+          .includes(dq),
+      );
+    }
+    setExcelPairs(
+      buildAssignStaffExcelPairs(
+        source,
+        workers,
+        rows,
+        uiLang,
+        excelCompare,
+        {
+          lockWorkerId: lockWorker,
+          lockScope: excelUploadDept,
+        },
+      ),
+    );
+    setExcelPhase("match");
+  };
+
+  const runExcelAutoMatch = () => {
+    setExcelMode("auto");
+    const lockWorker =
+      excelContext === "worker" ? focusWorkerId : undefined;
+    const source = excelRawRows.length
+      ? excelRawRows
+      : ASSIGN_STAFF_EXCEL_DEMO_ROWS;
+    setExcelPairs(
+      buildAssignStaffExcelPairs(
+        source,
+        workers,
+        rows,
+        uiLang,
+        excelCompare,
+        {
+          lockWorkerId: lockWorker,
+          lockScope: excelUploadDept,
+        },
+      ),
+    );
+  };
+
+  const applyExcelPairs = () => {
+    if (!canManage) return;
+    let next = { ...(assignments ?? DEFAULT_STAFF_ASSIGNMENTS) };
+    let applied = 0;
+    for (const pair of excelPairs) {
+      if (!pair.selected) continue;
+      const workerId =
+        excelContext === "worker"
+          ? focusWorkerId
+          : pair.workerId || unassignedWorkerId;
+      if (!workerId || !pair.entityId || !pair.scope) continue;
+      const before = JSON.stringify(next[workerId] ?? null);
+      next = assignEntityIntoMap(
+        next,
+        workerId,
+        pair.entityId,
+        pair.scope,
+        rows,
+      );
+      if (JSON.stringify(next[workerId] ?? null) !== before) applied += 1;
+    }
+    setAssignments(next);
+    setFlash(
+      t(uiLang, "assignStaffExcelApplied").replace("{n}", String(applied)),
+    );
+  };
+
+  const filteredAllPairs = (() => {
+    let list = allPairs.slice();
+    if (allFilterWorker) {
+      list = list.filter((p) => p.workerId === allFilterWorker);
+    }
+    if (allFilterScope) {
+      list = list.filter((p) => p.scope === allFilterScope);
+    }
+    const q = allSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((p) => {
+        const client =
+          displayClientName(
+            rows.find((r) => r.id === p.entityId)!,
+            uiLang,
+          )?.toLowerCase() ?? "";
+        const worker = staffDisplayName(
+          uiLang,
+          p.workerId,
+          workers,
+        ).toLowerCase();
+        return client.includes(q) || worker.includes(q);
+      });
+    }
+    list.sort((a, b) => {
+      if (allSort === "worker") {
+        const aw = staffDisplayName(uiLang, a.workerId, workers);
+        const bw = staffDisplayName(uiLang, b.workerId, workers);
+        const c = aw.localeCompare(bw);
+        if (c !== 0) return c;
+      }
+      const ac = displayClientName(
+        rows.find((r) => r.id === a.entityId)!,
+        uiLang,
+      );
+      const bc = displayClientName(
+        rows.find((r) => r.id === b.entityId)!,
+        uiLang,
+      );
+      const c = ac.localeCompare(bc);
+      if (c !== 0) return c;
+      return staffDisplayName(uiLang, a.workerId, workers).localeCompare(
+        staffDisplayName(uiLang, b.workerId, workers),
+      );
+    });
+    return list;
+  })();
+
+  const filteredUnassigned = (() => {
+    const q = unassignedSearch.trim().toLowerCase();
+    let list = unassignedRows.slice();
+    if (unassignedFilterScope) {
+      list = list.filter(
+        (r) => staffWorkScopeForRow(r) === unassignedFilterScope,
+      );
+    }
+    if (q) {
+      list = list.filter((r) =>
+        displayClientName(r, uiLang).toLowerCase().includes(q),
+      );
+    }
+    list.sort((a, b) =>
+      displayClientName(a, uiLang).localeCompare(displayClientName(b, uiLang)),
+    );
+    return list;
+  })();
+
+  const renderScopeList = (
+    workerId: string,
+    scopeKey: StaffWorkScope,
+    opts?: { hideHeader?: boolean },
+  ) => {
+    const b = sanitizeStaffBucketAgainstRows(
+      normalizeStaffBucket(map[workerId]),
+      rows,
+    );
+    const ids = scopeIdsFromBucket(b, scopeKey);
     const list = ids
       .map((id) => rows.find((r) => r.id === id))
       .filter((r): r is DemoRow => Boolean(r))
@@ -70864,10 +80053,14 @@ function AssignStaffScreen({
       );
     return (
       <Stack gap={8}>
-        <Row align="center" gap={8} wrap>
-          <ChromeText weight="semibold">{assignScopeLabel(uiLang, scopeKey)}</ChromeText>
-          <Pill tone="neutral">{formatAssignCount(uiLang, list.length)}</Pill>
-        </Row>
+        {opts?.hideHeader ? null : (
+          <Row align="center" gap={8} wrap>
+            <ChromeText weight="semibold">
+              {assignScopeLabel(uiLang, scopeKey)}
+            </ChromeText>
+            <Pill tone="neutral">{formatAssignCount(uiLang, list.length)}</Pill>
+          </Row>
+        )}
         {list.length === 0 ? (
           <ChromeText size="small" tone="secondary">
             {t(uiLang, "assignStaffEmptyScope")}
@@ -70875,21 +80068,32 @@ function AssignStaffScreen({
         ) : (
           <Stack gap={6}>
             {list.map((row) => (
-              <Row key={`${scopeKey}-${row.id}`} align="center" gap={8} wrap>
-                <ChromeText style={{ flex: 1, minWidth: 120 }}>
+              <Row
+                key={`${scopeKey}-${row.id}`}
+                align="center"
+                gap={8}
+                style={{ width: "100%" }}
+              >
+                <ChromeText style={{ flex: 1, minWidth: 0 }}>
                   {displayClientName(row, uiLang)}
                 </ChromeText>
-                <Pill tone="neutral">
-                  {clientTypeLabel(
-                    uiLang,
-                    row.kind === "all" ? "all" : row.kind,
-                  )}
-                </Pill>
+                <div
+                  style={{
+                    flexShrink: 0,
+                    minWidth: 120,
+                    display: "flex",
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <Pill tone="neutral">
+                    {assignScopeLabel(uiLang, scopeKey)}
+                  </Pill>
+                </div>
                 {canManage ? (
                   <GmailButton
                     size="compact"
                     variant="text"
-                    onClick={() => removeEntity(scopeKey, row.id)}
+                    onClick={() => removeEntity(workerId, scopeKey, row.id)}
                   >
                     {t(uiLang, "assignStaffUnassign")}
                   </GmailButton>
@@ -70902,171 +80106,1351 @@ function AssignStaffScreen({
     );
   };
 
-  const scopeTabs: RaisedTabItem[] = STAFF_ASSIGN_SCOPES.map((id) => ({
-    id,
-    label: `${assignScopeLabel(uiLang, id)} (${scopeIdsFromBucket(bucket, id).length})`,
-  }));
-
-  const renderAllScopeLists = () => (
+  const renderAllScopeLists = (workerId: string) => (
     <Stack gap={16}>
       {STAFF_ASSIGN_SCOPES.map((scopeKey, i) => (
         <Stack key={scopeKey} gap={16}>
           {i > 0 ? <Divider /> : null}
-          {renderScopeList(scopeKey)}
+          {renderScopeList(workerId, scopeKey)}
         </Stack>
       ))}
     </Stack>
   );
 
+  const scopeTabs: RaisedTabItem[] = [
+    {
+      id: "all",
+      label: `${t(uiLang, "assignStaffWorkerTabAll")} (${workerAssignedTotal})`,
+    },
+    ...STAFF_ASSIGN_SCOPES.map((id) => ({
+      id,
+      label: `${assignScopeLabel(uiLang, id)} (${scopeIdsFromBucket(bucket, id).length})`,
+    })),
+  ];
+
+  /** Worker My assignments — top tabs per STAFF_ASSIGN_SCOPES with counts. */
+  const mineActiveScope: StaffWorkScope = isStaffWorkScope(workerMineTab)
+    ? workerMineTab
+    : "bookkeeping";
+  const mineScopeTabs: RaisedTabItem[] = STAFF_ASSIGN_SCOPES.map((id) => ({
+    id,
+    label: `${assignScopeLabel(uiLang, id)} (${scopeIdsFromBucket(bucket, id).length})`,
+  }));
+
+  const mainTabs: RaisedTabItem[] = [
+    {
+      id: "all",
+      label: `${t(uiLang, "assignStaffTabAll")} (${allPairs.length})`,
+    },
+    {
+      id: "worker",
+      label: t(uiLang, "assignStaffTabWorker"),
+    },
+    {
+      id: "unassigned",
+      label: `${t(uiLang, "assignStaffTabUnassigned")} (${unassignedRows.length})`,
+    },
+  ];
+
+  const renderExcelModals = () => {
+    if (
+      excelPhase !== "pick-upload-dept" &&
+      excelPhase !== "pick-template-dept"
+    ) {
+      return null;
+    }
+    const isUpload = excelPhase === "pick-upload-dept";
+    const title = isUpload
+      ? t(uiLang, "assignStaffUploadDeptTitle")
+      : t(uiLang, "assignStaffTemplateDownload");
+    return (
+      <div
+        role="presentation"
+        data-chrome="assign-staff-excel-dept-popout-backdrop"
+        style={{
+          position: "fixed",
+          zIndex: 10000,
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.28)",
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "center",
+          paddingTop: 72,
+          paddingInline: 16,
+          boxSizing: "border-box",
+        }}
+        onClick={() => setExcelPhase("closed")}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          data-chrome="assign-staff-excel-dept-popout"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+          style={{
+            maxWidth: 420,
+            width: "100%",
+            boxSizing: "border-box",
+            padding: 14,
+            borderRadius: 10,
+            border: `1px solid ${CHROME_BORDER_BLUE}`,
+            background: CHROME_WHITE,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+          }}
+        >
+          <Row align="center" gap={8}>
+            <ChromeText weight="semibold" style={{ flex: 1, minWidth: 0 }}>
+              {title}
+            </ChromeText>
+            <GmailButton
+              variant="text"
+              onClick={() => setExcelPhase("closed")}
+            >
+              ×
+            </GmailButton>
+          </Row>
+          {isUpload ? (
+            <Stack gap={12}>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "assignStaffUploadDeptHint")}
+              </ChromeText>
+              <Stack gap={4} style={{ maxWidth: 320 }}>
+                <FieldLabel>{t(uiLang, "assignStaffPickScope")}</FieldLabel>
+                <Select
+                  value={excelUploadDept}
+                  onChange={(v) => {
+                    if (v === "everything") setExcelUploadDept("everything");
+                    else if (isStaffWorkScope(v)) setExcelUploadDept(v);
+                  }}
+                  options={[
+                    {
+                      value: "everything",
+                      label: t(uiLang, "assignStaffUploadEverything"),
+                    },
+                    ...STAFF_ASSIGN_SCOPES.map((id) => ({
+                      value: id,
+                      label: assignScopeLabel(uiLang, id),
+                    })),
+                  ]}
+                />
+              </Stack>
+              <Row gap={8} wrap>
+                <GmailButton
+                  variant="primary"
+                  size="compact"
+                  onClick={confirmUploadDept}
+                >
+                  {t(uiLang, "assignStaffUploadContinue")}
+                </GmailButton>
+                <GmailButton
+                  variant="secondary"
+                  size="compact"
+                  onClick={() => setExcelPhase("closed")}
+                >
+                  {t(uiLang, "assignStaffExcelCancel")}
+                </GmailButton>
+              </Row>
+            </Stack>
+          ) : (
+            <Stack gap={12}>
+              <Stack gap={4} style={{ maxWidth: 320 }}>
+                <FieldLabel>
+                  {t(uiLang, "assignStaffTemplateDeptOptional")}
+                </FieldLabel>
+                <Select
+                  value={excelTemplateDept || "everything"}
+                  onChange={(v) => {
+                    if (v === "everything") setExcelTemplateDept("");
+                    else if (isStaffWorkScope(v)) setExcelTemplateDept(v);
+                  }}
+                  options={[
+                    {
+                      value: "everything",
+                      label: t(uiLang, "assignStaffTemplateEverything"),
+                    },
+                    ...STAFF_ASSIGN_SCOPES.map((id) => ({
+                      value: id,
+                      label: assignScopeLabel(uiLang, id),
+                    })),
+                  ]}
+                />
+              </Stack>
+              <Row gap={8} wrap>
+                <GmailButton
+                  variant="primary"
+                  size="compact"
+                  onClick={downloadAssignStaffTemplate}
+                >
+                  {t(uiLang, "assignStaffTemplateDownload")}
+                </GmailButton>
+                <GmailButton
+                  variant="secondary"
+                  size="compact"
+                  onClick={() => setExcelPhase("closed")}
+                >
+                  {t(uiLang, "assignStaffExcelCancel")}
+                </GmailButton>
+              </Row>
+            </Stack>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderExcelPanel = () => {
+    if (excelPhase === "preview") {
+      const previewRows = (() => {
+        let list = excelRawRows.length
+          ? excelRawRows.slice()
+          : ASSIGN_STAFF_EXCEL_DEMO_ROWS.slice();
+        const cq = excelPreviewClient.trim().toLowerCase();
+        const dq = excelPreviewDept.trim().toLowerCase();
+        if (cq) {
+          list = list.filter((r) => r.clientName.toLowerCase().includes(cq));
+        }
+        if (dq) {
+          list = list.filter((r) =>
+            assignStaffExcelCategoryLabel(
+              uiLang,
+              r.category,
+              excelUploadDept,
+            )
+              .toLowerCase()
+              .includes(dq),
+          );
+        }
+        return list;
+      })();
+      return (
+        <Card>
+          <CardHeader>{t(uiLang, "assignStaffExcelPreviewTitle")}</CardHeader>
+          <CardBody>
+            <Stack gap={12}>
+              <ChromeText size="small" tone="secondary">
+                {t(uiLang, "assignStaffExcelPreviewHint")}
+              </ChromeText>
+              <Row gap={8} wrap align="end">
+                <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+                  <FieldLabel>
+                    {t(uiLang, "assignStaffExcelPreviewFilterClient")}
+                  </FieldLabel>
+                  <ChromeTextInput
+                    value={excelPreviewClient}
+                    onChange={setExcelPreviewClient}
+                    placeholder={t(
+                      uiLang,
+                      "assignStaffExcelPreviewFilterClient",
+                    )}
+                  />
+                </Stack>
+                <Stack gap={4} style={{ flex: 1, minWidth: 160 }}>
+                  <FieldLabel>
+                    {t(uiLang, "assignStaffExcelPreviewFilterDept")}
+                  </FieldLabel>
+                  <ChromeTextInput
+                    value={excelPreviewDept}
+                    onChange={setExcelPreviewDept}
+                    placeholder={t(
+                      uiLang,
+                      "assignStaffExcelPreviewFilterDept",
+                    )}
+                  />
+                </Stack>
+              </Row>
+              <Stack gap={6}>
+                <Row gap={8} align="center" style={{ width: "100%" }}>
+                  <ChromeText
+                    size="small"
+                    weight="semibold"
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
+                    {t(uiLang, "assignStaffExcelColExcelWorker")}
+                  </ChromeText>
+                  <ChromeText
+                    size="small"
+                    weight="semibold"
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
+                    {t(uiLang, "assignStaffExcelColExcelClient")}
+                  </ChromeText>
+                  <ChromeText
+                    size="small"
+                    weight="semibold"
+                    style={{
+                      flexShrink: 0,
+                      minWidth: 120,
+                      textAlign: "end",
+                    }}
+                  >
+                    {t(uiLang, "assignStaffExcelColCategory")}
+                  </ChromeText>
+                </Row>
+                {previewRows.map((r) => (
+                  <Row
+                    key={r.id}
+                    gap={8}
+                    align="center"
+                    style={{ width: "100%" }}
+                  >
+                    <ChromeText style={{ flex: 1, minWidth: 0 }}>
+                      {r.workerName}
+                    </ChromeText>
+                    <ChromeText style={{ flex: 1, minWidth: 0 }}>
+                      {r.clientName}
+                    </ChromeText>
+                    <div
+                      style={{
+                        flexShrink: 0,
+                        minWidth: 120,
+                        display: "flex",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <Pill tone="neutral">
+                        {assignStaffExcelCategoryLabel(
+                          uiLang,
+                          r.category,
+                          excelUploadDept,
+                        )}
+                      </Pill>
+                    </div>
+                  </Row>
+                ))}
+              </Stack>
+              <Row gap={8} wrap>
+                <GmailButton
+                  variant="primary"
+                  size="compact"
+                  onClick={continuePreviewToMatch}
+                >
+                  {t(uiLang, "assignStaffExcelPreviewContinue")}
+                </GmailButton>
+                <GmailButton
+                  variant="secondary"
+                  size="compact"
+                  onClick={() => {
+                    setExcelPhase("closed");
+                    setExcelShown(false);
+                    setExcelRawRows([]);
+                  }}
+                >
+                  {t(uiLang, "assignStaffExcelCancel")}
+                </GmailButton>
+              </Row>
+            </Stack>
+          </CardBody>
+        </Card>
+      );
+    }
+
+    if (excelPhase !== "match" || !excelShown) {
+      return null;
+    }
+
+    const matched = excelPairs.filter((p) => p.status === "matched");
+    const needsManual = excelPairs.filter((p) => p.status !== "matched");
+    return (
+      <Card>
+        <CardHeader>{t(uiLang, "assignStaffExcelTitle")}</CardHeader>
+        <CardBody>
+          <Stack gap={12}>
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "assignStaffExcelHint")}
+            </ChromeText>
+            <Row gap={8} wrap align="center">
+              <GmailButton
+                variant="secondary"
+                size="compact"
+                onClick={() => setExcelPhase("preview")}
+              >
+                {t(uiLang, "assignStaffExcelBackPreview")}
+              </GmailButton>
+              <GmailButton
+                variant={excelMode === "auto" ? "primary" : "secondary"}
+                size="compact"
+                onClick={runExcelAutoMatch}
+              >
+                {t(uiLang, "assignStaffExcelAutoMatch")}
+              </GmailButton>
+              <GmailButton
+                variant={excelMode === "manual" ? "primary" : "secondary"}
+                size="compact"
+                onClick={() => setExcelMode("manual")}
+              >
+                {t(uiLang, "assignStaffExcelManualMatch")}
+              </GmailButton>
+            </Row>
+            <Stack gap={4} style={{ maxWidth: 280 }}>
+              <FieldLabel>{t(uiLang, "assignStaffExcelCompare")}</FieldLabel>
+              <Select
+                value={excelCompare}
+                onChange={(v) => {
+                  const next = v === "identity" ? "identity" : "name";
+                  setExcelCompare(next);
+                  const lock =
+                    excelContext === "worker" ? focusWorkerId : undefined;
+                  setExcelPairs(
+                    buildAssignStaffExcelPairs(
+                      excelRawRows.length
+                        ? excelRawRows
+                        : ASSIGN_STAFF_EXCEL_DEMO_ROWS,
+                      workers,
+                      rows,
+                      uiLang,
+                      next,
+                      {
+                        lockWorkerId: lock,
+                        lockScope: excelUploadDept,
+                      },
+                    ),
+                  );
+                }}
+                options={[
+                  {
+                    value: "name",
+                    label: t(uiLang, "assignStaffExcelCompareName"),
+                  },
+                  {
+                    value: "identity",
+                    label: t(uiLang, "assignStaffExcelCompareId"),
+                  },
+                ]}
+              />
+            </Stack>
+            {excelPairs.length === 0 ? (
+              <ChromeText tone="secondary">
+                {t(uiLang, "assignStaffExcelEmpty")}
+              </ChromeText>
+            ) : (
+              <Stack gap={10}>
+                <ChromeText weight="semibold">
+                  {`${t(uiLang, "assignStaffExcelMatched")} (${matched.length})`}
+                </ChromeText>
+                {matched.map((p) => (
+                  <Row
+                    key={p.id}
+                    gap={8}
+                    align="center"
+                    style={{ width: "100%" }}
+                  >
+                    <Checkbox
+                      checked={p.selected}
+                      onChange={(checked) =>
+                        setExcelPairs((prev) =>
+                          prev.map((x) =>
+                            x.id === p.id ? { ...x, selected: checked } : x,
+                          ),
+                        )
+                      }
+                      label=""
+                    />
+                    <ChromeText size="small" style={{ flex: 1, minWidth: 0 }}>
+                      {p.excelWorkerName}
+                    </ChromeText>
+                    <ChromeText size="small" tone="secondary">
+                      →
+                    </ChromeText>
+                    <ChromeText size="small" style={{ flex: 1, minWidth: 0 }}>
+                      {p.excelClientName}
+                    </ChromeText>
+                    <div
+                      style={{
+                        flexShrink: 0,
+                        minWidth: 120,
+                        display: "flex",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <Pill tone="neutral">
+                        {p.scope ? assignScopeLabel(uiLang, p.scope) : "—"}
+                      </Pill>
+                    </div>
+                  </Row>
+                ))}
+                {needsManual.length > 0 ? (
+                  <Stack gap={8}>
+                    <ChromeText weight="semibold">
+                      {`${t(uiLang, "assignStaffExcelUnmatched")} (${needsManual.length})`}
+                    </ChromeText>
+                    {needsManual.map((p) => (
+                      <Stack
+                        key={p.id}
+                        gap={6}
+                        style={{
+                          padding: 10,
+                          borderRadius: 8,
+                          border: `1px solid ${chromeBorder(theme)}`,
+                          background: chromeSoftFill(theme),
+                        }}
+                      >
+                        <Row gap={8} wrap>
+                          <ChromeText size="small" tone="secondary">
+                            {t(uiLang, "assignStaffExcelColExcelWorker")}
+                          </ChromeText>
+                          <ChromeText size="small">{p.excelWorkerName}</ChromeText>
+                          <ChromeText size="small" tone="secondary">
+                            {t(uiLang, "assignStaffExcelColExcelClient")}
+                          </ChromeText>
+                          <ChromeText size="small">{p.excelClientName}</ChromeText>
+                        </Row>
+                        <Row gap={8} wrap align="end">
+                          <Stack gap={4} style={{ minWidth: 160, flex: 1 }}>
+                            <FieldLabel>
+                              {t(uiLang, "assignStaffExcelPickWorker")}
+                            </FieldLabel>
+                            <Select
+                              value={p.workerId}
+                              onChange={(id) =>
+                                setExcelPairs((prev) =>
+                                  prev.map((x) =>
+                                    x.id === p.id
+                                      ? {
+                                          ...x,
+                                          workerId: id,
+                                          status:
+                                            id && x.entityId && x.scope
+                                              ? "matched"
+                                              : id || x.entityId
+                                                ? "partial"
+                                                : "unmatched",
+                                          selected: !!(
+                                            id &&
+                                            x.entityId &&
+                                            x.scope
+                                          ),
+                                        }
+                                      : x,
+                                  ),
+                                )
+                              }
+                              placeholder={t(
+                                uiLang,
+                                "assignStaffExcelPickWorker",
+                              )}
+                              options={workers.map((w) => ({
+                                value: w.id,
+                                label: staffDisplayName(uiLang, w.id, workers),
+                              }))}
+                            />
+                          </Stack>
+                          <Stack gap={4} style={{ minWidth: 160, flex: 1 }}>
+                            <FieldLabel>
+                              {t(uiLang, "assignStaffExcelPickClient")}
+                            </FieldLabel>
+                            <Select
+                              value={p.entityId}
+                              onChange={(id) => {
+                                const row = rows.find((r) => r.id === id);
+                                const sc =
+                                  excelUploadDept !== "everything"
+                                    ? excelUploadDept
+                                    : row
+                                      ? staffWorkScopeForRow(row)
+                                      : null;
+                                setExcelPairs((prev) =>
+                                  prev.map((x) =>
+                                    x.id === p.id
+                                      ? {
+                                          ...x,
+                                          entityId: id,
+                                          scope: sc,
+                                          status:
+                                            x.workerId && id && sc
+                                              ? "matched"
+                                              : x.workerId || id
+                                                ? "partial"
+                                                : "unmatched",
+                                          selected: !!(
+                                            x.workerId &&
+                                            id &&
+                                            sc
+                                          ),
+                                        }
+                                      : x,
+                                  ),
+                                );
+                              }}
+                              placeholder={t(
+                                uiLang,
+                                "assignStaffExcelPickClient",
+                              )}
+                              options={rows
+                                .filter((r) => staffWorkScopeForRow(r) != null)
+                                .map((r) => ({
+                                  value: r.id,
+                                  label: displayClientName(r, uiLang),
+                                }))}
+                            />
+                          </Stack>
+                        </Row>
+                      </Stack>
+                    ))}
+                  </Stack>
+                ) : null}
+                <GmailButton
+                  variant="primary"
+                  size="compact"
+                  disabled={!excelPairs.some((p) => p.selected)}
+                  onClick={applyExcelPairs}
+                >
+                  {t(uiLang, "assignStaffExcelApply")}
+                </GmailButton>
+              </Stack>
+            )}
+          </Stack>
+        </CardBody>
+      </Card>
+    );
+  };
+
+
+  if (!canManage) {
+    return (
+      <Stack gap={16}>
+        <Row align="center" gap={12} wrap>
+          <Spacer />
+          <Pill tone="neutral">{t(uiLang, "worker")}</Pill>
+        </Row>
+        <Stack gap={4}>
+          <H1>{t(uiLang, "assignStaffMyTitle")}</H1>
+          <ChromeText tone="secondary">
+            {t(uiLang, "assignStaffMyHint")}
+          </ChromeText>
+        </Stack>
+        <Callout tone="info" title={t(uiLang, "myAssignments")}>
+          {t(uiLang, "assignStaffWorkerReadonly")}
+        </Callout>
+        <Card>
+          <CardHeader>
+            {`${t(uiLang, "assignStaffMyTitle")} · ${workerName}`}
+          </CardHeader>
+          <CardBody>
+            <Stack gap={12}>
+              <RaisedTabBar
+                tabs={mineScopeTabs}
+                activeId={mineActiveScope}
+                onSelect={(id) => {
+                  if (!isStaffWorkScope(id)) return;
+                  setWorkerMineTab(id);
+                }}
+                ariaLabel={t(uiLang, "assignStaffMyTitle")}
+                compact
+              />
+              {renderScopeList(focusWorkerId, mineActiveScope, {
+                hideHeader: true,
+              })}
+            </Stack>
+          </CardBody>
+        </Card>
+      </Stack>
+    );
+  }
+
   return (
     <Stack gap={16}>
       <Row align="center" gap={12} wrap>
         <Spacer />
-        {canManage ? (
-          <Pill tone="info">
-            {isSystemAdmin(role)
-              ? t(uiLang, "systemAdminPill")
-              : t(uiLang, "manager")}
-          </Pill>
+        {isSystemAdmin(role) ? (
+          <Pill tone="info">{t(uiLang, "systemAdminPill")}</Pill>
+        ) : isAdminLike(role) ? (
+          <Pill tone="info">{t(uiLang, "manager")}</Pill>
         ) : (
-          <Pill tone="neutral">{t(uiLang, "worker")}</Pill>
+          <Pill tone="info">{t(uiLang, "assignStaff")}</Pill>
         )}
+        {onOpenMyAssignments ? (
+          <GmailButton
+            size="compact"
+            variant="text"
+            onClick={onOpenMyAssignments}
+          >
+            {t(uiLang, "assignStaffOpenMyAssignments")}
+          </GmailButton>
+        ) : null}
       </Row>
 
       <Stack gap={4}>
-        <H1>
-          {canManage
-            ? t(uiLang, "assignStaff")
-            : t(uiLang, "assignStaffMyTitle")}
-        </H1>
-        <ChromeText tone="secondary">
-          {canManage
-            ? t(uiLang, "assignStaffHint")
-            : t(uiLang, "assignStaffMyHint")}
-        </ChromeText>
+        <H1>{t(uiLang, "assignStaff")}</H1>
+        <ChromeText tone="secondary">{t(uiLang, "assignStaffHint")}</ChromeText>
       </Stack>
 
-      {!canManage ? (
-        <Callout tone="info" title={t(uiLang, "myAssignments")}>
-          {t(uiLang, "assignStaffWorkerReadonly")}
-        </Callout>
-      ) : null}
+      <Callout tone="neutral" title={t(uiLang, "assignStaff")}>
+        {t(uiLang, "assignStaffModuleNote")}
+      </Callout>
 
-      {flash && canManage ? (
+      {flash ? (
         <Callout tone="success" title={t(uiLang, "save")}>
           {flash}
         </Callout>
       ) : null}
 
-      {canManage ? (
+      <RaisedTabBar
+        tabs={mainTabs}
+        activeId={mainTab}
+        onSelect={(id) => {
+          if (id !== "all" && id !== "worker" && id !== "unassigned") return;
+          setMainTab(id);
+          setFlash("");
+          if (id === "all") {
+            setExcelPhase("closed");
+            setExcelShown(false);
+            setExcelPairs([]);
+          } else if (
+            excelPhase !== "closed" &&
+            ((id === "worker" && excelContext !== "worker") ||
+              (id === "unassigned" && excelContext !== "unassigned"))
+          ) {
+            setExcelPhase("closed");
+            setExcelShown(false);
+            setExcelPairs([]);
+          }
+        }}
+        ariaLabel={t(uiLang, "assignStaff")}
+        variant="raised"
+      />
+
+      {mainTab === "all" ? (
         <Card>
-          <CardHeader>{t(uiLang, "assignStaffPickWorker")}</CardHeader>
+          <CardHeader>{t(uiLang, "assignStaffTabAll")}</CardHeader>
           <CardBody>
-            <Stack gap={10}>
+            <Stack gap={12}>
               <ChromeText size="small" tone="secondary">
-                {t(uiLang, "assignStaffPickWorkerHint")}
+                {t(uiLang, "assignStaffAllHint")}
               </ChromeText>
-              <SearchAutocomplete
-                value={workerQuery}
-                onChange={setWorkerQuery}
-                candidates={workerCandidates}
-                placeholder={t(uiLang, "assignStaffSearchWorker")}
-                lang={uiLang}
-                onAccept={selectWorkerByLabel}
-                style={{ maxWidth: 360 }}
-              />
-              <Select
-                value={focusWorkerId}
-                onChange={(id) => {
-                  setSelectedWorkerId(id);
-                  setWorkerQuery(staffDisplayName(uiLang, id, workers));
-                  setFlash("");
-                }}
-                options={workers.map((w) => ({
-                  value: w.id,
-                  label: `${staffDisplayName(uiLang, w.id, workers)} · ${workerDepartmentLabels(uiLang, w.id, departments, workers)}`,
-                }))}
-              />
+              <Row gap={12} wrap align="end">
+                <Stack gap={4} style={{ width: 160, flexShrink: 0 }}>
+                  <FieldLabel>{t(uiLang, "assignStaffSortBy")}</FieldLabel>
+                  <Select
+                    value={allSort}
+                    onChange={(v) =>
+                      setAllSort(v === "worker" ? "worker" : "client")
+                    }
+                    options={[
+                      {
+                        value: "client",
+                        label: t(uiLang, "assignStaffColClient"),
+                      },
+                      {
+                        value: "worker",
+                        label: t(uiLang, "assignStaffColWorker"),
+                      },
+                    ]}
+                    style={{ width: 160 }}
+                  />
+                </Stack>
+                <Stack gap={4} style={{ width: 180, flexShrink: 0 }}>
+                  <FieldLabel>
+                    {t(uiLang, "assignStaffFilterWorker")}
+                  </FieldLabel>
+                  <Select
+                    value={allFilterWorker || "__all__"}
+                    onChange={(v) => {
+                      const restore = preserveShellScroll();
+                      setAllFilterWorker(v === "__all__" ? "" : v);
+                      if (typeof requestAnimationFrame === "function") {
+                        requestAnimationFrame(() => {
+                          restore();
+                          requestAnimationFrame(restore);
+                        });
+                      } else {
+                        restore();
+                      }
+                    }}
+                    options={[
+                      {
+                        value: "__all__",
+                        label: t(uiLang, "assignStaffFilterAllWorkers"),
+                      },
+                      ...workers.map((w) => ({
+                        value: w.id,
+                        label: staffDisplayName(uiLang, w.id, workers),
+                      })),
+                    ]}
+                    style={{ width: 180 }}
+                  />
+                </Stack>
+                <Stack gap={4} style={{ width: 180, flexShrink: 0 }}>
+                  <FieldLabel>
+                    {t(uiLang, "assignStaffFilterDept")}
+                  </FieldLabel>
+                  <Select
+                    value={allFilterScope || "__all__"}
+                    onChange={(v) =>
+                      setAllFilterScope(v === "__all__" ? "" : v)
+                    }
+                    options={[
+                      {
+                        value: "__all__",
+                        label: t(uiLang, "assignStaffFilterAllDepts"),
+                      },
+                      ...STAFF_ASSIGN_SCOPES.map((id) => ({
+                        value: id,
+                        label: assignScopeLabel(uiLang, id),
+                      })),
+                    ]}
+                    style={{ width: 180 }}
+                  />
+                </Stack>
+                <Stack gap={4} style={{ flex: 1, minWidth: 180 }}>
+                  <FieldLabel>
+                    {t(uiLang, "assignStaffSearchPairs")}
+                  </FieldLabel>
+                  <ChromeTextInput
+                    value={allSearch}
+                    onChange={setAllSearch}
+                    placeholder={t(uiLang, "assignStaffSearchPairs")}
+                  />
+                </Stack>
+              </Row>
+              <div
+                ref={allListAnchorRef}
+                style={{ minHeight: 280, width: "100%" }}
+              >
+                <Stack gap={6}>
+                  <Row gap={8} align="center" style={{ width: "100%" }}>
+                    <ChromeText
+                      size="small"
+                      weight="semibold"
+                      style={{ flex: 1, minWidth: 120 }}
+                    >
+                      {t(uiLang, "assignStaffColClient")}
+                    </ChromeText>
+                    <ChromeText
+                      size="small"
+                      weight="semibold"
+                      style={{ flex: 1, minWidth: 120 }}
+                    >
+                      {t(uiLang, "assignStaffColWorker")}
+                    </ChromeText>
+                    <ChromeText
+                      size="small"
+                      weight="semibold"
+                      style={{
+                        flexShrink: 0,
+                        minWidth: 120,
+                        textAlign: "end",
+                      }}
+                    >
+                      {t(uiLang, "assignStaffColScope")}
+                    </ChromeText>
+                    <ChromeText
+                      size="small"
+                      weight="semibold"
+                      style={{ flexShrink: 0, minWidth: 72 }}
+                    >
+                      {" "}
+                    </ChromeText>
+                  </Row>
+                  {filteredAllPairs.length === 0 ? (
+                    <ChromeText tone="secondary">
+                      {t(uiLang, "assignStaffEmptyPairs")}
+                    </ChromeText>
+                  ) : (
+                    filteredAllPairs.map((p) => {
+                      const row = rows.find((r) => r.id === p.entityId);
+                      if (!row) return null;
+                      return (
+                        <Row
+                          key={p.key}
+                          gap={8}
+                          align="center"
+                          style={{ width: "100%" }}
+                        >
+                          <ChromeText
+                            style={{ flex: 1, minWidth: 0 }}
+                          >
+                            {displayClientName(row, uiLang)}
+                          </ChromeText>
+                          <ChromeText
+                            style={{ flex: 1, minWidth: 0 }}
+                          >
+                            {staffDisplayName(uiLang, p.workerId, workers)}
+                          </ChromeText>
+                          <div
+                            style={{
+                              flexShrink: 0,
+                              minWidth: 120,
+                              display: "flex",
+                              justifyContent: "flex-end",
+                            }}
+                          >
+                            <Pill tone="neutral">
+                              {assignScopeLabel(uiLang, p.scope)}
+                            </Pill>
+                          </div>
+                          <GmailButton
+                            size="compact"
+                            variant="text"
+                            onClick={() =>
+                              removeEntity(p.workerId, p.scope, p.entityId)
+                            }
+                          >
+                            {t(uiLang, "assignStaffUnassign")}
+                          </GmailButton>
+                        </Row>
+                      );
+                    })
+                  )}
+                </Stack>
+              </div>
             </Stack>
           </CardBody>
         </Card>
       ) : null}
 
-      {canManage ? (
-        <Card>
-          <CardHeader>
-            {t(uiLang, "assignStaffAssignedTitle").replace("{name}", workerName)}
-          </CardHeader>
-          <CardBody>
-            <Stack gap={14}>
-              <RaisedTabBar
-                tabs={scopeTabs}
-                activeId={activeScope}
-                onSelect={(id) => {
-                  if (!isStaffWorkScope(id)) return;
-                  setScope(id);
-                  setEntityQuery("");
-                  setFlash("");
-                }}
-                ariaLabel={t(uiLang, "assignStaff")}
-                variant="raised"
-              />
-              <Stack gap={8}>
-                <FieldLabel>{t(uiLang, "assignStaffAddEntity")}</FieldLabel>
-                <Row gap={8} align="center" wrap>
-                  <SearchAutocomplete
-                    value={entityQuery}
-                    onChange={setEntityQuery}
-                    candidates={entityCandidates}
-                    placeholder={t(uiLang, "assignStaffSearchEntity")}
-                    lang={uiLang}
-                    onAccept={addEntityByLabel}
-                    style={{ flex: 1, minWidth: 200, maxWidth: 420 }}
+      {mainTab === "worker" ? (
+        <Stack gap={16}>
+          <Card>
+            <CardHeader>{t(uiLang, "assignStaffPickWorker")}</CardHeader>
+            <CardBody>
+              <Stack gap={10}>
+                <Row
+                  gap={8}
+                  align="center"
+                  wrap
+                  style={{ width: "100%", justifyContent: "flex-start" }}
+                >
+                  <Select
+                    value=""
+                    placeholder={t(uiLang, "assignStaffExcelOptions")}
+                    options={[
+                      {
+                        value: "merge",
+                        label: t(uiLang, "assignStaffExcelMergeCards"),
+                      },
+                      {
+                        value: "template",
+                        label: t(uiLang, "assignStaffExcelExportData"),
+                      },
+                      {
+                        value: "upload",
+                        label: t(uiLang, "assignStaffExcelImportData"),
+                      },
+                    ]}
+                    onChange={(v) => {
+                      const action = String(v || "").trim();
+                      if (!action) return;
+                      // Defer so Select can finish closing before phase updates.
+                      window.setTimeout(() => {
+                        if (action === "merge") {
+                          openSumitMergeCards("worker");
+                          return;
+                        }
+                        if (action === "template") {
+                          openTemplateDeptPicker();
+                          return;
+                        }
+                        if (action === "upload") {
+                          openUploadDeptPicker("worker");
+                        }
+                      }, 0);
+                    }}
+                    style={{ minWidth: 200, maxWidth: 280 }}
                   />
+                </Row>
+                <ChromeText size="small" tone="secondary">
+                  {t(uiLang, "assignStaffExcelMergeHint")}
+                </ChromeText>
+                <ChromeText size="small" tone="secondary">
+                  {t(uiLang, "assignStaffPickWorkerHint")}
+                </ChromeText>
+                <SearchAutocomplete
+                  value={workerQuery}
+                  onChange={setWorkerQuery}
+                  candidates={workerCandidates}
+                  placeholder={t(uiLang, "assignStaffSearchWorker")}
+                  lang={uiLang}
+                  onAccept={selectWorkerByLabel}
+                  style={{ maxWidth: 360 }}
+                />
+                <Select
+                  value={focusWorkerId}
+                  onChange={(id) => {
+                    setSelectedWorkerId(id);
+                    setWorkerQuery(staffDisplayName(uiLang, id, workers));
+                    setFlash("");
+                    if (excelShown && excelContext === "worker") {
+                      setExcelPairs(
+                        buildAssignStaffExcelPairs(
+                          excelRawRows.length
+                            ? excelRawRows
+                            : ASSIGN_STAFF_EXCEL_DEMO_ROWS,
+                          workers,
+                          rows,
+                          uiLang,
+                          excelCompare,
+                          {
+                            lockWorkerId: id,
+                            lockScope: excelUploadDept,
+                          },
+                        ),
+                      );
+                    }
+                  }}
+                  options={workers.map((w) => ({
+                    value: w.id,
+                    label: `${staffDisplayName(uiLang, w.id, workers)} · ${workerDepartmentLabels(uiLang, w.id, departments, workers)}`,
+                  }))}
+                />
+              </Stack>
+            </CardBody>
+          </Card>
+
+          {renderExcelModals()}
+          {excelPhase === "preview" || excelPhase === "match"
+            ? renderExcelPanel()
+            : null}
+
+          <Card>
+            <CardHeader>
+              {t(uiLang, "assignStaffAssignedTitle").replace(
+                "{name}",
+                workerName,
+              )}
+            </CardHeader>
+            <CardBody>
+              <Stack gap={14}>
+                <ChromeText size="small" tone="secondary">
+                  {t(uiLang, "assignStaffWorkerHint")}
+                </ChromeText>
+                <Row gap={12} align="start" style={{ width: "100%" }}>
+                  <Stack
+                    gap={4}
+                    style={{
+                      width: 180,
+                      flexShrink: 0,
+                      paddingTop: 2,
+                    }}
+                    role="tablist"
+                    aria-label={t(uiLang, "assignStaff")}
+                  >
+                    {scopeTabs.map((tab) => {
+                      const active =
+                        (workerTabIsAll && tab.id === "all") ||
+                        (!workerTabIsAll && tab.id === activeScope);
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => {
+                            if (tab.id === "all") {
+                              setWorkerTab("all");
+                            } else if (isStaffWorkScope(tab.id)) {
+                              setWorkerTab(tab.id);
+                              setAddScope(tab.id);
+                            } else {
+                              return;
+                            }
+                            setEntityQuery("");
+                            setFlash("");
+                          }}
+                          style={{
+                            all: "unset",
+                            boxSizing: "border-box",
+                            display: "block",
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            fontSize: 13,
+                            lineHeight: 1.35,
+                            textAlign: "start",
+                            border: active
+                              ? `1px solid ${CHROME_BORDER_BLUE}`
+                              : `1px solid transparent`,
+                            background: active
+                              ? chromeSoftFill(theme)
+                              : "transparent",
+                            color: theme.text.primary,
+                            fontWeight: active ? 600 : 400,
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </Stack>
+                  <Stack gap={12} style={{ flex: 1, minWidth: 0 }}>
+                    <Stack gap={8}>
+                      <FieldLabel>
+                        {t(uiLang, "assignStaffAddEntity")}
+                      </FieldLabel>
+                      {workerTabIsAll ? (
+                        <Stack gap={4} style={{ maxWidth: 280 }}>
+                          <FieldLabel>
+                            {t(uiLang, "assignStaffPickScope")}
+                          </FieldLabel>
+                          <Select
+                            value={scopeForAdd}
+                            onChange={(v) => {
+                              if (isStaffWorkScope(v)) setAddScope(v);
+                            }}
+                            options={STAFF_ASSIGN_SCOPES.map((id) => ({
+                              value: id,
+                              label: assignScopeLabel(uiLang, id),
+                            }))}
+                          />
+                        </Stack>
+                      ) : null}
+                      <Row gap={8} align="center" wrap>
+                        <SearchAutocomplete
+                          value={entityQuery}
+                          onChange={setEntityQuery}
+                          candidates={entityCandidates}
+                          placeholder={t(uiLang, "assignStaffSearchEntity")}
+                          lang={uiLang}
+                          onAccept={(label) =>
+                            addEntityToWorker(
+                              focusWorkerId,
+                              label,
+                              scopeForAdd,
+                            )
+                          }
+                          style={{ flex: 1, minWidth: 160, maxWidth: 420 }}
+                        />
+                        <GmailButton
+                          variant="primary"
+                          size="compact"
+                          disabled={!entityQuery.trim()}
+                          onClick={() =>
+                            addEntityToWorker(
+                              focusWorkerId,
+                              entityQuery,
+                              scopeForAdd,
+                            )
+                          }
+                        >
+                          {t(uiLang, "assignStaffAddEntity")}
+                        </GmailButton>
+                        {!workerTabIsAll ? (
+                          <GmailButton
+                            variant="secondary"
+                            size="compact"
+                            disabled={
+                              scopeIdsFromBucket(bucket, activeScope)
+                                .length === 0
+                            }
+                            onClick={clearScope}
+                          >
+                            {t(uiLang, "assignStaffClearScope")}
+                          </GmailButton>
+                        ) : null}
+                      </Row>
+                    </Stack>
+                    {workerTabIsAll
+                      ? renderAllScopeLists(focusWorkerId)
+                      : renderScopeList(focusWorkerId, activeScope)}
+                  </Stack>
+                </Row>
+              </Stack>
+            </CardBody>
+          </Card>
+        </Stack>
+      ) : null}
+
+      {mainTab === "unassigned" ? (
+        <Stack gap={16}>
+          <Card>
+            <CardHeader>{t(uiLang, "assignStaffTabUnassigned")}</CardHeader>
+            <CardBody>
+              <Stack gap={12}>
+                <Row
+                  gap={8}
+                  align="center"
+                  wrap
+                  style={{ width: "100%", justifyContent: "flex-start" }}
+                >
+                  <Select
+                    value=""
+                    placeholder={t(uiLang, "assignStaffExcelOptions")}
+                    options={[
+                      {
+                        value: "merge",
+                        label: t(uiLang, "assignStaffExcelMergeCards"),
+                      },
+                      {
+                        value: "template",
+                        label: t(uiLang, "assignStaffExcelExportData"),
+                      },
+                      {
+                        value: "upload",
+                        label: t(uiLang, "assignStaffExcelImportData"),
+                      },
+                    ]}
+                    onChange={(v) => {
+                      const action = String(v || "").trim();
+                      if (!action) return;
+                      // Defer so Select can finish closing before phase updates.
+                      window.setTimeout(() => {
+                        if (action === "merge") {
+                          openSumitMergeCards("unassigned");
+                          return;
+                        }
+                        if (action === "template") {
+                          openTemplateDeptPicker();
+                          return;
+                        }
+                        if (action === "upload") {
+                          openUploadDeptPicker("unassigned");
+                        }
+                      }, 0);
+                    }}
+                    style={{ minWidth: 200, maxWidth: 280 }}
+                  />
+                </Row>
+                <ChromeText size="small" tone="secondary">
+                  {t(uiLang, "assignStaffUnassignedHint")}
+                </ChromeText>
+                <Row gap={8} wrap align="end">
+                  <Stack gap={4} style={{ minWidth: 200 }}>
+                    <FieldLabel>{t(uiLang, "assignStaffAssignTo")}</FieldLabel>
+                    <Select
+                      value={
+                        workers.some((w) => w.id === unassignedWorkerId)
+                          ? unassignedWorkerId
+                          : workers[0]?.id ?? DEMO_WORKER.id
+                      }
+                      onChange={setUnassignedWorkerId}
+                      options={workers.map((w) => ({
+                        value: w.id,
+                        label: staffDisplayName(uiLang, w.id, workers),
+                      }))}
+                    />
+                  </Stack>
+                  <Stack gap={4} style={{ width: 180, flexShrink: 0 }}>
+                    <FieldLabel>
+                      {t(uiLang, "assignStaffFilterDept")}
+                    </FieldLabel>
+                    <Select
+                      value={unassignedFilterScope || "__all__"}
+                      onChange={(v) =>
+                        setUnassignedFilterScope(v === "__all__" ? "" : v)
+                      }
+                      options={[
+                        {
+                          value: "__all__",
+                          label: t(uiLang, "assignStaffFilterAllDepts"),
+                        },
+                        ...STAFF_ASSIGN_SCOPES.map((id) => ({
+                          value: id,
+                          label: assignScopeLabel(uiLang, id),
+                        })),
+                      ]}
+                      style={{ width: 180 }}
+                    />
+                  </Stack>
+                  <Stack gap={4} style={{ flex: 1, minWidth: 180 }}>
+                    <FieldLabel>
+                      {t(uiLang, "assignStaffSearchEntity")}
+                    </FieldLabel>
+                    <ChromeTextInput
+                      value={unassignedSearch}
+                      onChange={setUnassignedSearch}
+                      placeholder={t(uiLang, "assignStaffSearchEntity")}
+                    />
+                  </Stack>
                   <GmailButton
                     variant="primary"
                     size="compact"
-                    disabled={!entityQuery.trim()}
-                    onClick={() => addEntityByLabel(entityQuery)}
+                    disabled={unassignedPicks.length === 0}
+                    onClick={() => {
+                      const target =
+                        workers.some((w) => w.id === unassignedWorkerId)
+                          ? unassignedWorkerId
+                          : workers[0]?.id ?? DEMO_WORKER.id;
+                      let nextMap = {
+                        ...(assignments ?? DEFAULT_STAFF_ASSIGNMENTS),
+                      };
+                      for (const id of unassignedPicks) {
+                        const row = rows.find((r) => r.id === id);
+                        if (!row) continue;
+                        const sc = staffWorkScopeForRow(row);
+                        if (!sc) continue;
+                        nextMap = assignEntityIntoMap(
+                          nextMap,
+                          target,
+                          id,
+                          sc,
+                          rows,
+                        );
+                      }
+                      setAssignments(nextMap);
+                      setUnassignedPicks([]);
+                      setFlash(t(uiLang, "assignStaffSaved"));
+                    }}
                   >
-                    {t(uiLang, "assignStaffAddEntity")}
-                  </GmailButton>
-                  <GmailButton
-                    variant="secondary"
-                    size="compact"
-                    disabled={
-                      scopeIdsFromBucket(bucket, activeScope).length === 0
-                    }
-                    onClick={clearScope}
-                  >
-                    {t(uiLang, "assignStaffClearScope")}
+                    {t(uiLang, "assignStaffAssignSelected")}
                   </GmailButton>
                 </Row>
+                {filteredUnassigned.length === 0 ? (
+                  <ChromeText tone="secondary">
+                    {t(uiLang, "assignStaffEmptyUnassigned")}
+                  </ChromeText>
+                ) : (
+                  <Stack gap={6}>
+                    {filteredUnassigned.map((row) => {
+                      const sc = staffWorkScopeForRow(row);
+                      const checked = unassignedPicks.includes(row.id);
+                      return (
+                        <Row
+                          key={row.id}
+                          gap={8}
+                          align="center"
+                          style={{ width: "100%" }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Checkbox
+                              checked={checked}
+                              onChange={(on) =>
+                                setUnassignedPicks((prev) =>
+                                  on
+                                    ? uniqueIds(prev, [row.id])
+                                    : prev.filter((x) => x !== row.id),
+                                )
+                              }
+                              label={displayClientName(row, uiLang)}
+                            />
+                          </div>
+                          {sc ? (
+                            <div
+                              style={{
+                                flexShrink: 0,
+                                minWidth: 120,
+                                display: "flex",
+                                justifyContent: "flex-end",
+                              }}
+                            >
+                              <Pill tone="neutral">
+                                {assignScopeLabel(uiLang, sc)}
+                              </Pill>
+                            </div>
+                          ) : null}
+                        </Row>
+                      );
+                    })}
+                  </Stack>
+                )}
               </Stack>
-              {renderScopeList(activeScope)}
-            </Stack>
-          </CardBody>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            {`${t(uiLang, "assignStaffMyTitle")} · ${workerName}`}
-          </CardHeader>
-          <CardBody>{renderAllScopeLists()}</CardBody>
-        </Card>
-      )}
-
-      {canManage ? (
-        <Card>
-          <CardHeader>
-            {t(uiLang, "assignStaffAssignedTitle").replace("{name}", workerName)}
-          </CardHeader>
-          <CardBody>{renderAllScopeLists()}</CardBody>
-        </Card>
+            </CardBody>
+          </Card>
+          {mainTab === "unassigned" ? renderExcelModals() : null}
+          {mainTab === "unassigned" &&
+          (excelPhase === "preview" || excelPhase === "match")
+            ? renderExcelPanel()
+            : null}
+        </Stack>
       ) : null}
+
     </Stack>
   );
 }
+
 
 type ClockStatus = "out" | "in" | "break";
 type PunchKind = "in" | "out" | "break-start" | "break-end";
@@ -74050,7 +84434,7 @@ function WorkersModuleScreen() {
     "",
   );
 
-  /** Persist seed emails/signatures/phones onto legacy firmWorkers.v3 rows once. */
+  /** Persist seed emails/signatures/phones + append new DEMO_STAFF ids (e.g. Sumit). */
   useEffect(() => {
     setWorkers((prev) => {
       const list = Array.isArray(prev) ? prev : DEMO_STAFF;
@@ -74065,6 +84449,12 @@ function WorkersModuleScreen() {
         if (missing) changed = true;
         return n;
       });
+      const have = new Set(next.map((w) => w.id));
+      const extras = DEMO_STAFF.filter((w) => !have.has(w.id));
+      if (extras.length) {
+        changed = true;
+        return [...next, ...extras];
+      }
       return changed ? next : list;
     });
   }, [setWorkers]);
@@ -83440,6 +93830,86 @@ function TimeClockScreen({
         : [];
     return (
       <Stack gap={10}>
+        <Stack gap={6}>
+          {isAdmin ? (
+            <>
+              <Row align="center" gap={8} wrap>
+                <Button variant="secondary" onClick={downloadOverviewPdf}>
+                  {t(uiLang, "downloadPdfReport")}
+                </Button>
+              </Row>
+              <ChromeText size="small" tone="tertiary">
+                {t(uiLang, "downloadPdfDemoHint")}
+              </ChromeText>
+            </>
+          ) : null}
+          {renderDayHoursStrip()}
+        </Stack>
+
+        {expectedTotal != null ? (
+          <Stack gap={6}>
+            <ChromeText size="small" weight="semibold">
+              {t(uiLang, "hoursVsExpected")}
+            </ChromeText>
+            <Row gap={10} wrap>
+              <Stat
+                value={`${buckets.total.toFixed(1)}h`}
+                label={t(uiLang, "hoursActual")}
+                tone="info"
+              />
+              <Stat
+                value={`${expectedTotal.toFixed(1)}h`}
+                label={t(uiLang, "hoursExpected")}
+              />
+            </Row>
+          </Stack>
+        ) : null}
+        <Stack gap={6}>
+          <ChromeText size="small" weight="semibold">
+            {t(uiLang, "hoursChartTitle")}
+          </ChromeText>
+          <BarChart
+            categories={buckets.categories}
+            series={[
+              {
+                name: t(uiLang, "hoursChartSeries"),
+                data: buckets.values,
+                tone: "info",
+              },
+            ]}
+            height={160}
+            valueSuffix="h"
+            beginAtZero
+            showValues
+          />
+          <ChromeText size="small" tone="tertiary">
+            {caption}
+          </ChromeText>
+        </Stack>
+        <Stack gap={6}>
+          <Row gap={10} wrap>
+            <Stat
+              value={formatIls(earnedPeriodIls)}
+              label={t(uiLang, earnedLabelKey)}
+              tone="info"
+            />
+            {isAdmin ? (
+              <Stat
+                value={formatIls(amountOwed)}
+                label={t(uiLang, "amountOwed")}
+              />
+            ) : null}
+          </Row>
+          <ChromeText size="small" tone="tertiary">
+            {t(uiLang, "payFiguresCaption")}
+            {" · "}
+            {expectedSettings.payType === "hourly"
+              ? t(uiLang, "earnedHourlyHint")
+              : t(uiLang, "earnedMonthlyHint")}
+            {isAdmin ? ` · ${t(uiLang, "amountOwedHint")}` : ""}
+          </ChromeText>
+        </Stack>
+
         {hoursPeriod === "week" ? (
           <Stack gap={6}>
             <ChromeText size="small" weight="semibold">
@@ -83527,86 +93997,6 @@ function TimeClockScreen({
             />
           </Stack>
         ) : null}
-
-        <Stack gap={6}>
-          {isAdmin ? (
-            <>
-              <Row align="center" gap={8} wrap>
-                <Button variant="secondary" onClick={downloadOverviewPdf}>
-                  {t(uiLang, "downloadPdfReport")}
-                </Button>
-              </Row>
-              <ChromeText size="small" tone="tertiary">
-                {t(uiLang, "downloadPdfDemoHint")}
-              </ChromeText>
-            </>
-          ) : null}
-          {renderDayHoursStrip()}
-        </Stack>
-
-        {expectedTotal != null ? (
-          <Stack gap={6}>
-            <ChromeText size="small" weight="semibold">
-              {t(uiLang, "hoursVsExpected")}
-            </ChromeText>
-            <Row gap={10} wrap>
-              <Stat
-                value={`${buckets.total.toFixed(1)}h`}
-                label={t(uiLang, "hoursActual")}
-                tone="info"
-              />
-              <Stat
-                value={`${expectedTotal.toFixed(1)}h`}
-                label={t(uiLang, "hoursExpected")}
-              />
-            </Row>
-          </Stack>
-        ) : null}
-        <Stack gap={6}>
-          <ChromeText size="small" weight="semibold">
-            {t(uiLang, "hoursChartTitle")}
-          </ChromeText>
-          <BarChart
-            categories={buckets.categories}
-            series={[
-              {
-                name: t(uiLang, "hoursChartSeries"),
-                data: buckets.values,
-                tone: "info",
-              },
-            ]}
-            height={160}
-            valueSuffix="h"
-            beginAtZero
-            showValues
-          />
-          <ChromeText size="small" tone="tertiary">
-            {caption}
-          </ChromeText>
-        </Stack>
-        <Stack gap={6}>
-          <Row gap={10} wrap>
-            <Stat
-              value={formatIls(earnedPeriodIls)}
-              label={t(uiLang, earnedLabelKey)}
-              tone="info"
-            />
-            {isAdmin ? (
-              <Stat
-                value={formatIls(amountOwed)}
-                label={t(uiLang, "amountOwed")}
-              />
-            ) : null}
-          </Row>
-          <ChromeText size="small" tone="tertiary">
-            {t(uiLang, "payFiguresCaption")}
-            {" · "}
-            {expectedSettings.payType === "hourly"
-              ? t(uiLang, "earnedHourlyHint")
-              : t(uiLang, "earnedMonthlyHint")}
-            {isAdmin ? ` · ${t(uiLang, "amountOwedHint")}` : ""}
-          </ChromeText>
-        </Stack>
       </Stack>
     );
   };
@@ -85575,11 +95965,16 @@ type WorkerFileRow = {
   bucket: WorkerFileBucket;
 };
 type ChecklistRequestStatus = "pending" | "done";
+type ChecklistRequestOrigin = "admin" | "worker";
+type ChecklistRequestChannel = "email" | "whatsapp" | "workerChat";
 type ChecklistRequest = {
   id: string;
   note: string;
   status: ChecklistRequestStatus;
   requestedAt: string;
+  /** Who created the row — admin doc request or worker asking for a checklist. */
+  origin?: ChecklistRequestOrigin;
+  channels?: ChecklistRequestChannel[];
 };
 
 const DEFAULT_WORKER_FILES: WorkerFileRow[] = [
@@ -85660,9 +96055,11 @@ const DEFAULT_WORKER_FILES: WorkerFileRow[] = [
 const DEFAULT_CHECKLIST_REQUESTS: ChecklistRequest[] = [
   {
     id: "cr-1",
-    note: "Need 2026 tax docs checklist",
+    note: "Please upload updated Form 101 (2026)",
     status: "pending",
     requestedAt: "2026-09-10",
+    origin: "admin",
+    channels: ["email", "workerChat"],
   },
 ];
 
@@ -85674,7 +96071,7 @@ function WorkerFilesScreen({ role }: { role: Role }) {
     DEFAULT_WORKER_FILES,
   );
   const [requests, setRequests] = useCanvasState<ChecklistRequest[]>(
-    "workerFilesChecklist.v1",
+    "workerFilesChecklist.v2",
     DEFAULT_CHECKLIST_REQUESTS,
   );
   const [uploadBucket, setUploadBucket] = useCanvasState<WorkerFileBucket>(
@@ -85685,15 +96082,34 @@ function WorkerFilesScreen({ role }: { role: Role }) {
     "workerFilesUploadNotice",
     "",
   );
+  type WorkerFilesViewMode = "list" | "folders";
+  const [viewMode, setViewMode] = useCanvasState<WorkerFilesViewMode>(
+    "workerFiles.viewMode.v1",
+    "list",
+  );
+  /** Which folder is open in Folders view (`null` = folder root). */
+  const [openFolder, setOpenFolder] = useState<WorkerFileBucket | null>(null);
   const isAdmin = isAdminLike(role);
 
   const generalFiles = files.filter((f) => f.bucket === "general");
   const years: WorkerFileBucket[] = ["2026", "2025", "2024"];
+  const folderBuckets: WorkerFileBucket[] = ["general", ...years];
 
   const fileLabel = (f: WorkerFileRow) =>
     uiLang === "he" ? f.nameHe || f.name : f.name;
   const kindLabel = (f: WorkerFileRow) =>
     uiLang === "he" ? f.kindHe || f.kind : f.kind;
+
+  const bucketLabel = (bucket: WorkerFileBucket) =>
+    bucket === "general" ? t(uiLang, "workerFilesGeneral") : bucket;
+
+  const filesInBucket = (bucket: WorkerFileBucket) =>
+    files.filter((f) => f.bucket === bucket);
+
+  const setViewModeSafe = (mode: WorkerFilesViewMode) => {
+    setViewMode(mode);
+    if (mode === "list") setOpenFolder(null);
+  };
 
   const demoUpload = () => {
     const stamp = Date.now();
@@ -85716,6 +96132,115 @@ function WorkerFilesScreen({ role }: { role: Role }) {
     setUploadNotice(t(uiLang, "workerFilesDemoAdded"));
   };
 
+  const [wfDraftNote, setWfDraftNote] = useState("");
+  const [wfReqEmail, setWfReqEmail] = useState(true);
+  const [wfReqWhatsApp, setWfReqWhatsApp] = useState(false);
+  const [wfReqWorkerChat, setWfReqWorkerChat] = useState(true);
+  const [wfReqPreviewOpen, setWfReqPreviewOpen] = useState(false);
+  const [wfReqComposeTab, setWfReqComposeTab] =
+    useState<ReqComposeChannelId>("email");
+  const [wfReqEmails, setWfReqEmails] = useState<string[]>([
+    "avi.cohen@intertax.example",
+  ]);
+  const [wfReqCc, setWfReqCc] = useState<string[]>([]);
+  const [wfReqBcc, setWfReqBcc] = useState<string[]>([]);
+  const [wfReqSubject, setWfReqSubject] = useState("");
+  const [wfReqBodyHtml, setWfReqBodyHtml] = useState("");
+  const [wfReqWaPhones, setWfReqWaPhones] = useState<string[]>([
+    "+972-3-000-0011",
+  ]);
+  const [wfReqWaBody, setWfReqWaBody] = useState("");
+  const [wfReqChatBody, setWfReqChatBody] = useState("");
+  const [wfReqFlash, setWfReqFlash] = useState("");
+  const wfSeeMessageBtnRef = useRef<HTMLDivElement | null>(null);
+
+  const wfToday = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const wfComposeBodies = (note: string) => {
+    const workerName = DEMO_WORKER.name;
+    const plain =
+      uiLang === "he"
+        ? `שלום ${workerName},\n\nנא להעלות לתיקיית קבצי העובד:\n${note}\n\nתודה,\nהנהלה`
+        : `Hi ${workerName},\n\nPlease upload to your Worker files folders:\n${note}\n\nThanks,\nAdmin`;
+    const html = plain
+      .split("\n")
+      .map((line) => `<div>${line || "<br/>"}</div>`)
+      .join("");
+    return { plain, html };
+  };
+
+  const openWfReqPreview = () => {
+    if (!wfReqEmail && !wfReqWhatsApp && !wfReqWorkerChat) {
+      setWfReqFlash(t(uiLang, "workerFilesPickChannel"));
+      return;
+    }
+    const note =
+      wfDraftNote.trim() ||
+      (uiLang === "he" ? "מסמך נדרש" : "Required document");
+    const { plain, html } = wfComposeBodies(note);
+    setWfReqSubject(
+      uiLang === "he"
+        ? `בקשת מסמך — ${DEMO_WORKER.name}`
+        : `Document request — ${DEMO_WORKER.name}`,
+    );
+    setWfReqBodyHtml(html);
+    setWfReqWaBody(plain);
+    setWfReqChatBody(plain);
+    const tabs: ReqComposeChannelId[] = [
+      ...(wfReqEmail ? (["email"] as const) : []),
+      ...(wfReqWhatsApp ? (["whatsapp"] as const) : []),
+      ...(wfReqWorkerChat ? (["workerChat"] as const) : []),
+    ];
+    setWfReqComposeTab(tabs[0] ?? "email");
+    setWfReqFlash("");
+    setWfReqPreviewOpen(true);
+  };
+
+  const sendWfDocRequest = () => {
+    if (!wfReqEmail && !wfReqWhatsApp && !wfReqWorkerChat) {
+      setWfReqFlash(t(uiLang, "workerFilesPickChannel"));
+      return;
+    }
+    const note =
+      wfDraftNote.trim() ||
+      (uiLang === "he" ? "מסמך נדרש" : "Required document");
+    const channels: ChecklistRequestChannel[] = [
+      ...(wfReqEmail ? (["email"] as const) : []),
+      ...(wfReqWhatsApp ? (["whatsapp"] as const) : []),
+      ...(wfReqWorkerChat ? (["workerChat"] as const) : []),
+    ];
+    setRequests((prev) => [
+      {
+        id: `cr-${Date.now()}`,
+        note,
+        status: "pending",
+        requestedAt: wfToday(),
+        origin: "admin",
+        channels,
+      },
+      ...prev,
+    ]);
+    const channelLabels = [
+      ...(wfReqEmail ? [t(uiLang, "workerFilesSendEmail")] : []),
+      ...(wfReqWhatsApp ? [t(uiLang, "workerFilesSendWhatsApp")] : []),
+      ...(wfReqWorkerChat ? [t(uiLang, "workerFilesSendWorkerChat")] : []),
+    ].join(", ");
+    setWfReqFlash(
+      t(uiLang, "taxReturnRequestSent").replace(
+        "{channels}",
+        channelLabels ? ` · ${channelLabels}` : "",
+      ),
+    );
+    setWfReqPreviewOpen(false);
+    setWfDraftNote("");
+  };
+
   const requestChecklist = () => {
     setRequests((prev) => [
       {
@@ -85725,7 +96250,8 @@ function WorkerFilesScreen({ role }: { role: Role }) {
             ? "בקשת רשימת מסמכים מהמנהל"
             : "Please send document checklist",
         status: "pending",
-        requestedAt: "2026-09-15",
+        requestedAt: wfToday(),
+        origin: "worker",
       },
       ...prev,
     ]);
@@ -85737,6 +96263,49 @@ function WorkerFilesScreen({ role }: { role: Role }) {
     );
   };
 
+  const channelLabel = (ch: ChecklistRequestChannel) => {
+    if (ch === "email") return t(uiLang, "workerFilesSendEmail");
+    if (ch === "whatsapp") return t(uiLang, "workerFilesSendWhatsApp");
+    return t(uiLang, "workerFilesSendWorkerChat");
+  };
+
+  const [, setLiveFileOpenWorker] = useCanvasState<LiveFileRef>(
+    CRM_LIVE_FILE_OPEN_KEY,
+    LIVE_FILE_CLOSED,
+  );
+  const [liveFileContentsWorker] = useCanvasState<LiveFileContentsStore>(
+    CRM_LIVE_FILE_CONTENTS_KEY,
+    {},
+  );
+  const [workerOsFlash, setWorkerOsFlash] = useState("");
+  const [workerCtxMenu, setWorkerCtxMenu] = useState<{
+    x: number;
+    y: number;
+    file: WorkerFileRow;
+  } | null>(null);
+
+  const openOsWorkerFile = (f: WorkerFileRow) => {
+    const label = fileLabel(f);
+    setWorkerOsFlash(
+      openWithOsDefault(
+        { id: f.id, name: label },
+        liveFileContentsWorker,
+      ),
+    );
+    setTimeout(() => setWorkerOsFlash(""), 2200);
+  };
+
+  const openLiveWorkerFile = (f: WorkerFileRow) => {
+    const label = fileLabel(f);
+    const bucket = bucketLabel(f.bucket);
+    setLiveFileOpenWorker({
+      id: f.id,
+      name: label,
+      folderPath: `${t(uiLang, "workerFilesTitle")} \\ ${bucket} \\ ${label}`,
+      source: "other",
+    });
+  };
+
   const renderFileTable = (rows: WorkerFileRow[]) => (
     <FirmDataTable
       headers={[
@@ -85744,12 +96313,177 @@ function WorkerFilesScreen({ role }: { role: Role }) {
         t(uiLang, "workerFilesColDate"),
       ]}
       rows={rows.map((f) => [
-        <ExplorerFileNameCell key={f.id} label={fileLabel(f)} kind="file" />,
+        <div
+          key={`${f.id}-name`}
+          role="button"
+          tabIndex={0}
+          title={t(uiLang, "liveFileOsOpenHint")}
+          onClick={() => openLiveWorkerFile(f)}
+          onDoubleClick={(e: {
+            preventDefault?: () => void;
+            stopPropagation?: () => void;
+          }) => {
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            openOsWorkerFile(f);
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setWorkerCtxMenu({
+              x: e.clientX,
+              y: e.clientY,
+              file: f,
+            });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") openLiveWorkerFile(f);
+          }}
+          style={{
+            display: "inline-flex",
+            cursor: "pointer",
+            minWidth: 0,
+          }}
+        >
+          <ExplorerFileNameCell label={fileLabel(f)} kind="file" />
+        </div>,
         f.added,
       ])}
       emptyMessage={t(uiLang, "workerFilesEmptyYear")}
       stickyHeader={false}
     />
+  );
+
+  /** Drive-style list rows (same as TaxReturnFolderBrowser list mode) — not icon tiles. */
+  const renderFolderListRow = (bucket: WorkerFileBucket) => {
+    const count = filesInBucket(bucket).length;
+    const label = bucketLabel(bucket);
+    const isSelected = openFolder === bucket;
+    return (
+      <div
+        key={bucket}
+        role="button"
+        tabIndex={0}
+        title={label}
+        onClick={() => setOpenFolder(bucket)}
+        onDoubleClick={() => setOpenFolder(bucket)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") setOpenFolder(bucket);
+        }}
+        style={{
+          padding: "6px 8px",
+          borderRadius: 6,
+          cursor: "pointer",
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          background: isSelected
+            ? chromeSelectedFill(theme)
+            : "transparent",
+          border: isSelected
+            ? `1px solid ${theme.accent.primary}`
+            : `1px solid transparent`,
+        }}
+      >
+        <ExplorerFileIcon
+          label={label}
+          kind="folder"
+          size="sm"
+          variant={bucket === "general" ? "root" : "default"}
+        />
+        <ChromeText
+          size="small"
+          weight="semibold"
+          tone="primary"
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          {label}
+        </ChromeText>
+        <ChromeText size="small" tone="tertiary">
+          {count} {t(uiLang, "workerFilesFolderItems")}
+        </ChromeText>
+      </div>
+    );
+  };
+
+  const renderFoldersBrowser = () => {
+    if (openFolder) {
+      const rows = filesInBucket(openFolder);
+      return (
+        <Stack gap={10}>
+          <Row align="center" gap={8} wrap>
+            <Button variant="secondary" onClick={() => setOpenFolder(null)}>
+              {t(uiLang, "taxReturnFolderUp")}
+            </Button>
+            <ExplorerFileNameCell
+              label={bucketLabel(openFolder)}
+              kind="folder"
+              open
+              variant={openFolder === "general" ? "root" : "default"}
+              semibold
+            />
+            <ChromeText size="small" tone="tertiary">
+              {rows.length} {t(uiLang, "workerFilesFolderItems")}
+            </ChromeText>
+          </Row>
+          {openFolder === "general" ? (
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "workerFilesGeneralHint")}
+            </ChromeText>
+          ) : null}
+          {renderFileTable(rows)}
+        </Stack>
+      );
+    }
+
+    return (
+      <Stack gap={6}>
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "workerFilesFolderRoot")}
+        </ChromeText>
+        <Stack
+          gap={2}
+          style={{
+            padding: 6,
+            borderRadius: 8,
+            border: `1px solid ${chromeBorder(theme)}`,
+            background: CHROME_WHITE,
+          }}
+        >
+          {folderBuckets.map((bucket) => renderFolderListRow(bucket))}
+        </Stack>
+      </Stack>
+    );
+  };
+
+  const renderListBrowser = () => (
+    <>
+      <Stack gap={8}>
+        <H2>{t(uiLang, "workerFilesGeneral")}</H2>
+        <ChromeText size="small" tone="secondary">
+          {t(uiLang, "workerFilesGeneralHint")}
+        </ChromeText>
+        {renderFileTable(generalFiles)}
+      </Stack>
+
+      <Stack gap={8}>
+        <H2>{t(uiLang, "workerFilesByYear")}</H2>
+        {years.map((year) => {
+          const yearFiles = files.filter((f) => f.bucket === year);
+          return (
+            <CollapsibleSection
+              key={year}
+              title={year}
+              count={yearFiles.length}
+              defaultOpen={year === "2026"}
+            >
+              {renderFileTable(yearFiles)}
+            </CollapsibleSection>
+          );
+        })}
+      </Stack>
+    </>
   );
 
   return (
@@ -85760,10 +96494,26 @@ function WorkerFilesScreen({ role }: { role: Role }) {
         {isAdmin ? <Pill active>{roleLabel(uiLang, role)}</Pill> : null}
       </Row>
 
-      <Stack gap={4}>
-        <H1>{t(uiLang, "workerFilesTitle")}</H1>
-        <ChromeText tone="secondary">{t(uiLang, "workerFilesHint")}</ChromeText>
-      </Stack>
+      <Row align="center" gap={12} wrap>
+        <Stack gap={4} style={{ flex: 1, minWidth: 220 }}>
+          <H1>{t(uiLang, "workerFilesTitle")}</H1>
+          <ChromeText tone="secondary">{t(uiLang, "workerFilesHint")}</ChromeText>
+        </Stack>
+        <Row gap={4} align="center">
+          <Button
+            variant={viewMode === "list" ? "primary" : "ghost"}
+            onClick={() => setViewModeSafe("list")}
+          >
+            {t(uiLang, "taxReturnFolderViewList")}
+          </Button>
+          <Button
+            variant={viewMode === "folders" ? "primary" : "ghost"}
+            onClick={() => setViewModeSafe("folders")}
+          >
+            {t(uiLang, "workerFilesViewFolders")}
+          </Button>
+        </Row>
+      </Row>
 
       <Stack
         gap={10}
@@ -85805,35 +96555,200 @@ function WorkerFilesScreen({ role }: { role: Role }) {
         )}
       </Stack>
 
-      <Stack gap={8}>
-        <H2>{t(uiLang, "workerFilesGeneral")}</H2>
-        <ChromeText size="small" tone="secondary">
-          {t(uiLang, "workerFilesGeneralHint")}
-        </ChromeText>
-        {renderFileTable(generalFiles)}
-      </Stack>
-
-      <Stack gap={8}>
-        <H2>{t(uiLang, "workerFilesByYear")}</H2>
-        {years.map((year) => {
-          const yearFiles = files.filter((f) => f.bucket === year);
-          return (
-            <CollapsibleSection
-              key={year}
-              title={year}
-              count={yearFiles.length}
-              defaultOpen={year === "2026"}
+      <ChromeText size="small" tone="tertiary">
+        {t(uiLang, "liveFileOsOpenHint")}
+      </ChromeText>
+      {workerCtxMenu ? (
+        <>
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+            onClick={() => setWorkerCtxMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setWorkerCtxMenu(null);
+            }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: "fixed",
+              left: workerCtxMenu.x,
+              top: workerCtxMenu.y,
+              zIndex: 9999,
+              minWidth: 200,
+              padding: 4,
+              borderRadius: 8,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: CHROME_WHITE,
+            }}
+          >
+            <div
+              role="menuitem"
+              tabIndex={0}
+              onClick={() => {
+                openOsWorkerFile(workerCtxMenu.file);
+                setWorkerCtxMenu(null);
+              }}
+              style={{
+                padding: "7px 10px",
+                borderRadius: 6,
+                cursor: "pointer",
+                userSelect: "none",
+              }}
             >
-              {renderFileTable(yearFiles)}
-            </CollapsibleSection>
-          );
-        })}
-      </Stack>
+              <ChromeText size="small" weight="semibold">
+                {t(uiLang, "liveFileOpenWindowsDefault")}
+              </ChromeText>
+            </div>
+          </div>
+        </>
+      ) : null}
+      {workerOsFlash ? (
+        <ChromeText size="small" tone="secondary">
+          {workerOsFlash}
+        </ChromeText>
+      ) : null}
+      {viewMode === "folders" ? renderFoldersBrowser() : renderListBrowser()}
 
       <Stack gap={10}>
         <H2>{t(uiLang, "workerFilesRequests")}</H2>
-        <ChromeText tone="secondary">{t(uiLang, "workerFilesRequestHint")}</ChromeText>
-        {!isAdmin ? (
+        <ChromeText tone="secondary">
+          {isAdmin
+            ? t(uiLang, "workerFilesRequestHint")
+            : t(uiLang, "workerFilesRequestHintWorker")}
+        </ChromeText>
+        {isAdmin ? (
+          <Stack
+            gap={10}
+            style={{
+              padding: 14,
+              borderRadius: 10,
+              border: `1px solid ${chromeBorder(theme)}`,
+              background: CHROME_WHITE,
+            }}
+          >
+            <ChromeText size="small" tone="secondary">
+              {t(uiLang, "workerFilesAdminComposeHint")}
+            </ChromeText>
+            <ChromeTextInput
+              value={wfDraftNote}
+              onChange={setWfDraftNote}
+              placeholder={t(uiLang, "workerFilesDocPlaceholder")}
+            />
+            <Row gap={12} wrap align="center">
+              <Checkbox
+                checked={wfReqEmail}
+                onChange={setWfReqEmail}
+                label={t(uiLang, "workerFilesSendEmail")}
+              />
+              <Checkbox
+                checked={wfReqWhatsApp}
+                onChange={setWfReqWhatsApp}
+                label={t(uiLang, "workerFilesSendWhatsApp")}
+              />
+              <Checkbox
+                checked={wfReqWorkerChat}
+                onChange={setWfReqWorkerChat}
+                label={t(uiLang, "workerFilesSendWorkerChat")}
+              />
+              <Spacer />
+              <div
+                ref={wfSeeMessageBtnRef}
+                data-chrome="worker-files-see-message-btn"
+                style={{ display: "inline-block" }}
+              >
+                <Button variant="primary" onClick={openWfReqPreview}>
+                  {t(uiLang, "bkSeeMessage")}
+                </Button>
+              </div>
+            </Row>
+            {wfReqFlash ? (
+              <ChromeText size="small" tone="secondary">
+                {wfReqFlash}
+              </ChromeText>
+            ) : null}
+            {wfReqPreviewOpen ? (
+              <RequestMessagePopout
+                title={t(uiLang, "bkRequestPreviewTitle")}
+                closeLabel={t(uiLang, "taxReturnClosePreview")}
+                onClose={() => setWfReqPreviewOpen(false)}
+              >
+                {(() => {
+                  const channels: ReqComposeChannelId[] = [
+                    ...(wfReqEmail ? (["email"] as const) : []),
+                    ...(wfReqWhatsApp ? (["whatsapp"] as const) : []),
+                    ...(wfReqWorkerChat ? (["workerChat"] as const) : []),
+                  ];
+                  const activeTab = channels.includes(wfReqComposeTab)
+                    ? wfReqComposeTab
+                    : channels[0] ?? "email";
+                  return (
+                    <Stack gap={10}>
+                      <RequestComposeChannelTabs
+                        uiLang={uiLang}
+                        channels={channels}
+                        active={activeTab}
+                        onChange={setWfReqComposeTab}
+                      />
+                      {activeTab === "email" && wfReqEmail ? (
+                        <RequestEmailStandardCompose
+                          uiLang={uiLang}
+                          fromAddress={REQ_COMPOSE_FROM_DEMO}
+                          toEmails={wfReqEmails}
+                          onToChange={setWfReqEmails}
+                          ccEmails={wfReqCc}
+                          onCcChange={setWfReqCc}
+                          bccEmails={wfReqBcc}
+                          onBccChange={setWfReqBcc}
+                          subject={wfReqSubject}
+                          onSubjectChange={setWfReqSubject}
+                          bodyHtml={wfReqBodyHtml}
+                          onBodyHtmlChange={setWfReqBodyHtml}
+                        />
+                      ) : null}
+                      {activeTab === "whatsapp" && wfReqWhatsApp ? (
+                        <RequestWhatsAppCompose
+                          uiLang={uiLang}
+                          phones={wfReqWaPhones}
+                          onPhonesChange={setWfReqWaPhones}
+                          bodyText={wfReqWaBody}
+                          onBodyTextChange={setWfReqWaBody}
+                          phonePlaceholder="+972..."
+                        />
+                      ) : null}
+                      {activeTab === "workerChat" && wfReqWorkerChat ? (
+                        <Stack gap={6}>
+                          <ChromeText size="small" tone="secondary">
+                            {t(uiLang, "taxReturnWorkerSelect")}
+                          </ChromeText>
+                          <ChromeText weight="semibold">
+                            {DEMO_WORKER.name}
+                          </ChromeText>
+                          <TextArea
+                            value={wfReqChatBody}
+                            onChange={setWfReqChatBody}
+                            style={{ width: "100%", minHeight: 100 }}
+                          />
+                        </Stack>
+                      ) : null}
+                      <Row gap={8} wrap>
+                        <Button variant="primary" onClick={sendWfDocRequest}>
+                          {t(uiLang, "taxReturnPreviewConfirm")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => setWfReqPreviewOpen(false)}
+                        >
+                          {t(uiLang, "taxReturnClosePreview")}
+                        </Button>
+                      </Row>
+                    </Stack>
+                  );
+                })()}
+              </RequestMessagePopout>
+            ) : null}
+          </Stack>
+        ) : (
           <Stack gap={8}>
             <Button variant="secondary" onClick={requestChecklist}>
               {t(uiLang, "workerFilesRequestChecklist")}
@@ -85842,16 +96757,29 @@ function WorkerFilesScreen({ role }: { role: Role }) {
               {t(uiLang, "workerFilesAdminWillSend")}
             </Callout>
           </Stack>
-        ) : null}
+        )}
         <FirmDataTable
           headers={[
             t(uiLang, "leaveNote"),
+            t(uiLang, "workerFilesChannelsCol"),
             t(uiLang, "workerFilesColDate"),
             t(uiLang, "status"),
             "",
           ]}
           rows={requests.map((r) => [
-            r.note,
+            <Stack key={`${r.id}-note`} gap={2}>
+              <ChromeText size="small" weight="semibold">
+                {r.note}
+              </ChromeText>
+              <ChromeText size="small" tone="tertiary">
+                {(r.origin ?? "worker") === "admin"
+                  ? t(uiLang, "workerFilesOriginAdmin")
+                  : t(uiLang, "workerFilesOriginWorker")}
+              </ChromeText>
+            </Stack>,
+            (r.channels ?? []).length
+              ? (r.channels ?? []).map(channelLabel).join(", ")
+              : "—",
             r.requestedAt,
             r.status === "done"
               ? t(uiLang, "workerFilesChecklistDone")
@@ -85864,6 +96792,7 @@ function WorkerFilesScreen({ role }: { role: Role }) {
               "—"
             ),
           ])}
+          emptyMessage={t(uiLang, "workerFilesEmptyRequests")}
           stickyHeader={false}
         />
       </Stack>
@@ -86151,7 +97080,17 @@ function signDocChannelLabel(lang: UiLang, channel: SignDocChannel): string {
 }
 
 /** Firm Converter — file combos + voice→writing (Tools primary tab). */
-function ConverterToolsPanel({ uiLang }: { uiLang: UiLang }) {
+function ConverterToolsPanel({
+  uiLang,
+  seedUploadName,
+  onResult,
+}: {
+  uiLang: UiLang;
+  /** Optional PDF/name to pre-fill when embedded (e.g. Banana stage upload). */
+  seedUploadName?: string;
+  /** Fired when a convert produces a result file name. */
+  onResult?: (resultName: string) => void;
+}) {
   const theme = useHostTheme();
   const accent = theme.accent.primary;
   const [mode, setMode] = useCanvasState<ConverterMode>(
@@ -86228,6 +97167,18 @@ function ConverterToolsPanel({ uiLang }: { uiLang: UiLang }) {
     setConvFlash("");
   };
 
+  useEffect(() => {
+    const seed = (seedUploadName ?? "").trim();
+    if (!seed) return;
+    if (uploadedName === seed) return;
+    setUploadedName(seed);
+    setSourceKind("pdf");
+    if (targetKind === "pdf") setTargetKind("excel");
+    setResultName("");
+    setConvFlash("");
+    setMode("files");
+  }, [seedUploadName]);
+
   const uploadSample = () => {
     const name = `sample-source.${convertExtFor(sourceKind)}`;
     setUploadedName(name);
@@ -86251,6 +97202,7 @@ function ConverterToolsPanel({ uiLang }: { uiLang: UiLang }) {
         .replace("{from}", convertFileKindLabel(uiLang, sourceKind))
         .replace("{to}", convertFileKindLabel(uiLang, targetKind)),
     );
+    onResult?.(out);
   };
 
   const loadVoiceSample = () => {
@@ -100582,7 +111534,7 @@ export default function CrmModulesHome() {
                   : screen === "workers"
                     ? t(uiLang, "workersModule")
                     : screen === "assign-staff"
-                      ? isAdminLike(role) && selectedCategory === "workers"
+                      ? selectedCategory === "workers"
                         ? t(uiLang, "assignStaff")
                         : t(uiLang, "myAssignments")
                       : screen === "departments"
@@ -102367,7 +113319,7 @@ export default function CrmModulesHome() {
         <Stack gap={12} style={{ ...SHELL_SCROLL }}>
           <ModuleChromeBar
             pill={
-              isAdminLike(role) && selectedCategory === "workers"
+              selectedCategory === "workers"
                 ? t(uiLang, "assignStaff")
                 : t(uiLang, "myAssignments")
             }
@@ -102375,11 +113327,12 @@ export default function CrmModulesHome() {
           />
           <AssignStaffScreen
             role={role}
-            mode={
-              isAdminLike(role) && selectedCategory === "workers"
-                ? "manage"
-                : "mine"
-            }
+            mode={selectedCategory === "workers" ? "manage" : "mine"}
+            onOpenMyAssignments={() => {
+              setSelectedCategory("worker");
+              setNavSecondaryOpen(true);
+              setScreen("assign-staff");
+            }}
           />
         </Stack>
       )}
@@ -103100,6 +114053,7 @@ export default function CrmModulesHome() {
             {mainContent}
           </div>
         </Stack>
+        <LiveFileWorkspace />
         <WorkerHelpFeedbackFab
           visible={showWorkerHelpFeedbackFab(
             role,
