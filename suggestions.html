@@ -207,11 +207,15 @@
     <!--
       TEMPORARY review-only inbox. Not part of the CRM.
       KEEP THE URL, PATH, AND WRITE TOKEN IN SYNC with demo-web/src/temp-suggestions/store.ts.
-      One save rewrites the shared page once. It counts only after the next
-      read still contains it. A confirmed write is not sent again. If the write
-      fails or the next read is briefly behind, the note stays in localStorage.
-      A later poll may send it once, after a backoff, and only after reading
-      the page again. Notes still sitting on the old ntfy topic are merged in.
+      One save rewrites the shared page after reading the latest copy. Telegraph
+      keeps the last edit only, so two saves at once can drop a note. Each write
+      carries a nonce and counts only when a later read still has that nonce,
+      the new note, and every save that was just sent. If another edit landed,
+      both copies are merged and written again. A confirmed write is not sent
+      again. If the write fails or the later read is missing the note, it stays
+      in localStorage. A later poll may send it once, after a backoff, and only
+      after reading the page again. Notes still sitting on the old ntfy topic
+      are merged in.
       ntfy deletes are ignored. A done mark is {"id","done":true}.
       A delete tombstone still wins over done.
     -->
@@ -241,7 +245,8 @@
       const RETRY_MS = 30000;
       const PAUSE_MS = 60000;
       const SETTLE_MS = 8000;
-      const CONFIRM_TRIES = 3;
+      const CONFIRM_GAP_MS = 700;
+      const CONFIRM_TRIES = 6;
 
       const list = document.getElementById("list");
       const status = document.getElementById("status");
@@ -504,6 +509,40 @@
         });
       }
 
+      function messageKeys(messages) {
+        const keys = new Set();
+        for (const message of messages) {
+          const key = messageKey(message);
+          if (key) keys.add(key);
+        }
+        return keys;
+      }
+
+      function sameKeys(left, right) {
+        const leftKeys = messageKeys(left);
+        const rightKeys = messageKeys(right);
+        if (leftKeys.size !== rightKeys.size) return false;
+        for (const key of leftKeys) if (!rightKeys.has(key)) return false;
+        return true;
+      }
+
+      function wait(ms) {
+        return new Promise((resolve) => {
+          setTimeout(resolve, ms);
+        });
+      }
+
+      function newNonce() {
+        if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+          return crypto.randomUUID();
+        }
+        return "n-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      }
+
+      function acceptWrite(doc, sent, nonce) {
+        return doc.nonce === nonce && sameKeys(sent, doc.messages) && !hasPending(sent, doc.messages);
+      }
+
       function emptyMirror() {
         return { rev: 0, messages: [], pauseUntil: 0, nextWriteAt: 0, dirty: false };
       }
@@ -575,12 +614,13 @@
         if (node && Array.isArray(node.children)) collectText(node.children, out);
       }
 
-      function messagesFromResult(result) {
+      function documentFromResult(result) {
         if (!result || typeof result !== "object") return null;
         const texts = [];
         collectText(result.content, texts);
-        if (texts.length === 0) return [];
+        if (texts.length === 0) return { messages: [], nonce: "" };
         const found = [];
+        let nonce = "";
         let parsedAny = false;
         for (const text of texts) {
           try {
@@ -588,12 +628,13 @@
             if (parsed && Array.isArray(parsed.messages)) {
               parsedAny = true;
               found.push.apply(found, parsed.messages);
+              if (typeof parsed.nonce === "string") nonce = parsed.nonce;
             }
           } catch (error) {
             /* Keep looking. A title or other node is not the log. */
           }
         }
-        return parsedAny ? found : null;
+        return parsedAny ? { messages: found, nonce: nonce } : null;
       }
 
       function timeoutSignal(ms) {
@@ -653,25 +694,28 @@
 
       async function fetchMessages() {
         try {
-          const response = await fetch(TOPIC_URL, { cache: "no-store" });
+          const response = await fetch(TOPIC_URL + "&cb=" + Date.now(), { cache: "no-store" });
           if (response.status === 429) return "pause";
           if (!response.ok) return "down";
           const payload = await response.json();
           if (!payload || payload.ok !== true) return "down";
-          const messages = messagesFromResult(payload.result);
-          return messages === null ? "down" : messages;
+          const doc = documentFromResult(payload.result);
+          return doc === null ? "down" : doc;
         } catch (error) {
           return "down";
         }
       }
 
-      async function writeDocument(messages) {
+      async function writeDocument(messages, nonce) {
         if (messages.length === 0) return "later";
         const form = new URLSearchParams();
         form.set("access_token", PAGE_TOKEN);
         form.set("path", PAGE_PATH);
         form.set("title", PAGE_TITLE);
-        form.set("content", JSON.stringify([{ tag: "p", children: [JSON.stringify({ messages: messages })] }]));
+        form.set(
+          "content",
+          JSON.stringify([{ tag: "p", children: [JSON.stringify({ nonce: nonce, messages: messages })] }]),
+        );
         form.set("return_content", "true");
         try {
           const response = await fetch(EDIT_URL, {
@@ -706,59 +750,76 @@
 
       async function flush(force) {
         const mirror = loadMirror();
-        if (Date.now() < mirror.pauseUntil) return;
-        if (!mirror.dirty) return;
-        if (!force && Date.now() < mirror.nextWriteAt) return;
+        if (Date.now() < mirror.pauseUntil) return false;
+        if (!mirror.dirty) return true;
+        if (!force && Date.now() < mirror.nextWriteAt) return false;
         for (let attempt = 0; attempt < CONFIRM_TRIES; attempt += 1) {
           const remote = await fetchMessages();
           if (remote === "pause") {
             hold(loadMirror(), true);
-            return;
+            return false;
           }
           if (remote === "down") {
             hold(loadMirror(), false);
-            return;
+            return false;
           }
           const extras = await fetchNtfyMessages();
           const current = loadMirror();
-          current.messages = unionMessages(unionMessages(remote, extras), current.messages);
-          if (wouldDropRemoteSaves(remote, current.messages)) {
+          current.messages = unionMessages(unionMessages(remote.messages, extras), current.messages);
+          if (wouldDropRemoteSaves(remote.messages, current.messages)) {
             hold(current, false);
-            return;
+            return false;
           }
-          if (!hasPending(current.messages, remote)) {
+          if (!hasPending(current.messages, remote.messages)) {
             current.dirty = false;
             saveMirror(current);
-            return;
+            return true;
           }
           const sent = current.messages;
-          const result = await writeDocument(sent);
+          const nonce = newNonce();
+          const result = await writeDocument(sent, nonce);
           if (result !== "ok") {
             const failed = loadMirror();
             failed.messages = unionMessages(sent, failed.messages);
             hold(failed, result === "pause");
-            return;
+            return false;
           }
-          const confirmed = await fetchMessages();
+          await wait(CONFIRM_GAP_MS);
+          const first = await fetchMessages();
           const latestMirror = loadMirror();
-          if (confirmed === "pause" || confirmed === "down") {
+          if (first === "pause" || first === "down") {
             latestMirror.messages = unionMessages(sent, latestMirror.messages);
-            hold(latestMirror, confirmed === "pause");
-            return;
+            hold(latestMirror, first === "pause");
+            return false;
           }
-          latestMirror.messages = unionMessages(unionMessages(confirmed, sent), latestMirror.messages);
-          if (!hasPending(sent, confirmed)) {
-            const stillPending = hasPending(latestMirror.messages, confirmed);
-            latestMirror.dirty = stillPending;
-            latestMirror.nextWriteAt = Date.now() + (stillPending ? RETRY_MS : SETTLE_MS);
+          latestMirror.messages = unionMessages(unionMessages(first.messages, sent), latestMirror.messages);
+          if (!acceptWrite(first, sent, nonce)) {
+            latestMirror.dirty = true;
             saveMirror(latestMirror);
-            if (!stillPending) return;
             continue;
           }
-          latestMirror.dirty = true;
-          saveMirror(latestMirror);
+          await wait(CONFIRM_GAP_MS);
+          const second = await fetchMessages();
+          const again = loadMirror();
+          if (second === "pause" || second === "down") {
+            again.messages = unionMessages(sent, again.messages);
+            hold(again, second === "pause");
+            return false;
+          }
+          again.messages = unionMessages(unionMessages(second.messages, sent), again.messages);
+          if (acceptWrite(second, sent, nonce)) {
+            const stillPending = hasPending(again.messages, second.messages);
+            again.dirty = stillPending;
+            again.nextWriteAt = Date.now() + (stillPending ? RETRY_MS : SETTLE_MS);
+            saveMirror(again);
+            if (!stillPending) return true;
+            continue;
+          }
+          again.dirty = true;
+          saveMirror(again);
         }
         hold(loadMirror(), false);
+        return false;
       }
 
       function queueFlush(force) {
@@ -812,8 +873,8 @@
           throw new Error("read failed");
         }
         const current = loadMirror();
-        current.messages = unionMessages(unionMessages(remote, extras), current.messages);
-        const pending = hasPending(current.messages, remote);
+        current.messages = unionMessages(unionMessages(remote.messages, extras), current.messages);
+        const pending = hasPending(current.messages, remote.messages);
         current.dirty = pending;
         saveMirror(current);
         if (pending && Date.now() >= current.nextWriteAt && Date.now() >= current.pauseUntil) {
@@ -859,11 +920,16 @@
         render(latest);
         status.className = "status";
         status.textContent = "מוחק…";
-        if (Date.now() >= loadMirror().pauseUntil) await queueFlush(true);
+        const confirmed = Date.now() < loadMirror().pauseUntil ? false : await queueFlush(true);
         applyMirror();
         busyId = null;
         busyKind = "";
         render(latest);
+        if (!confirmed) {
+          status.className = "status error";
+          status.textContent = "לא הצלחנו לשמור את השינוי. נסו שוב.";
+          return;
+        }
         showStatus(latest);
       }
 
@@ -879,11 +945,16 @@
         render(latest);
         status.className = "status";
         status.textContent = "מסמן…";
-        if (Date.now() >= loadMirror().pauseUntil) await queueFlush(true);
+        const confirmed = Date.now() < loadMirror().pauseUntil ? false : await queueFlush(true);
         applyMirror();
         busyId = null;
         busyKind = "";
         render(latest);
+        if (!confirmed) {
+          status.className = "status error";
+          status.textContent = "לא הצלחנו לשמור את השינוי. נסו שוב.";
+          return;
+        }
         showStatus(latest);
       }
 
