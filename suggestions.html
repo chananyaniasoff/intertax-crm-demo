@@ -207,11 +207,10 @@
     <!--
       TEMPORARY review-only inbox. Not part of the CRM.
       KEEP THE URL, PATH, AND WRITE TOKEN IN SYNC with demo-web/src/temp-suggestions/store.ts.
-      One save rewrites the shared page after reading the latest copy. Telegraph
-      keeps the last edit only, so two saves at once can drop a note. Each write
-      carries a nonce and counts only when a later read still has that nonce,
-      the new note, and every save that was just sent. If another edit landed,
-      both copies are merged and written again. A confirmed write is not sent
+      One save rewrites the shared page after a fresh read. Each new note is also
+      stored on its own Telegraph page so another save cannot erase it. A save
+      counts only when a later read still shows that note. If the shared page
+      loses a note that still has its own page, the next read puts it back. A confirmed write is not sent
       again. If the write fails or the later read is missing the note, it stays
       in localStorage. A later poll may send it once, after a backoff, and only
       after reading the page again. Notes still sitting on the old ntfy topic
@@ -237,6 +236,8 @@
     <script>
       const TOPIC_URL = "https://api.telegra.ph/getPage/Intertax-CRM-suggestions-10-15?return_content=true";
       const EDIT_URL = "https://api.telegra.ph/editPage";
+      const CREATE_URL = "https://api.telegra.ph/createPage";
+      const NOTE_PREFIX = "itx-sug-";
       const PAGE_PATH = "Intertax-CRM-suggestions-10-15";
       const PAGE_TOKEN = "26c39a75233526c1497678e28ab69a3a6b498fcc9531f6c5328e5c5d4869";
       const PAGE_TITLE = "Intertax CRM suggestions";
@@ -706,12 +707,12 @@
         }
       }
 
-      async function writeDocument(messages, nonce) {
+      async function writeDocument(messages, nonce, path, title) {
         if (messages.length === 0) return "later";
         const form = new URLSearchParams();
         form.set("access_token", PAGE_TOKEN);
-        form.set("path", PAGE_PATH);
-        form.set("title", PAGE_TITLE);
+        form.set("path", path || PAGE_PATH);
+        form.set("title", title || PAGE_TITLE);
         form.set(
           "content",
           JSON.stringify([{ tag: "p", children: [JSON.stringify({ nonce: nonce, messages: messages })] }]),
@@ -740,6 +741,197 @@
         }
       }
 
+      function noteTitle(id) {
+        return (NOTE_PREFIX + String(id || "").trim()).slice(0, 240);
+      }
+
+      async function listPages() {
+        const pages = [];
+        let offset = 0;
+        for (let guard = 0; guard < 10; guard += 1) {
+          try {
+            const response = await fetch(
+              "https://api.telegra.ph/getPageList?access_token=" +
+                PAGE_TOKEN +
+                "&limit=200&offset=" +
+                offset,
+              { cache: "no-store" },
+            );
+            if (response.status === 429) return pages.length ? pages : "pause";
+            if (!response.ok) return pages.length ? pages : "down";
+            const payload = await response.json();
+            if (!payload || payload.ok !== true || !payload.result || !Array.isArray(payload.result.pages)) {
+              return pages.length ? pages : "down";
+            }
+            for (const page of payload.result.pages) {
+              if (page && page.path && page.title) pages.push({ path: page.path, title: page.title });
+            }
+            const total = payload.result.total_count || pages.length;
+            if (pages.length >= total || payload.result.pages.length === 0) break;
+            offset += payload.result.pages.length;
+          } catch (error) {
+            return pages.length ? pages : "down";
+          }
+        }
+        return pages;
+      }
+
+      async function readPath(path) {
+        try {
+          const response = await fetch("https://api.telegra.ph/getPage/" + path + "?return_content=true", {
+            cache: "no-store",
+          });
+          if (response.status === 429) return "pause";
+          if (!response.ok) return "down";
+          const payload = await response.json();
+          if (!payload || payload.ok !== true) return "down";
+          const doc = documentFromResult(payload.result);
+          return doc === null ? "down" : doc.messages;
+        } catch (error) {
+          return "down";
+        }
+      }
+
+      async function fetchNotePageMessages() {
+        const list = await listPages();
+        if (list === "pause" || list === "down") return "down";
+        const found = [];
+        for (const page of list) {
+          if (!page.title || page.title.indexOf(NOTE_PREFIX) !== 0) continue;
+          const messages = await readPath(page.path);
+          if (Array.isArray(messages)) found.push.apply(found, messages);
+        }
+        return found;
+      }
+
+      async function fetchCombined() {
+        const legacy = await fetchMessages();
+        if (legacy === "pause") return "pause";
+        const pages = await fetchNotePageMessages();
+        const extras = await fetchNtfyMessages();
+        let chunks = [];
+        if (legacy !== "down") chunks = chunks.concat(legacy.messages);
+        if (Array.isArray(pages)) chunks = chunks.concat(pages);
+        if (!chunks.length && legacy === "down" && !Array.isArray(pages)) return "down";
+        return unionMessages(chunks, extras);
+      }
+
+      async function createDocument(title, messages) {
+        const form = new URLSearchParams();
+        form.set("access_token", PAGE_TOKEN);
+        form.set("title", title);
+        form.set(
+          "content",
+          JSON.stringify([
+            { tag: "p", children: [JSON.stringify({ nonce: newNonce(), messages: messages })] },
+          ]),
+        );
+        form.set("return_content", "true");
+        try {
+          const response = await fetch(CREATE_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+            body: form.toString(),
+          });
+          const text = await response.text();
+          if (response.status === 429) return "pause";
+          if (!response.ok) return "later";
+          let payload = null;
+          try {
+            payload = JSON.parse(text);
+          } catch (error) {
+            return "later";
+          }
+          if (payload && payload.ok === true && payload.result && payload.result.path) {
+            return { path: payload.result.path };
+          }
+          if (/flood|retry|too many|429/i.test(String((payload && payload.error) || ""))) return "pause";
+          return "later";
+        } catch (error) {
+          return "later";
+        }
+      }
+
+      function tombstoneIds(messages) {
+        const tombs = new Set();
+        for (const message of messages) {
+          if (message && message.deleted === true && typeof message.id === "string" && message.id.trim()) {
+            tombs.add(message.id);
+            tombs.add(message.id.trim());
+          }
+        }
+        return tombs;
+      }
+
+      async function ensureNotePage(message) {
+        const key = messageKey(message);
+        if (!key || key.indexOf("save:") !== 0) return false;
+        const id = key.slice(5);
+        const title = noteTitle(id);
+        const list = await listPages();
+        if (list === "pause" || list === "down") return false;
+        const existing = list.find((page) => page.title === title);
+        if (existing) {
+          const current = await readPath(existing.path);
+          if (Array.isArray(current) && current.some((item) => messageKey(item) === key)) return true;
+        }
+        const created = await createDocument(title, [message]);
+        if (created === "later" || created === "pause") return false;
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await wait(250);
+          const seen = await readPath(created.path);
+          if (Array.isArray(seen) && seen.some((item) => messageKey(item) === key)) return true;
+        }
+        return false;
+      }
+
+      async function ensureMissingNotePages(messages, legacy) {
+        const tombs = tombstoneIds(messages);
+        const legacySaves = new Set(legacy.map(messageKey).filter(Boolean));
+        for (const message of messages) {
+          const key = messageKey(message);
+          if (!key || key.indexOf("save:") !== 0) continue;
+          const id = key.slice(5);
+          if (tombs.has(id) || tombs.has(id.trim())) continue;
+          if (legacySaves.has(key)) continue;
+          await ensureNotePage(message);
+        }
+      }
+
+      async function writeMarkerOnPage(path, title, marker) {
+        const current = await readPath(path);
+        if (!Array.isArray(current)) return;
+        const merged = unionMessages(current, [marker]);
+        if (!hasPending(merged, current)) return;
+        const nonce = newNonce();
+        const result = await writeDocument(merged, nonce, path, title);
+        if (result !== "ok") return;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          await wait(200);
+          const seen = await readPath(path);
+          if (Array.isArray(seen) && !hasPending([marker], seen)) return;
+        }
+      }
+
+      async function syncMarkers(messages) {
+        const markers = messages.filter((message) => {
+          const key = messageKey(message);
+          return key && key.indexOf("save:") !== 0;
+        });
+        if (!markers.length) return;
+        const list = await listPages();
+        if (!Array.isArray(list)) return;
+        const byTitle = new Map(list.map((page) => [page.title, page.path]));
+        for (const marker of markers) {
+          const key = messageKey(marker);
+          if (!key) continue;
+          const id = key.slice(key.indexOf(":") + 1);
+          const path = byTitle.get(noteTitle(id));
+          if (!path) continue;
+          await writeMarkerOnPage(path, noteTitle(id), marker);
+        }
+      }
+
       function hold(mirror, pause) {
         const delay = pause ? PAUSE_MS : RETRY_MS;
         mirror.dirty = true;
@@ -764,13 +956,41 @@
             return false;
           }
           const extras = await fetchNtfyMessages();
+          const fresh = await fetchMessages();
+          if (fresh === "pause") {
+            hold(loadMirror(), true);
+            return false;
+          }
+          if (fresh === "down") {
+            hold(loadMirror(), false);
+            return false;
+          }
+          const pageMessages = await fetchNotePageMessages();
           const current = loadMirror();
-          current.messages = unionMessages(unionMessages(remote.messages, extras), current.messages);
-          if (wouldDropRemoteSaves(remote.messages, current.messages)) {
+          let merged = unionMessages(fresh.messages, extras);
+          if (Array.isArray(pageMessages)) merged = unionMessages(merged, pageMessages);
+          merged = unionMessages(merged, current.messages);
+          await ensureMissingNotePages(merged, fresh.messages);
+          await syncMarkers(merged);
+          const pagesAfter = await fetchNotePageMessages();
+          const latestRemote = await fetchMessages();
+          if (latestRemote === "pause") {
+            hold(loadMirror(), true);
+            return false;
+          }
+          if (latestRemote === "down") {
+            hold(loadMirror(), false);
+            return false;
+          }
+          let outgoing = unionMessages(latestRemote.messages, extras);
+          if (Array.isArray(pagesAfter)) outgoing = unionMessages(outgoing, pagesAfter);
+          outgoing = unionMessages(outgoing, loadMirror().messages);
+          current.messages = outgoing;
+          if (wouldDropRemoteSaves(latestRemote.messages, current.messages)) {
             hold(current, false);
             return false;
           }
-          if (!hasPending(current.messages, remote.messages)) {
+          if (!hasPending(current.messages, latestRemote.messages)) {
             current.dirty = false;
             saveMirror(current);
             return true;
@@ -843,44 +1063,40 @@
 
       async function readShared() {
         const mirror = loadMirror();
-        const extras = await fetchNtfyMessages();
         if (Date.now() < mirror.pauseUntil) {
-          absorbExtras(extras);
-          const pausedMirror = loadMirror();
-          if (pausedMirror.messages.length > 0) return snapshotFromMessages(pausedMirror.messages);
+          if (mirror.messages.length > 0) return snapshotFromMessages(mirror.messages);
           throw new Error("read paused");
         }
-        const remote = await fetchMessages();
+        const remote = await fetchCombined();
         if (remote === "pause") {
           const paused = loadMirror();
           paused.pauseUntil = Date.now() + PAUSE_MS;
           paused.nextWriteAt = Math.max(paused.nextWriteAt, paused.pauseUntil);
-          if (extras.length) {
-            const merged = unionMessages(paused.messages, extras);
-            if (hasPending(merged, paused.messages)) {
-              paused.messages = merged;
-              paused.dirty = true;
-            }
-          }
           saveMirror(paused);
           if (paused.messages.length > 0) return snapshotFromMessages(paused.messages);
           throw new Error("read 429");
         }
         if (remote === "down") {
-          absorbExtras(extras);
-          const fallback = loadMirror();
-          if (fallback.messages.length > 0) return snapshotFromMessages(fallback.messages);
+          if (mirror.messages.length > 0) return snapshotFromMessages(mirror.messages);
           throw new Error("read failed");
         }
         const current = loadMirror();
-        current.messages = unionMessages(unionMessages(remote.messages, extras), current.messages);
-        const pending = hasPending(current.messages, remote.messages);
+        current.messages = unionMessages(remote, current.messages);
+        const pending = hasPending(current.messages, remote);
         current.dirty = pending;
         saveMirror(current);
         if (pending && Date.now() >= current.nextWriteAt && Date.now() >= current.pauseUntil) {
           await queueFlush(false);
+          const again = await fetchCombined();
+          if (Array.isArray(again)) {
+            const latest = loadMirror();
+            latest.messages = unionMessages(again, latest.messages);
+            latest.dirty = hasPending(latest.messages, again);
+            saveMirror(latest);
+            return snapshotFromMessages(again);
+          }
         }
-        return snapshotFromMessages(loadMirror().messages);
+        return snapshotFromMessages(remote);
       }
 
       async function load() {
