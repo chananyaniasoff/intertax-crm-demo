@@ -207,10 +207,12 @@
     <!--
       TEMPORARY review-only inbox. Not part of the CRM.
       KEEP THE URL, PATH, AND WRITE TOKEN IN SYNC with demo-web/src/temp-suggestions/store.ts.
-      One save rewrites the shared page once. A successful write is not retried.
-      If the write fails or the next read is briefly behind, the note stays in
-      localStorage. A later poll may send it once, after a backoff, and only
-      after reading the page again. A done mark is {"id","done":true}.
+      One save rewrites the shared page once. It counts only after the next
+      read still contains it. A confirmed write is not sent again. If the write
+      fails or the next read is briefly behind, the note stays in localStorage.
+      A later poll may send it once, after a backoff, and only after reading
+      the page again. Notes still sitting on the old ntfy topic are merged in.
+      ntfy deletes are ignored. A done mark is {"id","done":true}.
       A delete tombstone still wins over done.
     -->
     <main>
@@ -234,10 +236,12 @@
       const PAGE_PATH = "Intertax-CRM-suggestions-10-15";
       const PAGE_TOKEN = "26c39a75233526c1497678e28ab69a3a6b498fcc9531f6c5328e5c5d4869";
       const PAGE_TITLE = "Intertax CRM suggestions";
+      const NTFY_URL = "https://ntfy.sh/intertax-crm-demo-sug-7f3a9c2e4b81/json?poll=1&since=all";
       const MIRROR_KEY = "itx-sug-mirror-v1";
       const RETRY_MS = 30000;
       const PAUSE_MS = 60000;
       const SETTLE_MS = 8000;
+      const CONFIRM_TRIES = 3;
 
       const list = document.getElementById("list");
       const status = document.getElementById("status");
@@ -576,15 +580,75 @@
         const texts = [];
         collectText(result.content, texts);
         if (texts.length === 0) return [];
+        const found = [];
+        let parsedAny = false;
         for (const text of texts) {
           try {
             const parsed = JSON.parse(text);
-            if (parsed && Array.isArray(parsed.messages)) return parsed.messages;
+            if (parsed && Array.isArray(parsed.messages)) {
+              parsedAny = true;
+              found.push.apply(found, parsed.messages);
+            }
           } catch (error) {
             /* Keep looking. A title or other node is not the log. */
           }
         }
-        return null;
+        return parsedAny ? found : null;
+      }
+
+      function timeoutSignal(ms) {
+        if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+          return AbortSignal.timeout(ms);
+        }
+        const controller = new AbortController();
+        setTimeout(function () {
+          controller.abort();
+        }, ms);
+        return controller.signal;
+      }
+
+      async function fetchNtfyMessages() {
+        try {
+          const response = await fetch(NTFY_URL, { cache: "no-store", signal: timeoutSignal(5000) });
+          if (!response.ok) return [];
+          const text = await response.text();
+          const found = [];
+          for (const line of text.split("\n")) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const event = JSON.parse(trimmed);
+              if (!event || event.event !== "message" || typeof event.message !== "string") continue;
+              const payload = JSON.parse(event.message);
+              const key = messageKey(payload);
+              if (!key || key.indexOf("del:") === 0) continue;
+              found.push(payload);
+            } catch (error) {
+              /* A keepalive or title line is not a note. */
+            }
+          }
+          return found;
+        } catch (error) {
+          return [];
+        }
+      }
+
+      function wouldDropRemoteSaves(remote, outgoing) {
+        const tombstones = new Set();
+        for (const message of outgoing) {
+          if (message && message.deleted === true && typeof message.id === "string" && message.id.trim()) {
+            tombstones.add(message.id);
+            tombstones.add(message.id.trim());
+          }
+        }
+        for (const message of remote) {
+          const key = messageKey(message);
+          if (!key || key.indexOf("save:") !== 0) continue;
+          const id = key.slice(5);
+          if (tombstones.has(id) || tombstones.has(id.trim())) continue;
+          if (!outgoing.some((item) => messageKey(item) === key)) return true;
+        }
+        return false;
       }
 
       async function fetchMessages() {
@@ -645,37 +709,56 @@
         if (Date.now() < mirror.pauseUntil) return;
         if (!mirror.dirty) return;
         if (!force && Date.now() < mirror.nextWriteAt) return;
-        const remote = await fetchMessages();
-        if (remote === "pause") {
-          hold(loadMirror(), true);
-          return;
-        }
-        if (remote === "down") {
-          hold(loadMirror(), false);
-          return;
-        }
-        const current = loadMirror();
-        current.messages = unionMessages(remote, current.messages);
-        if (!hasPending(current.messages, remote)) {
-          current.dirty = false;
-          saveMirror(current);
-          return;
-        }
-        const sent = current.messages;
-        const result = await writeDocument(sent);
-        const latestMirror = loadMirror();
-        latestMirror.messages = unionMessages(sent, latestMirror.messages);
-        if (result === "ok") {
-          const sentKeys = new Set(sent.map(messageKey));
-          latestMirror.dirty = latestMirror.messages.some((message) => {
-            const key = messageKey(message);
-            return key && !sentKeys.has(key);
-          });
-          latestMirror.nextWriteAt = Date.now() + (latestMirror.dirty ? RETRY_MS : SETTLE_MS);
+        for (let attempt = 0; attempt < CONFIRM_TRIES; attempt += 1) {
+          const remote = await fetchMessages();
+          if (remote === "pause") {
+            hold(loadMirror(), true);
+            return;
+          }
+          if (remote === "down") {
+            hold(loadMirror(), false);
+            return;
+          }
+          const extras = await fetchNtfyMessages();
+          const current = loadMirror();
+          current.messages = unionMessages(unionMessages(remote, extras), current.messages);
+          if (wouldDropRemoteSaves(remote, current.messages)) {
+            hold(current, false);
+            return;
+          }
+          if (!hasPending(current.messages, remote)) {
+            current.dirty = false;
+            saveMirror(current);
+            return;
+          }
+          const sent = current.messages;
+          const result = await writeDocument(sent);
+          if (result !== "ok") {
+            const failed = loadMirror();
+            failed.messages = unionMessages(sent, failed.messages);
+            hold(failed, result === "pause");
+            return;
+          }
+          const confirmed = await fetchMessages();
+          const latestMirror = loadMirror();
+          if (confirmed === "pause" || confirmed === "down") {
+            latestMirror.messages = unionMessages(sent, latestMirror.messages);
+            hold(latestMirror, confirmed === "pause");
+            return;
+          }
+          latestMirror.messages = unionMessages(unionMessages(confirmed, sent), latestMirror.messages);
+          if (!hasPending(sent, confirmed)) {
+            const stillPending = hasPending(latestMirror.messages, confirmed);
+            latestMirror.dirty = stillPending;
+            latestMirror.nextWriteAt = Date.now() + (stillPending ? RETRY_MS : SETTLE_MS);
+            saveMirror(latestMirror);
+            if (!stillPending) return;
+            continue;
+          }
+          latestMirror.dirty = true;
           saveMirror(latestMirror);
-          return;
         }
-        hold(latestMirror, result === "pause");
+        hold(loadMirror(), false);
       }
 
       function queueFlush(force) {
@@ -687,10 +770,23 @@
         return run;
       }
 
+      function absorbExtras(extras) {
+        if (!extras.length) return;
+        const current = loadMirror();
+        const merged = unionMessages(current.messages, extras);
+        if (!hasPending(merged, current.messages)) return;
+        current.messages = merged;
+        current.dirty = true;
+        saveMirror(current);
+      }
+
       async function readShared() {
         const mirror = loadMirror();
+        const extras = await fetchNtfyMessages();
         if (Date.now() < mirror.pauseUntil) {
-          if (mirror.messages.length > 0) return snapshotFromMessages(mirror.messages);
+          absorbExtras(extras);
+          const pausedMirror = loadMirror();
+          if (pausedMirror.messages.length > 0) return snapshotFromMessages(pausedMirror.messages);
           throw new Error("read paused");
         }
         const remote = await fetchMessages();
@@ -698,16 +794,25 @@
           const paused = loadMirror();
           paused.pauseUntil = Date.now() + PAUSE_MS;
           paused.nextWriteAt = Math.max(paused.nextWriteAt, paused.pauseUntil);
+          if (extras.length) {
+            const merged = unionMessages(paused.messages, extras);
+            if (hasPending(merged, paused.messages)) {
+              paused.messages = merged;
+              paused.dirty = true;
+            }
+          }
           saveMirror(paused);
           if (paused.messages.length > 0) return snapshotFromMessages(paused.messages);
           throw new Error("read 429");
         }
         if (remote === "down") {
-          if (mirror.messages.length > 0) return snapshotFromMessages(mirror.messages);
+          absorbExtras(extras);
+          const fallback = loadMirror();
+          if (fallback.messages.length > 0) return snapshotFromMessages(fallback.messages);
           throw new Error("read failed");
         }
         const current = loadMirror();
-        current.messages = unionMessages(remote, current.messages);
+        current.messages = unionMessages(unionMessages(remote, extras), current.messages);
         const pending = hasPending(current.messages, remote);
         current.dirty = pending;
         saveMirror(current);
