@@ -868,18 +868,29 @@
         if (!key || key.indexOf("save:") !== 0) return false;
         const id = key.slice(5);
         const title = noteTitle(id);
+        const created = await createDocument(title, [message]);
+        if (created !== "later" && created !== "pause") {
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            await wait(250);
+            const seen = await readPath(created.path);
+            if (Array.isArray(seen) && seen.some((item) => messageKey(item) === key)) return true;
+          }
+          return true;
+        }
+        if (created === "pause") return false;
         const list = await listPages();
         if (list === "pause" || list === "down") return false;
         const existing = list.find((page) => page.title === title);
-        if (existing) {
-          const current = await readPath(existing.path);
-          if (Array.isArray(current) && current.some((item) => messageKey(item) === key)) return true;
-        }
-        const created = await createDocument(title, [message]);
-        if (created === "later" || created === "pause") return false;
+        if (!existing) return false;
+        const current = await readPath(existing.path);
+        if (Array.isArray(current) && current.some((item) => messageKey(item) === key)) return true;
+        const nonce = newNonce();
+        const merged = unionMessages(Array.isArray(current) ? current : [], [message]);
+        const wrote = await writeDocument(merged, nonce, existing.path, title);
+        if (wrote !== "ok") return false;
         for (let attempt = 0; attempt < 4; attempt += 1) {
           await wait(250);
-          const seen = await readPath(created.path);
+          const seen = await readPath(existing.path);
           if (Array.isArray(seen) && seen.some((item) => messageKey(item) === key)) return true;
         }
         return false;
